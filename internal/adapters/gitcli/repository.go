@@ -841,6 +841,70 @@ func (repository *Repository) Merge(ctx context.Context, identity port.Repositor
 	return nil
 }
 
+// ContinueMerge advances an already started merge after the resolver stages
+// every conflicted path. A non-interactive editor preserves the governed merge
+// message recorded when the merge began.
+func (repository *Repository) ContinueMerge(ctx context.Context, identity port.RepositoryIdentity) error {
+	result := repository.invoke(ctx, identity.Root, nil, "-c", "core.editor=true", "merge", "--continue")
+	if result.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "continue the resolved merge", result)
+	}
+	return nil
+}
+
+// ActiveMergeTargetMatches verifies that the in-progress merge still targets
+// the selected fetched remote-tracking base before it is continued.
+func (repository *Repository) ActiveMergeTargetMatches(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	target branch.TargetBase,
+) (bool, error) {
+	mergeHead, err := repository.resolveRevision(ctx, identity, "MERGE_HEAD", "resolve the active merge target")
+	if err != nil {
+		return false, err
+	}
+	targetRevision, err := repository.resolveCommit(ctx, identity, target, "resolve the selected merge target")
+	if err != nil {
+		return false, err
+	}
+	return mergeHead == targetRevision, nil
+}
+
+// resolveCommit preserves the GOV-25 commit-resolution contract for any
+// remote-tracking target base that participates in governed merge recovery.
+func (repository *Repository) resolveCommit(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	base branch.TargetBase,
+	operation string,
+) (string, error) {
+	return repository.resolveRevision(ctx, identity, base.String(), operation)
+}
+
+func (repository *Repository) resolveRevision(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	reference string,
+	operation string,
+) (string, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "rev-parse", "--verify", reference+"^{commit}")
+	if result.err != nil {
+		return "", repository.commandProblem(problem.CodeGitCommandFailed, identity, operation, result)
+	}
+	revision := strings.TrimSpace(result.stdout)
+	if revision == "" {
+		return "", problem.New(problem.Details{
+			Code:        problem.CodeGitCommandFailed,
+			Category:    problem.CategoryGit,
+			Field:       "Git revision",
+			Expected:    "a non-empty commit revision",
+			Rule:        "governed merge recovery requires immutable target commit identities",
+			Remediation: "fetch the selected remote and verify the recovery input refs before retrying",
+		})
+	}
+	return revision, nil
+}
+
 // SquashMerge stages the net changes from a private branch without preserving
 // its individual commits. The application validates and creates the resulting
 // governed commit separately.
@@ -1255,3 +1319,5 @@ var _ port.GitRepository = (*Repository)(nil)
 var _ port.GitTransportAuthenticator = (*Repository)(nil)
 var _ port.RevisionResolver = (*Repository)(nil)
 var _ port.FinalQualityEvidenceStore = (*Repository)(nil)
+var _ port.MergeContinuator = (*Repository)(nil)
+var _ port.ActiveMergeTargetInspector = (*Repository)(nil)

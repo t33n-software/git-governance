@@ -97,6 +97,25 @@ to the frozen release line. Merge that stabilization PR with a merge commit;
 then rerun the existing release-to-main PR checks and approval. This preserves
 the original promotion PR and never mutates a shared line directly.
 
+If the controlled merge conflicts, it remains fail-closed in the non-shared
+preparation branch. Resolve only the exact conflicted paths and stage them
+explicitly, then continue through the CLI:
+
+```powershell
+git governance --interactive never --output json --yes `
+  --pull-request-provider github workflow release align-promotion-base `
+  --release release/2.8.0 `
+  --resume `
+  --push `
+  --create-pull-request
+```
+
+The resume path fetches `origin/main`, requires the active merge target to
+match that current revision, continues Git's existing ticket-scoped merge, and
+then rechecks that Main did not advance before quality, push, or PR
+publication. A raw `git merge --continue`, GitHub **Update branch**, rebase,
+or force push is not a substitute.
+
 ## Promotion, delivery, and conditional backmerge
 
 After approval, create the release promotion:
