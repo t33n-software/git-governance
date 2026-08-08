@@ -280,6 +280,14 @@ Release-Linie. Der erzeugte Merge-Commit ist ticketgebunden und append-only.
 Erst nach dessen Merge werden der bestehende Promotion-PR und seine
 Main-Gates erneut bewertet.
 
+Konflikte bleiben auf der Preparation-Branch fail-closed. Eine Resolution darf
+nur die exakten Konfliktpfade stagen. Der CLI-Resume-Pfad prüft vor der
+Fortsetzung, dass der aktive Merge weiterhin den nach Fetch aktuellen
+`origin/main`-Commit integriert, und prüft diese Basis erneut vor Quality,
+Push und PR. Bei einer weitergelaufenen Main-Linie ist der Kandidat verworfen;
+ein Rohaufruf von `git merge --continue`, ein Rebase oder eine
+Release-Ref-Mutation sind keine zulässigen Recovery-Mechanismen.
+
 GitHub Rulesets schützen die zugrunde liegende Release-Ref, können aber die
 UI-Aktion anhand ihrer Head-Branch-Familie nicht eigenständig ausblenden.
 Deshalb müssen direkte Ref-Updates serverseitig abgewiesen und die

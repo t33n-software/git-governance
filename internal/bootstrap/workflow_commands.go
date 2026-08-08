@@ -1641,6 +1641,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 		push              bool
 		createPullRequest bool
 		draft             bool
+		resume            bool
 	)
 	command := &cobra.Command{
 		Use:   "align-promotion-base",
@@ -1686,6 +1687,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				Push:              push,
 				CreatePullRequest: createPullRequest,
 				Draft:             draft,
+				Resume:            resume,
 				DryRun:            application.options.dryRun,
 			})
 			if err != nil {
@@ -1697,6 +1699,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				"main":                 result.Main.String(),
 				"missingMainCommits":   boolString(result.MissingMainCommits),
 				"merged":               boolString(result.Merged),
+				"resumed":              boolString(result.Resumed),
 				"pushed":               boolString(result.Pushed),
 				"publishedPullRequest": result.PublishedURL,
 				"dryRun":               boolString(result.DryRun),
@@ -1718,6 +1721,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 	command.Flags().BoolVar(&push, "push", false, "push the aligned release-preparation branch")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the release stabilization pull request after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
+	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved promotion-base merge")
 	return command
 }
 

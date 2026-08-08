@@ -829,3 +829,59 @@ func TestRepositoryCoverageCommandDiagnosticsAndCancellation(t *testing.T) {
 		assertProblemCategory(t, err, problem.CodeExternalCommandFailed, problem.CategoryExternal)
 	})
 }
+
+func TestRepositoryCoveragePromotionMergeRecovery(t *testing.T) {
+	t.Parallel()
+
+	identity := testIdentity()
+	main := coverageBase(t, "origin", "main")
+
+	t.Run("continues a resolved merge without an interactive editor", func(t *testing.T) {
+		repository, runner := coverageRepository(processResult{})
+		if err := repository.ContinueMerge(context.Background(), identity); err != nil {
+			t.Fatal(err)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "-c", "core.editor=true", "merge", "--continue")
+
+		repository, _ = coverageRepository(processResult{err: errors.New("continue failed"), exitCode: 1})
+		err := repository.ContinueMerge(context.Background(), identity)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("compares the active merge target with the selected base", func(t *testing.T) {
+		repository, runner := coverageRepository(
+			processResult{stdout: "abc123\n"},
+			processResult{stdout: "abc123\n"},
+		)
+		matches, err := repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		if err != nil || !matches {
+			t.Fatalf("ActiveMergeTargetMatches(match) = (%t, %v)", matches, err)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "rev-parse", "--verify", "MERGE_HEAD^{commit}")
+		assertCall(t, runner.calls[1], "C:/repo", "", "rev-parse", "--verify", "origin/main^{commit}")
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "abc123\n"},
+			processResult{stdout: "def456\n"},
+		)
+		matches, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		if err != nil || matches {
+			t.Fatalf("ActiveMergeTargetMatches(mismatch) = (%t, %v)", matches, err)
+		}
+
+		repository, _ = coverageRepository(processResult{err: errors.New("missing merge head"), exitCode: 1})
+		_, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(processResult{})
+		_, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "abc123\n"},
+			processResult{err: errors.New("missing main"), exitCode: 1},
+		)
+		_, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}

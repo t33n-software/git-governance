@@ -730,6 +730,7 @@ Rebase-Konfliktauflösung setzt `--resume` die vorhandene Stabilisierung fort.
 git governance --pull-request-provider github workflow release align-promotion-base \
   --release release/<semver> \
   [--branch chore/<KEY-NUMBER>-<slug>] \
+  [--resume] \
   [--push --create-pull-request]
 ```
 
@@ -741,6 +742,14 @@ einen ticket-scoped Merge von `origin/main` aus. Nach der Quality-Suite kann
 er die Working-Branch pushen und ihren PR zurück auf die Release-Linie
 erstellen. Damit erfüllt ein striktes Main-Ruleset die Aktualitätsprüfung,
 ohne `Update branch`, Rebase oder Direktmutation einer Shared Line.
+
+Bei einem Konflikt bleibt die laufende Merge-Operation auf derselben
+nicht-shared Preparation-Branch. `--resume` verlangt eine aktive
+konfliktfreie Merge-Operation mit explizit gestagten Resolution-Pfaden,
+vergleicht `MERGE_HEAD` mit dem nach Fetch aktuellen `origin/main`, setzt nur
+diesen Merge fort und prüft vor Quality, Push und PR erneut die Main-Basis.
+Hat sich Main weiterentwickelt, endet der Kandidat fail-closed. `--resume` ist
+mit `--dry-run` nicht zulässig.
 
 ### 13.5 `workflow release promote`
 
