@@ -870,6 +870,47 @@ func (repository *Repository) ActiveMergeTargetMatches(
 	return mergeHead == targetRevision, nil
 }
 
+// HeadIsMergeOf proves that HEAD is an exact two-parent merge with the
+// delivered release ref as first parent and the pinned develop ref as second
+// parent. It is used before privileged reconciliation publication accepts a
+// resolution candidate prepared outside the controller runner.
+func (repository *Repository) HeadIsMergeOf(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	release branch.TargetBase,
+	develop branch.TargetBase,
+) (bool, error) {
+	releaseRevision, developRevision, err := repository.ResolveReconciliationBases(ctx, identity, release, develop)
+	if err != nil {
+		return false, err
+	}
+	result := repository.invoke(ctx, identity.Root, nil, "show", "-s", "--format=%P", "HEAD")
+	if result.err != nil {
+		return false, repository.commandProblem(problem.CodeGitCommandFailed, identity, "inspect reconciliation merge parents", result)
+	}
+	parents := strings.Fields(result.stdout)
+	return len(parents) == 2 && parents[0] == releaseRevision && parents[1] == developRevision, nil
+}
+
+// ResolveReconciliationBases returns the immutable commit identities used by a
+// conflict manifest and prepared-branch provenance check.
+func (repository *Repository) ResolveReconciliationBases(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	release branch.TargetBase,
+	develop branch.TargetBase,
+) (string, string, error) {
+	releaseRevision, err := repository.resolveCommit(ctx, identity, release, "resolve the delivered release base")
+	if err != nil {
+		return "", "", err
+	}
+	developRevision, err := repository.resolveCommit(ctx, identity, develop, "resolve the pinned develop base")
+	if err != nil {
+		return "", "", err
+	}
+	return releaseRevision, developRevision, nil
+}
+
 // resolveCommit preserves the GOV-25 commit-resolution contract for any
 // remote-tracking target base that participates in governed merge recovery.
 func (repository *Repository) resolveCommit(

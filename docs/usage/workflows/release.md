@@ -47,6 +47,23 @@ First dispatch `broker-smoke`. It proves that the broker accepts the approved
 without printing the returned installation token. Only after that smoke test
 passes may a release owner dispatch `release-cut` with a concrete SemVer value.
 
+## Managed reconciliation control
+
+Delivery-gated reconciliation uses the separate `release-reconciliation`
+environment. It does not reuse the release-cut broker identity. The protected
+controller consumes only these environment variables:
+
+```text
+GCP_RECONCILIATION_PUBLISHER_BROKER_URL
+GCP_RECONCILIATION_PUBLISHER_WIF_PROVIDER
+GCP_RECONCILIATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT
+```
+
+The controller obtains an ephemeral OIDC audience token, asks the dedicated
+publisher broker for a repository-bound installation token without printing it,
+and only then creates or validates the non-shared `chore/*` preparation
+candidate. It never mutates `release/<semver>` or `develop` directly.
+
 ## Stabilization
 
 Only release-blocking fixes, final documentation, and release preparation are

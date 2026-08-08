@@ -206,8 +206,11 @@ func (application *application) resolvePullRequestPublication(
 	request port.PullRequest,
 	requested bool,
 ) (bool, error) {
+	if application.options.dryRun {
+		return false, nil
+	}
 	if !services.tickets.HasPullRequestPublisher() {
-		if requested && !application.options.dryRun {
+		if requested {
 			return false, pullRequestPublisherUnavailable()
 		}
 		return false, nil
@@ -224,7 +227,7 @@ func (application *application) resolvePullRequestPublication(
 		}
 		return confirmed, nil
 	}
-	if requested && !application.options.dryRun && !application.options.yes {
+	if requested && !application.options.yes {
 		return false, pullRequestConfirmationRequired()
 	}
 	return requested, nil

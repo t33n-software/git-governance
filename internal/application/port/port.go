@@ -99,6 +99,24 @@ type ActiveMergeTargetInspector interface {
 	ActiveMergeTargetMatches(ctx context.Context, repository RepositoryIdentity, target branch.TargetBase) (bool, error)
 }
 
+// ReconciliationMergeInspector verifies that the checked-out resolution
+// candidate is the exact merge of a delivered release ref and a pinned develop
+// ref before a privileged controller publishes it.
+type ReconciliationMergeInspector interface {
+	ResolveReconciliationBases(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		release branch.TargetBase,
+		develop branch.TargetBase,
+	) (releaseRevision string, developRevision string, err error)
+	HeadIsMergeOf(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		release branch.TargetBase,
+		develop branch.TargetBase,
+	) (bool, error)
+}
+
 // KeyPolicy validates a syntactically valid key against the active local
 // policy. The first implementation only checks syntax; a bundle adapter can
 // add repository authorization later.
