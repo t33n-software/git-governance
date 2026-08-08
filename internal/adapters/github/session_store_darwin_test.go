@@ -70,9 +70,6 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		if got := (macOSSecurityRunner{binary: "go"}).executable(); got != "go" {
 			t.Fatalf("configured security binary = %q", got)
 		}
-		if _, err := (macOSSecurityRunner{}).run(context.Background(), nil, "--help"); err != nil && !errors.Is(err, errSessionStoreUnavailable) {
-			t.Logf("default security help returned %v", err)
-		}
 		if _, err := (macOSSecurityRunner{binary: "go"}).run(context.Background(), nil, "version"); err != nil {
 			t.Fatalf("native runner success error = %v", err)
 		}

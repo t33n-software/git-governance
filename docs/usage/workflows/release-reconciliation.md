@@ -67,6 +67,24 @@ release ref. A rebase, a GitHub **Update branch** action, or a
 `develop -> release/<semver>` pull request is not a valid reconciliation
 substitute.
 
+## Conflict recovery and privileged publication
+
+If that controlled merge conflicts, it remains fail-closed on the non-shared
+preparation branch. Resolve only the reported paths and stage only those exact
+paths. Continue an active merge exclusively through:
+
+```text
+workflow release align-reconciliation-base --resume
+```
+
+The server-side recovery route uses the protected `reconciliation-resume`
+operation in `release-control.yml`. It validates the ticket-bound
+`resolution_branch`, exact two-parent release/develop merge provenance,
+delivery, quality, and the current Develop revision before publishing a
+preparation-branch PR. The local resolution workspace never receives the
+publisher credential, and neither route may mutate `release/<semver>` or
+`develop` directly.
+
 ## Cleanup
 
 The release line remains protected until one reconciliation outcome is proven:
