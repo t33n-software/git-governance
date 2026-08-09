@@ -829,3 +829,110 @@ func TestRepositoryCoverageCommandDiagnosticsAndCancellation(t *testing.T) {
 		assertProblemCategory(t, err, problem.CodeExternalCommandFailed, problem.CategoryExternal)
 	})
 }
+
+func TestRepositoryCoveragePromotionMergeRecovery(t *testing.T) {
+	t.Parallel()
+
+	identity := testIdentity()
+	main := coverageBase(t, "origin", "main")
+
+	t.Run("continues a resolved merge without an interactive editor", func(t *testing.T) {
+		repository, runner := coverageRepository(processResult{})
+		if err := repository.ContinueMerge(context.Background(), identity); err != nil {
+			t.Fatal(err)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "-c", "core.editor=true", "merge", "--continue")
+
+		repository, _ = coverageRepository(processResult{err: errors.New("continue failed"), exitCode: 1})
+		err := repository.ContinueMerge(context.Background(), identity)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("compares the active merge target with the selected base", func(t *testing.T) {
+		repository, runner := coverageRepository(
+			processResult{stdout: "abc123\n"},
+			processResult{stdout: "abc123\n"},
+		)
+		matches, err := repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		if err != nil || !matches {
+			t.Fatalf("ActiveMergeTargetMatches(match) = (%t, %v)", matches, err)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "rev-parse", "--verify", "MERGE_HEAD^{commit}")
+		assertCall(t, runner.calls[1], "C:/repo", "", "rev-parse", "--verify", "origin/main^{commit}")
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "abc123\n"},
+			processResult{stdout: "def456\n"},
+		)
+		matches, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		if err != nil || matches {
+			t.Fatalf("ActiveMergeTargetMatches(mismatch) = (%t, %v)", matches, err)
+		}
+
+		repository, _ = coverageRepository(processResult{err: errors.New("missing merge head"), exitCode: 1})
+		_, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(processResult{})
+		_, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "abc123\n"},
+			processResult{err: errors.New("missing main"), exitCode: 1},
+		)
+		_, err = repository.ActiveMergeTargetMatches(context.Background(), identity, main)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("proves exact reconciliation merge provenance", func(t *testing.T) {
+		release := coverageBase(t, "origin", "release/1.0.1")
+		develop := coverageBase(t, "origin", "develop")
+		repository, runner := coverageRepository(
+			processResult{stdout: "release-sha\n"},
+			processResult{stdout: "develop-sha\n"},
+			processResult{stdout: "release-sha develop-sha\n"},
+		)
+
+		matches, err := repository.HeadIsMergeOf(context.Background(), identity, release, develop)
+		if err != nil || !matches {
+			t.Fatalf("HeadIsMergeOf(match) = (%t, %v)", matches, err)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "rev-parse", "--verify", "origin/release/1.0.1^{commit}")
+		assertCall(t, runner.calls[1], "C:/repo", "", "rev-parse", "--verify", "origin/develop^{commit}")
+		assertCall(t, runner.calls[2], "C:/repo", "", "show", "-s", "--format=%P", "HEAD")
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "release-sha\n"},
+			processResult{stdout: "develop-sha\n"},
+			processResult{stdout: "develop-sha release-sha\n"},
+		)
+		matches, err = repository.HeadIsMergeOf(context.Background(), identity, release, develop)
+		if err != nil || matches {
+			t.Fatalf("HeadIsMergeOf(mismatch) = (%t, %v)", matches, err)
+		}
+
+		repository, _ = coverageRepository(processResult{err: errors.New("missing release"), exitCode: 1})
+		_, _, err = repository.ResolveReconciliationBases(context.Background(), identity, release, develop)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "release-sha\n"},
+			processResult{err: errors.New("missing develop"), exitCode: 1},
+		)
+		_, _, err = repository.ResolveReconciliationBases(context.Background(), identity, release, develop)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(
+			processResult{stdout: "release-sha\n"},
+			processResult{stdout: "develop-sha\n"},
+			processResult{err: errors.New("cannot inspect parents"), exitCode: 1},
+		)
+		_, err = repository.HeadIsMergeOf(context.Background(), identity, release, develop)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+
+		repository, _ = coverageRepository(processResult{err: errors.New("missing release"), exitCode: 1})
+		_, err = repository.HeadIsMergeOf(context.Background(), identity, release, develop)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}

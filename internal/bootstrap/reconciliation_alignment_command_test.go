@@ -20,6 +20,11 @@ type reconciliationAlignmentCommandGit struct {
 	merged        bool
 	mergedBase    branch.TargetBase
 	mergedMessage commitmsg.Message
+	operation     string
+	active        bool
+	conflicts     bool
+	continueErr   error
+	continued     bool
 	pushErr       error
 	pushed        bool
 }
@@ -44,6 +49,31 @@ func (git *reconciliationAlignmentCommandGit) Merge(
 	git.merged = true
 	git.mergedBase = base
 	git.mergedMessage = message
+	return nil
+}
+
+func (git *reconciliationAlignmentCommandGit) ActiveOperation(
+	context.Context,
+	port.RepositoryIdentity,
+) (string, bool, error) {
+	return git.operation, git.active, nil
+}
+
+func (git *reconciliationAlignmentCommandGit) HasUnmergedConflicts(
+	context.Context,
+	port.RepositoryIdentity,
+) (bool, error) {
+	return git.conflicts, nil
+}
+
+func (git *reconciliationAlignmentCommandGit) ContinueMerge(
+	context.Context,
+	port.RepositoryIdentity,
+) error {
+	if git.continueErr != nil {
+		return git.continueErr
+	}
+	git.continued = true
 	return nil
 }
 
@@ -143,6 +173,27 @@ func TestReleaseAlignReconciliationBaseCommand(t *testing.T) {
 			quality.calls != 1 || !strings.Contains(output, `"qualityStatus":"passed"`) {
 			t.Fatalf("alignment = (%q, %v), merged=%t base=%q message=%q quality=%d",
 				output, err, git.merged, git.mergedBase, git.mergedMessage, quality.calls)
+		}
+	})
+
+	t.Run("continues a resolved reconciliation merge", func(t *testing.T) {
+		git := newReconciliationAlignmentCommandGit(t)
+		git.missing = false
+		git.operation = "merge"
+		git.active = true
+		quality := &reconciliationAlignmentCommandQuality{}
+		command := newReconciliationAlignmentCommand(t, git, quality)
+
+		output, err := executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"workflow", "release", "align-reconciliation-base",
+			"--release", "release/1.0.1", "--resume",
+		)
+		if err != nil || !git.continued || quality.calls != 1 ||
+			!strings.Contains(output, `"resumed":"true"`) {
+			t.Fatalf("resume = (%q, %v), continued=%t quality=%d", output, err, git.continued, quality.calls)
 		}
 	})
 

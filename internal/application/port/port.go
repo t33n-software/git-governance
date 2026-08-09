@@ -86,6 +86,37 @@ type CherryPickContinuator interface {
 	ContinueCherryPick(ctx context.Context, repository RepositoryIdentity) error
 }
 
+// MergeContinuator is consumed only by workflows that resume a manually
+// resolved merge. Keeping it optional preserves the narrow GitRepository
+// contract for workflows that never continue merge state.
+type MergeContinuator interface {
+	ContinueMerge(ctx context.Context, repository RepositoryIdentity) error
+}
+
+// ActiveMergeTargetInspector verifies that an in-progress merge still targets
+// the fetched remote-tracking base that the workflow is allowed to integrate.
+type ActiveMergeTargetInspector interface {
+	ActiveMergeTargetMatches(ctx context.Context, repository RepositoryIdentity, target branch.TargetBase) (bool, error)
+}
+
+// ReconciliationMergeInspector verifies that the checked-out resolution
+// candidate is the exact merge of a delivered release ref and a pinned develop
+// ref before a privileged controller publishes it.
+type ReconciliationMergeInspector interface {
+	ResolveReconciliationBases(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		release branch.TargetBase,
+		develop branch.TargetBase,
+	) (releaseRevision string, developRevision string, err error)
+	HeadIsMergeOf(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		release branch.TargetBase,
+		develop branch.TargetBase,
+	) (bool, error)
+}
+
 // KeyPolicy validates a syntactically valid key against the active local
 // policy. The first implementation only checks syntax; a bundle adapter can
 // add repository authorization later.

@@ -1641,6 +1641,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 		push              bool
 		createPullRequest bool
 		draft             bool
+		resume            bool
 	)
 	command := &cobra.Command{
 		Use:   "align-promotion-base",
@@ -1686,6 +1687,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				Push:              push,
 				CreatePullRequest: createPullRequest,
 				Draft:             draft,
+				Resume:            resume,
 				DryRun:            application.options.dryRun,
 			})
 			if err != nil {
@@ -1697,6 +1699,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				"main":                 result.Main.String(),
 				"missingMainCommits":   boolString(result.MissingMainCommits),
 				"merged":               boolString(result.Merged),
+				"resumed":              boolString(result.Resumed),
 				"pushed":               boolString(result.Pushed),
 				"publishedPullRequest": result.PublishedURL,
 				"dryRun":               boolString(result.DryRun),
@@ -1718,6 +1721,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 	command.Flags().BoolVar(&push, "push", false, "push the aligned release-preparation branch")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the release stabilization pull request after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
+	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved promotion-base merge")
 	return command
 }
 
@@ -1888,6 +1892,8 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 		push              bool
 		createPullRequest bool
 		draft             bool
+		resume            bool
+		prepared          bool
 	)
 	command := &cobra.Command{
 		Use:   "align-reconciliation-base",
@@ -1935,6 +1941,8 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 					Push:              push,
 					CreatePullRequest: createPullRequest,
 					Draft:             draft,
+					Resume:            resume,
+					Prepared:          prepared,
 					DryRun:            application.options.dryRun,
 				},
 			)
@@ -1947,6 +1955,8 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 				"develop":               result.Develop.String(),
 				"missingDevelopCommits": boolString(result.MissingDevelopCommits),
 				"merged":                boolString(result.Merged),
+				"resumed":               boolString(result.Resumed),
+				"prepared":              boolString(result.Prepared),
 				"pushed":                boolString(result.Pushed),
 				"pullRequestSource":     result.PullRequest.Source.String(),
 				"pullRequestTarget":     result.PullRequest.Target.String(),
@@ -1970,6 +1980,8 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 	command.Flags().BoolVar(&push, "push", false, "push the preparation branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
+	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved reconciliation merge")
+	command.Flags().BoolVar(&prepared, "prepared", false, "validate and publish a resolved reconciliation preparation branch")
 	return command
 }
 

@@ -18,6 +18,7 @@ type AlignReleasePromotionBaseRequest struct {
 	Push              bool
 	CreatePullRequest bool
 	Draft             bool
+	Resume            bool
 	DryRun            bool
 }
 
@@ -30,6 +31,7 @@ type AlignReleasePromotionBaseResult struct {
 	PullRequest        port.PullRequest
 	MissingMainCommits bool
 	Merged             bool
+	Resumed            bool
 	Pushed             bool
 	PublishedURL       string
 	Quality            *port.QualityResult
@@ -62,6 +64,12 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
 			"pull-request creation requires an explicit branch push",
 			"set Push before requesting provider pull-request creation",
+		)
+	}
+	if request.Resume && request.DryRun {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"promotion-base alignment cannot resume in a dry run",
+			"run the read-only alignment plan without --resume or continue the resolved merge explicitly",
 		)
 	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
@@ -124,6 +132,9 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 		result.MissingMainCommits = missing
 		return result, nil
 	}
+	if request.Resume {
+		return service.resumeReleasePromotionAlignment(ctx, repository, mainBase, request, result)
+	}
 	if request.CreatePullRequest {
 		if service.tickets == nil {
 			return AlignReleasePromotionBaseResult{}, internalDependencyError("ticket publication service")
@@ -173,6 +184,132 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 		}
 		result.Merged = true
 	}
+	if _, err := service.branches.Validate(ctx, branchValidationRequest(repository, request.Branch)); err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	quality, err := service.quality.Run(ctx, repository, port.QualityRequest{
+		Families: []branch.Family{request.Branch.Family()},
+	})
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	result.Quality = &quality
+	if !request.Push {
+		return result, nil
+	}
+	publication, err := service.git.PublicationState(ctx, repository, request.Branch)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if publication == branch.PublicationUnknown {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"promotion-base alignment requires a known branch publication state",
+			"fetch the remote and resolve the branch tracking state before retrying",
+		)
+	}
+	if err := service.git.Push(ctx, repository, request.Branch, publication == branch.PublicationUnpublished); err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	result.Pushed = true
+	if !request.CreatePullRequest {
+		return result, nil
+	}
+	publishedURL, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	result.PublishedURL = publishedURL
+	return result, nil
+}
+
+func (service *ReleaseService) resumeReleasePromotionAlignment(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	mainBase branch.TargetBase,
+	request AlignReleasePromotionBaseRequest,
+	result AlignReleasePromotionBaseResult,
+) (AlignReleasePromotionBaseResult, error) {
+	if service.quality == nil {
+		return AlignReleasePromotionBaseResult{}, internalDependencyError("quality runner")
+	}
+	if request.CreatePullRequest {
+		if service.tickets == nil {
+			return AlignReleasePromotionBaseResult{}, internalDependencyError("ticket publication service")
+		}
+		if err := service.tickets.PreflightPullRequest(ctx, repository, result.PullRequest); err != nil {
+			return AlignReleasePromotionBaseResult{}, err
+		}
+	}
+	operation, active, err := service.git.ActiveOperation(ctx, repository)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if !active || operation != "merge" {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"promotion-base alignment resume requires an active merge operation",
+			"resolve and stage the existing main alignment merge before retrying with --resume",
+		)
+	}
+	conflicts, err := service.git.HasUnmergedConflicts(ctx, repository)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if conflicts {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"promotion-base alignment resume requires every conflict to be resolved and staged",
+			"resolve exact conflicted paths, stage them explicitly, then retry with --resume",
+		)
+	}
+	if err := service.git.Fetch(ctx, repository); err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	exists, err := service.git.TargetBaseExists(ctx, repository, mainBase)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if !exists {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"the current main target base must exist before promotion-base alignment resumes",
+			"fetch the selected remote and verify main before retrying",
+		)
+	}
+	inspector, ok := service.git.(port.ActiveMergeTargetInspector)
+	if !ok {
+		return AlignReleasePromotionBaseResult{}, internalDependencyError("promotion merge target inspector")
+	}
+	matches, err := inspector.ActiveMergeTargetMatches(ctx, repository, mainBase)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if !matches {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"promotion-base alignment merge does not target the current main revision",
+			"abort the stale preparation merge and create a new release-preparation branch from the frozen release line",
+		)
+	}
+	continuator, ok := service.git.(port.MergeContinuator)
+	if !ok {
+		return AlignReleasePromotionBaseResult{}, internalDependencyError("promotion merge continuator")
+	}
+	if err := continuator.ContinueMerge(ctx, repository); err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	result.Merged = true
+	result.Resumed = true
+	if err := service.git.Fetch(ctx, repository); err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	missing, err := service.git.HasMissingBaseCommits(ctx, repository, mainBase)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if missing {
+		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
+			"main advanced while the promotion-base conflict was being resolved",
+			"discard the stale preparation candidate and begin a new promotion-base alignment against current main",
+		)
+	}
+	result.MissingMainCommits = false
 	if _, err := service.branches.Validate(ctx, branchValidationRequest(repository, request.Branch)); err != nil {
 		return AlignReleasePromotionBaseResult{}, err
 	}
