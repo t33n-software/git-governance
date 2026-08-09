@@ -10,6 +10,7 @@ import (
 	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
 	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/CyberT33N/git-governance/internal/domain/releaserequest"
 	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 )
 
@@ -443,6 +444,76 @@ type ReleaseReconciliationEvidence struct {
 type ReleaseLifecycleProvider interface {
 	DispatchSharedLine(ctx context.Context, request SharedLineDispatchRequest) (SharedLineDispatchResult, error)
 	VerifyReleaseReconciliation(ctx context.Context, request ReleaseReconciliationRequest) (ReleaseReconciliationEvidence, error)
+}
+
+// ProtectedLineRequestAuthorization binds one request-controller approval to
+// the exact release or support line the provider may later execute.
+type ProtectedLineRequestAuthorization struct {
+	Repository  RepositoryIdentity
+	RemoteURL   string
+	Ticket      ticket.ID
+	Operation   releaserequest.Operation
+	Version     string
+	Source      branch.BranchName
+	Target      branch.BranchName
+	Requester   string
+	ParentRunID string
+}
+
+// ProtectedLineRequestResult identifies the durable request record and its
+// asynchronous execution state. Dispatch acceptance is intentionally not
+// represented as protected-line completion.
+type ProtectedLineRequestResult struct {
+	Request releaserequest.Request
+}
+
+// ProtectedLineExecutionAuthorization binds one execution workflow run to the
+// durable request it is allowed to mutate exactly once.
+type ProtectedLineExecutionAuthorization struct {
+	Repository    RepositoryIdentity
+	RemoteURL     string
+	RequestID     string
+	ExecutorRunID string
+}
+
+// ProtectedLineExecutionPlan exposes only the immutable source and target
+// facts that the trusted executor needs for its one permitted mutation.
+type ProtectedLineExecutionPlan struct {
+	Request       releaserequest.Request
+	NeedsMutation bool
+}
+
+// ProtectedLineFinalizationRequest correlates a read-only finalizer with one
+// execution run. Recovery permits only a record already awaiting finalization.
+type ProtectedLineFinalizationRequest struct {
+	Repository    RepositoryIdentity
+	RemoteURL     string
+	RequestID     string
+	ExecutorRunID string
+	Recovery      bool
+}
+
+// ProtectedLineFinalizationResult exposes the durable final request state.
+type ProtectedLineFinalizationResult struct {
+	Request releaserequest.Request
+}
+
+// ProtectedLineRequestProvider owns durable request persistence, dispatch
+// correlation, execution authorization, and read-only finalization facts for
+// protected release and support-line creation.
+type ProtectedLineRequestProvider interface {
+	AuthorizeProtectedLineRequest(
+		ctx context.Context,
+		request ProtectedLineRequestAuthorization,
+	) (ProtectedLineRequestResult, error)
+	AuthorizeProtectedLineExecution(
+		ctx context.Context,
+		request ProtectedLineExecutionAuthorization,
+	) (ProtectedLineExecutionPlan, error)
+	FinalizeProtectedLineRequest(
+		ctx context.Context,
+		request ProtectedLineFinalizationRequest,
+	) (ProtectedLineFinalizationResult, error)
 }
 
 // MainHotfixDeliveryRequest binds a reviewed record to its repository before a

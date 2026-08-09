@@ -10,6 +10,7 @@ import (
 	"github.com/CyberT33N/git-governance/internal/domain/branch"
 	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/CyberT33N/git-governance/internal/domain/releaserequest"
 	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 )
 
@@ -20,6 +21,7 @@ type ReleaseService struct {
 	git                 port.GitRepository
 	publisher           port.PullRequestPublisher
 	lifecycle           port.ReleaseLifecycleProvider
+	protectedRequests   port.ProtectedLineRequestProvider
 	hotfix              port.MainHotfixLifecycleProvider
 	tickets             *TicketService
 	quality             port.QualityRunner
@@ -88,6 +90,13 @@ func (service *ReleaseService) WithHotfixReleaseRecordStore(records port.HotfixR
 // and release-delivery verification into release workflows.
 func (service *ReleaseService) WithReleaseLifecycleProvider(provider port.ReleaseLifecycleProvider) *ReleaseService {
 	service.lifecycle = provider
+	return service
+}
+
+// WithProtectedLineRequestProvider wires the durable request, execution, and
+// finalization boundary into protected release and support-line workflows.
+func (service *ReleaseService) WithProtectedLineRequestProvider(provider port.ProtectedLineRequestProvider) *ReleaseService {
+	service.protectedRequests = provider
 	return service
 }
 
@@ -344,6 +353,183 @@ type CutReleaseRequest struct {
 	Repository port.RepositoryIdentity
 	Version    branch.SemanticVersion
 	DryRun     bool
+}
+
+// RequestProtectedLineRequest describes a request-controller authorization for
+// one release or support-line mutation.
+type RequestProtectedLineRequest struct {
+	Repository  port.RepositoryIdentity
+	Ticket      ticket.ID
+	Operation   releaserequest.Operation
+	Version     string
+	Requester   string
+	ParentRunID string
+	DryRun      bool
+}
+
+// RequestProtectedLineResult exposes the durable request record and the
+// derived protected-line intent. It deliberately does not claim that the
+// protected line already exists.
+type RequestProtectedLineResult struct {
+	Intent  SharedLineIntent
+	Request port.ProtectedLineRequestResult
+	DryRun  bool
+}
+
+// RequestProtectedLine authorizes and persists one request before dispatching
+// the execution workflow. The request controller cannot mutate a shared line.
+func (service *ReleaseService) RequestProtectedLine(
+	ctx context.Context,
+	request RequestProtectedLineRequest,
+) (RequestProtectedLineResult, error) {
+	if service.git == nil {
+		return RequestProtectedLineResult{}, internalDependencyError("Git repository")
+	}
+	if service.protectedRequests == nil {
+		return RequestProtectedLineResult{}, internalDependencyError("protected-line request provider")
+	}
+	if request.Ticket.Key().String() == "" || request.Ticket.Number().String() == "" {
+		return RequestProtectedLineResult{}, invalidWorkflowInput(
+			"a ticket-bound release request",
+			"bind the protected-line request to its governing ticket before authorization",
+		)
+	}
+	repository, err := normalizeWorkflowRepository(request.Repository)
+	if err != nil {
+		return RequestProtectedLineResult{}, err
+	}
+	intent, err := service.protectedLineIntent(ctx, repository, request.Operation, request.Version, request.DryRun)
+	if err != nil {
+		return RequestProtectedLineResult{}, err
+	}
+	if request.DryRun {
+		return RequestProtectedLineResult{Intent: intent, DryRun: true}, nil
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, repository)
+	if err != nil {
+		return RequestProtectedLineResult{}, err
+	}
+	authorized, err := service.protectedRequests.AuthorizeProtectedLineRequest(ctx, port.ProtectedLineRequestAuthorization{
+		Repository:  repository,
+		RemoteURL:   remoteURL,
+		Ticket:      request.Ticket,
+		Operation:   request.Operation,
+		Version:     request.Version,
+		Source:      intent.Source.Branch(),
+		Target:      intent.Branch,
+		Requester:   request.Requester,
+		ParentRunID: request.ParentRunID,
+	})
+	if err != nil {
+		return RequestProtectedLineResult{}, err
+	}
+	return RequestProtectedLineResult{Intent: intent, Request: authorized}, nil
+}
+
+// AuthorizeProtectedLineExecution validates the durable request immediately
+// before the executor is permitted to mutate its one protected target.
+func (service *ReleaseService) AuthorizeProtectedLineExecution(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	requestID string,
+	executorRunID string,
+) (port.ProtectedLineExecutionPlan, error) {
+	if service.git == nil {
+		return port.ProtectedLineExecutionPlan{}, internalDependencyError("Git repository")
+	}
+	if service.protectedRequests == nil {
+		return port.ProtectedLineExecutionPlan{}, internalDependencyError("protected-line request provider")
+	}
+	normalized, err := normalizeWorkflowRepository(repository)
+	if err != nil {
+		return port.ProtectedLineExecutionPlan{}, err
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, normalized)
+	if err != nil {
+		return port.ProtectedLineExecutionPlan{}, err
+	}
+	return service.protectedRequests.AuthorizeProtectedLineExecution(ctx, port.ProtectedLineExecutionAuthorization{
+		Repository:    normalized,
+		RemoteURL:     remoteURL,
+		RequestID:     requestID,
+		ExecutorRunID: executorRunID,
+	})
+}
+
+// FinalizeProtectedLineRequest performs a read-only provider verification of
+// one correlated execution and persists only its final audit state.
+func (service *ReleaseService) FinalizeProtectedLineRequest(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	requestID string,
+	executorRunID string,
+	recovery bool,
+) (port.ProtectedLineFinalizationResult, error) {
+	if service.git == nil {
+		return port.ProtectedLineFinalizationResult{}, internalDependencyError("Git repository")
+	}
+	if service.protectedRequests == nil {
+		return port.ProtectedLineFinalizationResult{}, internalDependencyError("protected-line request provider")
+	}
+	normalized, err := normalizeWorkflowRepository(repository)
+	if err != nil {
+		return port.ProtectedLineFinalizationResult{}, err
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, normalized)
+	if err != nil {
+		return port.ProtectedLineFinalizationResult{}, err
+	}
+	return service.protectedRequests.FinalizeProtectedLineRequest(ctx, port.ProtectedLineFinalizationRequest{
+		Repository:    normalized,
+		RemoteURL:     remoteURL,
+		RequestID:     requestID,
+		ExecutorRunID: executorRunID,
+		Recovery:      recovery,
+	})
+}
+
+func (service *ReleaseService) protectedLineIntent(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	operation releaserequest.Operation,
+	version string,
+	dryRun bool,
+) (SharedLineIntent, error) {
+	switch operation {
+	case releaserequest.OperationRelease:
+		releaseVersion, err := branch.ParseSemanticVersion(version)
+		if err != nil {
+			return SharedLineIntent{}, err
+		}
+		result, err := service.CutRelease(ctx, CutReleaseRequest{
+			Repository: repository,
+			Version:    releaseVersion,
+			DryRun:     dryRun,
+		})
+		if err != nil {
+			return SharedLineIntent{}, err
+		}
+		return result.Intent, nil
+	case releaserequest.OperationSupport:
+		supportVersion, err := branch.ParseSupportVersion(version)
+		if err != nil {
+			return SharedLineIntent{}, err
+		}
+		result, err := service.PrepareSupport(ctx, PrepareSupportRequest{
+			Repository: repository,
+			Version:    supportVersion,
+			DryRun:     dryRun,
+		})
+		if err != nil {
+			return SharedLineIntent{}, err
+		}
+		return result.Intent, nil
+	default:
+		return SharedLineIntent{}, invalidWorkflowInput(
+			"a release or support protected-line operation",
+			"select release for develop-derived cuts or support for a released main line",
+		)
+	}
 }
 
 // SharedLineIntent describes a privileged CI operation that creates a remote

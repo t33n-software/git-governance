@@ -21,6 +21,7 @@ git governance workflow hotfix start
 git governance workflow hotfix publish
 git governance workflow hotfix propagate
 git governance workflow release cut
+git governance workflow release request
 git governance workflow release stabilize
 git governance workflow release publish-stabilization
 git governance workflow release align-promotion-base

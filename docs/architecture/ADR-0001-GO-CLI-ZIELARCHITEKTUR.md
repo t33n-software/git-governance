@@ -385,10 +385,28 @@ Ein Hotfix startet von der real betroffenen Linie: `main`, derselben `release/*`
 
 `release/*` und `support/*` werden nicht über den normalen Branch-Wizard erzeugt. Der Wizard zeigt sie vollständig an, verweist aber auf die governance-gebundenen Workflow-Kommandos. `main` und `develop` werden erklärt, aber nie als normale Arbeitsbranch-Auswahl angeboten.
 
-`workflow release cut --dispatch` und `workflow release support --dispatch`
-rufen einen autorisierten Hosting-Adapter auf, warten auf den korrelierten
-CI-Workflow und verifizieren die erzeugte Remote-Linie nach einem Fetch. Ohne
-`--dispatch` bleibt die Ausgabe bewusst ein providerneutraler Intent.
+`workflow release cut` und `workflow release support` erzeugen lokal nur
+einen Intent. Ein normaler `--dispatch` ist außerhalb eines Dry-Runs
+abgewiesen: der Protected-Line-Executor darf keine freie Version-, Branch-
+oder Quell-SHA-Eingabe akzeptieren.
+
+Der serverseitige Pfad trennt Request-Autorisierung,
+Execution-Autorisierung und technische Abschlussverifikation:
+
+```text
+release-request
+→ dauerhafter Request-Record
+→ release-execution
+→ exakt eine gebundene Ref-Mutation
+→ automatischer Read-only-Finalizer
+→ verified | failed | verification_pending
+```
+
+Der Finalizer prüft den korrelierten Executor-Job und die reale Remote-Ref
+gegen die gebundene Quell-SHA. Er besitzt keine Ref-Mutations-, Promotion-,
+Tag-, Delivery- oder Reconciliation-Autorität. ADR-0006 beschreibt die
+vollständige Request-/Execution-/Finalizer-Grenze und den read-only
+Recovery-Pfad.
 
 Ein Backmerge ist eine verpflichtende Reconciliation, kein pauschaler PR:
 erst nach gemergter Main-Promotion, exakt zugehörigem Tag und erfolgreicher

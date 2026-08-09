@@ -632,8 +632,8 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 	})
 }
 
-func TestReleaseCommandsDispatchProtectedLinesAndSkipNoopBackmerges(t *testing.T) {
-	t.Run("dispatches a protected release line through the configured lifecycle provider", func(t *testing.T) {
+func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(t *testing.T) {
+	t.Run("rejects an unbound protected release dispatch", func(t *testing.T) {
 		git := newCommandGit(t, "feature/ABC-123-add-export", nil)
 		runtime := commandRuntime(git)
 		publisher := &workflowRecordingPublisher{}
@@ -648,11 +648,9 @@ func TestReleaseCommandsDispatchProtectedLinesAndSkipNoopBackmerges(t *testing.T
 			"workflow", "release", "cut",
 			"--version", "2.8.0", "--dispatch",
 		)
-		if err != nil || publisher.dispatchCalls != 1 ||
-			publisher.dispatchRequest.Workflow != "create-protected-line.yml" ||
-			!strings.Contains(output, `"dispatchRequested":"true"`) ||
-			!strings.Contains(output, "protected-line") {
-			t.Fatalf("release dispatch = (%q, %v), publisher=%#v", output, err, publisher)
+		assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+		if output != "" || publisher.dispatchCalls != 0 {
+			t.Fatalf("unbound release dispatch = (%q, %v), publisher=%#v", output, err, publisher)
 		}
 	})
 
@@ -686,7 +684,7 @@ func TestReleaseCommandsDispatchProtectedLinesAndSkipNoopBackmerges(t *testing.T
 		}
 	})
 
-	t.Run("dispatches support and rejects dispatch without a lifecycle adapter", func(t *testing.T) {
+	t.Run("rejects an unbound support dispatch regardless of provider composition", func(t *testing.T) {
 		git := newCommandGit(t, "feature/ABC-123-add-export", nil)
 		runtime := commandRuntime(git)
 		publisher := &workflowRecordingPublisher{}
@@ -700,8 +698,9 @@ func TestReleaseCommandsDispatchProtectedLinesAndSkipNoopBackmerges(t *testing.T
 			"workflow", "release", "support",
 			"--version", "2.8", "--dispatch",
 		)
-		if err != nil || publisher.dispatchCalls != 1 || !strings.Contains(output, `"dispatchRequested":"true"`) {
-			t.Fatalf("support dispatch = (%q, %v), publisher=%#v", output, err, publisher)
+		assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+		if output != "" || publisher.dispatchCalls != 0 {
+			t.Fatalf("unbound support dispatch = (%q, %v), publisher=%#v", output, err, publisher)
 		}
 
 		runtime = commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
@@ -715,50 +714,7 @@ func TestReleaseCommandsDispatchProtectedLinesAndSkipNoopBackmerges(t *testing.T
 			"workflow", "release", "cut",
 			"--version", "2.8.0", "--dispatch",
 		)
-		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
-
-		runtime = commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
-		runtime.Publisher = &workflowRecordingPublisher{dispatchErr: errors.New("dispatch unavailable")}
-		command = NewWithRuntime(BuildInfo{Version: "test"}, runtime)
-		_, err = executeBootstrapCommand(
-			t,
-			command,
-			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
-			"workflow", "release", "cut",
-			"--version", "2.8.0", "--dispatch",
-		)
-		if !errors.Is(err, runtime.Publisher.(*workflowRecordingPublisher).dispatchErr) {
-			t.Fatalf("cut dispatch error = %v", err)
-		}
-
-		runtime = commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
-		runtime.Publisher = &workflowRecordingPublisher{dispatchErr: errors.New("support dispatch unavailable")}
-		command = NewWithRuntime(BuildInfo{Version: "test"}, runtime)
-		_, err = executeBootstrapCommand(
-			t,
-			command,
-			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
-			"workflow", "release", "support",
-			"--version", "2.8", "--dispatch",
-		)
-		if !errors.Is(err, runtime.Publisher.(*workflowRecordingPublisher).dispatchErr) {
-			t.Fatalf("support dispatch error = %v", err)
-		}
-
-		runtime = commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
-		runtime.Publisher = plainWorkflowPublisher{}
-		command = NewWithRuntime(BuildInfo{Version: "test"}, runtime)
-		_, err = executeBootstrapCommand(
-			t,
-			command,
-			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
-			"workflow", "release", "support",
-			"--version", "2.8", "--dispatch",
-		)
-		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
+		assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
 	})
 }
 

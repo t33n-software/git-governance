@@ -1,14 +1,13 @@
 # Automate release workflows
 
 Use the same provider-neutral defaults in automation. `--interactive never`
-requires every mandatory value as a flag; `--yes` authorizes the bounded
-mutation or protected-line request.
+requires every mandatory value as a flag; `--yes` authorizes only the bounded
+operation exposed by that command.
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release cut `
-  --version 2.8.0 `
-  --dispatch
+  workflow release cut `
+  --version 2.8.0
 
 git governance --interactive never --output json --yes workflow release stabilize `
   --release release/2.8.0 `
@@ -32,15 +31,47 @@ git governance --interactive never --output json --yes `
   --create-pull-request
 
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release support `
-  --version 2.8 `
-  --dispatch
+  workflow release support `
+  --version 2.8
 ```
 
 For an actual GitHub PR during stabilization, promotion, or a required
 backmerge, add `--create-pull-request`. Stabilization also requires `--push`;
-promotion and backmerge do not. `cut --dispatch` and `support --dispatch`
-wait for protected-line creation and verify the resulting remote line.
+promotion and backmerge do not.
+
+## Protected-line request, execution, and finalization
+
+`workflow release cut` and `workflow release support` prepare only a local
+intent. A normal local `--dispatch` is rejected: the protected executor must
+never receive an unbound version or branch input.
+
+The normal server-side path is:
+
+```text
+release-control.yml / release-request
+→ release-request environment approval
+→ immutable GitHub Deployment request record
+→ request_id dispatch to create-protected-line.yml
+→ release-execution environment approval
+→ exactly one bound ref mutation
+→ automatic read-only finalizer
+→ verified | failed | verification_pending
+```
+
+The request binds the governed ticket, operation, version, source line and
+exact source SHA, target ref, requester, controller run, executor workflow,
+expiry, and idempotency key. The request controller has no `contents: write`
+permission; the executor has no authority beyond its one bound mutation; the
+finalizer is read-only with respect to Git refs.
+
+Only `verified` represents a complete protected release or support-line cut.
+The automatic finalizer validates the correlated executor job and the actual
+remote ref before writing that status. It does not promote, tag, deliver, or
+reconcile the line.
+
+`recover-protected-line-request.yml` is a read-only recovery path for a
+record already in `verification_pending`. It cannot dispatch another executor
+or mutate a ref. It is not the normal human verification step.
 
 Backmerge must run only after the main promotion, exact immutable tag, and
 release artifact delivery are complete. It returns `not-required` instead of

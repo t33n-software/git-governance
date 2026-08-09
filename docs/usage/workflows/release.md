@@ -3,36 +3,32 @@
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release cut `
-  --version 2.8.0 `
-  --dispatch
+  workflow release cut `
+  --version 2.8.0
 ```
 
 The CLI validates the requested `release/2.8.0` line and emits an intent for
-the protected `create-protected-line.yml` GitHub Actions workflow. With
-`--dispatch`, the configured GitHub lifecycle adapter starts that workflow,
-waits for its successful correlated run, fetches the remote, and verifies that
-`origin/release/2.8.0` exists. The CLI never creates, switches to, or pushes a
+the protected request controller. It never creates, switches to, or pushes a
 shared `release/*` branch itself.
 
-A successful dispatch response is only transport acknowledgement. The adapter
-accepts a successful HTTP `2xx` dispatch response, then requires the
-correlated workflow run to succeed and the requested remote line to exist
-before it reports the release cut as complete.
+`cut --dispatch` is deliberately rejected outside a dry run. A normal local
+CLI invocation cannot dispatch the protected executor directly because that
+would omit the durable, authorized release-request record.
 
-Without `--dispatch`, `cut` remains an intent-only plan. It is useful for
-review or a manually operated release process, but it does not prove that a
-release line exists and cannot advance the governed release lifecycle.
+The normal path is `release-control.yml` on `main` with
+`operation=release-request`, `kind`, `version`, `ticket_key`, and `ticket`.
+The request job runs in `release-request`, persists a durable request record,
+then dispatches the bound executor. It finishes at
+`awaiting_execution_approval`; it does not poll the executor and does not
+claim that a release line exists.
 
 ## Managed broker release control
 
-The repository-local `release-control.yml` workflow is the only supported
-GitHub Actions entrypoint for a managed credential broker. It runs in the
-protected `release` environment and uses GitHub OIDC plus Google Workload
-Identity Federation to obtain a short-lived Cloud Run ID token. The workflow
-passes that token only in process memory to `git-governance`; it never stores a
-GitHub App key, an installation token, or a Google service-account key in
-GitHub.
+The repository-local `release-control.yml` workflow remains the managed
+entrypoint for broker smoke tests and reconciliation. Its
+`release-request` job is separate: it uses a job-scoped GitHub Actions token
+with `actions: write`, `deployments: write`, and `contents: read`, but no
+`contents: write` capability.
 
 Configure these GitHub repository variables:
 
@@ -43,7 +39,8 @@ GCP_BROKER_INVOKER_SERVICE_ACCOUNT
 ```
 
 These variables remain scoped to the protected `release` environment and the
-existing release-automation identity.
+existing release-automation identity used by broker smoke and later release
+lifecycle operations.
 
 Reconciliation publication uses the separately protected
 `release-reconciliation` environment and its dedicated publisher identity:
@@ -61,8 +58,43 @@ shared-line mutation role.
 
 First dispatch `broker-smoke`. It proves that the broker accepts the approved
 `CyberT33N/git-governance` repository request and rejects an unapproved request
-without printing the returned installation token. Only after that smoke test
-passes may a release owner dispatch `release-cut` with a concrete SemVer value.
+without printing the returned installation token. A release owner then
+authorizes a bound `release-request`; the separately approved
+`release-execution` job performs at most one protected ref mutation.
+
+`create-protected-line.yml` receives only `request_id`. It loads and validates
+the durable record, including ticket, operation, source SHA, target ref,
+expiry, idempotency key, and expected executor. Its automatic, non-human
+finalizer independently checks the executor job and the real remote ref, then
+writes `verified`, `failed`, or `verification_pending`. Only `verified`
+completes a release cut.
+
+`recover-protected-line-request.yml` is a read-only recovery path for an
+existing `verification_pending` record. It cannot dispatch an executor, push a
+ref, promote a release, tag, publish artifacts, or reconcile branches.
+
+### Required GitHub environments
+
+Before the request path is used in production, configure two distinct protected
+GitHub environments:
+
+```text
+release-request
+→ Release Request Authority
+→ approves the ticket, version, source SHA, target ref, scope and expiry
+→ no shared-line write role
+
+release-execution
+→ Release Execution Authority
+→ approves exactly one already-authorized request_id mutation
+→ no promotion, tag, delivery or reconciliation role
+```
+
+The normal finalizer intentionally has no reviewer environment because it is
+read-only technical evidence rather than a third human approval. The request
+and execution authorities must be distinct. If a single-person exception is
+unavoidable, it must be explicitly recorded as a reduced separation-of-duties
+exception; it is not an implicit fallback.
 
 ## Managed reconciliation control
 
@@ -257,10 +289,11 @@ as a substitute.
 See [release reconciliation](release-reconciliation.md) for the complete
 state and evidence contract.
 
-Use a least-privileged release-automation identity for protected-line dispatch
-and delivery verification. A managed credential broker is the preferred
-non-interactive mechanism; publication and dispatch never start login
-implicitly. See [GitHub App authentication](../authentication.md).
+Use the separate least-privilege controller identities for request,
+execution, and finalization. The executor has only the ref-mutation
+permission needed for its bound request; the finalizer has no ref-write
+permission. Neither path starts a browser login. See
+[GitHub App authentication](../authentication.md).
 
 After the protected `release/<semver> -> main` pull request merges, GitHub
 Actions creates the immutable annotated `v<semver>` tag at that exact merge
@@ -269,13 +302,11 @@ The local CLI never tags or pushes `main`.
 
 ## Support line
 ```powershell
-git governance --yes --pull-request-provider github workflow release support `
-  --version 2.8 `
-  --dispatch
+git governance --yes workflow release support `
+  --version 2.8
 ```
 
 The command requires a matching `v2.8.<patch>` release tag on `origin/main`
-and dispatches the same protected-line workflow. The privileged workflow
-creates and the CLI verifies the remote support line from the tagged
-`origin/main` revision; support lines cannot be created from an untagged
-integration state.
+and emits an intent. A governed `release-request` with `kind=support` binds
+the tagged `main` source SHA and `support/<major.minor>` target before the
+separately authorized executor can create the remote support line.

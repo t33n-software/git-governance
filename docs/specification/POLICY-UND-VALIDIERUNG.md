@@ -243,6 +243,36 @@ Regexe können folgende Regeln nicht beweisen und werden deshalb durch Domain- u
 
 Publication State wird nach erfolgreichem Fetch über die Remote-Referenz bestimmt. Kann der Zustand nicht belastbar ermittelt werden, blockiert eine history-rewriting Operation sicher, statt einen unveröffentlichten Branch anzunehmen.
 
+### 6.0 Autorisierte Protected-Line-Erzeugung
+
+Ein Release- oder Support-Cut besteht aus getrennten, gebundenen Phasen:
+
+```text
+Release Request Authorization
+→ dauerhafter Request-Record
+→ Release Execution Authorization
+→ exakt eine geschützte Ref-Mutation
+→ automatischer Read-only-Finalizer
+→ verified | failed | verification_pending
+```
+
+Der Request bindet mindestens Ticket, Operation, Version, Quellref, exakte
+Quell-SHA, Zielref, Requester, Controller-Run, erwarteten Executor,
+Ablaufzeit und Idempotenzschlüssel. Die Request-Autorisierung besitzt keine
+`contents: write`-Berechtigung.
+
+Der Executor akzeptiert keine freien normalen Version-, Branch- oder
+Quell-SHA-Eingaben. Er validiert nur einen nicht abgelaufenen,
+unverbrauchten Request und darf ausschließlich dessen gebundene Zielref
+einmalig erzeugen. Die Execution-Autorisierung erfolgt im separaten
+`release-execution`-Environment.
+
+Der Finalizer besitzt keine Ref-Mutationsberechtigung. Er prüft den
+korrelierten Executor-Job und die tatsächliche Remote-Ref gegen die gebundene
+Quell-SHA. Nur `verified` ist ein vollständiger Cut-Nachweis. Ein
+`verification_pending`-Recovery prüft read-only denselben Request und darf
+keinen neuen Executor dispatchen.
+
 ### 6.1 Release-Stabilisierung
 
 Nach einem Release-Cut sind nur drei stabilisierende Branch-Kategorien

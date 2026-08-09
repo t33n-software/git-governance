@@ -4,28 +4,35 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: Verify the broker, request a protected release cut, align a delivered release, or publish a validated reconciliation resolution.
+        description: Verify the broker, authorize a protected release or support-line request, align a delivered release, or publish a validated reconciliation resolution.
         required: true
         type: choice
         options:
           - broker-smoke
-          - release-cut
+          - release-request
           - reconciliation-align
           - reconciliation-resume
       version:
-        description: SemVer release version without a leading v; required for release-cut.
+        description: Release SemVer or support major.minor version without a leading v; required for release-request.
         required: false
         type: string
+      kind:
+        description: Protected line kind; required for release-request.
+        required: false
+        type: choice
+        options:
+          - release
+          - support
       release:
         description: Delivered release/<semver> line; required for reconciliation operations.
         required: false
         type: string
       ticket_key:
-        description: Ticket key for reconciliation operations.
+        description: Ticket key for release-request and reconciliation operations.
         required: false
         type: string
       ticket:
-        description: Ticket number for reconciliation operations.
+        description: Ticket number for release-request and reconciliation operations.
         required: false
         type: string
       slug:
@@ -104,12 +111,16 @@ jobs:
             --data '{"host":"github.com","owner":"CyberT33N","repository":"not-approved"}')"
           test "$rejected_status" = "403"
 
-  release-cut:
-    if: ${{ inputs.operation == 'release-cut' }}
-    name: Request protected release cut
+  release-request:
+    if: ${{ inputs.operation == 'release-request' }}
+    name: Authorize protected-line request
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    environment: release
+    environment: release-request
+    permissions:
+      actions: write
+      contents: read
+      deployments: write
     steps:
       - name: Check out source
         uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
@@ -127,36 +138,31 @@ jobs:
             go.sum
             tools/go.sum
 
-      - name: Require approved release-control inputs
+      - name: Require approved release-request inputs
         shell: bash
         env:
           VERSION: ${{ inputs.version }}
-          BROKER_URL: ${{ vars.GCP_BROKER_URL }}
-          WIF_PROVIDER: ${{ vars.GCP_BROKER_WIF_PROVIDER }}
-          INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}
+          KIND: ${{ inputs.kind }}
+          TICKET_KEY: ${{ inputs.ticket_key }}
+          TICKET: ${{ inputs.ticket }}
         run: |
           set -euo pipefail
-          test -n "$VERSION" || { echo "release-cut requires version" >&2; exit 1; }
-          for variable in BROKER_URL WIF_PROVIDER INVOKER_SERVICE_ACCOUNT; do
-            test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+          test "$GITHUB_REF" = "refs/heads/main"
+          for variable in VERSION KIND TICKET_KEY TICKET; do
+            test -n "${!variable:-}" || { echo "release-request requires $variable" >&2; exit 1; }
           done
 
-      - name: Obtain short-lived broker audience token
-        id: broker_auth
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          create_credentials_file: false
-          workload_identity_provider: ${{ vars.GCP_BROKER_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}
-          token_format: id_token
-          id_token_audience: ${{ vars.GCP_BROKER_URL }}
-
-      - name: Request governed release cut
+      - name: Authorize and dispatch bound protected-line execution
         shell: bash
         env:
-          GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL: ${{ vars.GCP_BROKER_URL }}
-          GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_GOVERNANCE_WORKFLOW_TOKEN: server
+          KIND: ${{ inputs.kind }}
           VERSION: ${{ inputs.version }}
+          TICKET_KEY: ${{ inputs.ticket_key }}
+          TICKET: ${{ inputs.ticket }}
+          REQUESTER: ${{ github.actor }}
+          PARENT_RUN: ${{ github.run_id }}
         run: |
           set -euo pipefail
           go run -mod=readonly ./cmd/git-governance \
@@ -164,9 +170,13 @@ jobs:
             --output json \
             --yes \
             --pull-request-provider github \
-            workflow release cut \
+            workflow release request \
+            --kind "$KIND" \
             --version "$VERSION" \
-            --dispatch
+            --key "$TICKET_KEY" \
+            --ticket "$TICKET" \
+            --requester "$REQUESTER" \
+            --parent-run "$PARENT_RUN"
 
   reconciliation-align:
     if: ${{ inputs.operation == 'reconciliation-align' || inputs.operation == 'reconciliation-resume' }}
