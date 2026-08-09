@@ -404,19 +404,34 @@ type PullRequestPublisherPreflight interface {
 // protected release or support line. The application never directly pushes a
 // shared line.
 type SharedLineDispatchRequest struct {
+	Repository        RepositoryIdentity
+	RemoteURL         string
+	Workflow          string
+	Ref               string
+	Inputs            map[string]string
+	Branch            branch.BranchName
+	RequestID         string
+	DeferVerification bool
+}
+
+// SharedLineVerificationRequest identifies a previously dispatched protected
+// line workflow for a later correlated provider and remote-reference check.
+type SharedLineVerificationRequest struct {
 	Repository RepositoryIdentity
 	RemoteURL  string
 	Workflow   string
-	Ref        string
-	Inputs     map[string]string
+	RequestID  string
 	Branch     branch.BranchName
 }
 
-// SharedLineDispatchResult records the completed provider workflow and the
-// protected line it created.
+// SharedLineDispatchResult records a protected-line workflow request. A
+// deferred result proves only dispatch acceptance; it is not evidence that the
+// protected line exists until a later verification succeeds.
 type SharedLineDispatchResult struct {
-	WorkflowRunURL string
-	Branch         branch.BranchName
+	WorkflowRunURL       string
+	RequestID            string
+	Branch               branch.BranchName
+	VerificationDeferred bool
 }
 
 // ReleaseReconciliationRequest identifies one released line that must be
@@ -442,6 +457,7 @@ type ReleaseReconciliationEvidence struct {
 // release-to-develop reconciliation can create a pull request.
 type ReleaseLifecycleProvider interface {
 	DispatchSharedLine(ctx context.Context, request SharedLineDispatchRequest) (SharedLineDispatchResult, error)
+	VerifySharedLine(ctx context.Context, request SharedLineVerificationRequest) (SharedLineDispatchResult, error)
 	VerifyReleaseReconciliation(ctx context.Context, request ReleaseReconciliationRequest) (ReleaseReconciliationEvidence, error)
 }
 

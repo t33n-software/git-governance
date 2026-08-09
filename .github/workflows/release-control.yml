@@ -10,10 +10,15 @@ on:
         options:
           - broker-smoke
           - release-cut
+          - release-cut-verify
           - reconciliation-align
           - reconciliation-resume
       version:
         description: SemVer release version without a leading v; required for release-cut.
+        required: false
+        type: string
+      request_id:
+        description: Correlation ID emitted by release-cut; required for release-cut-verify.
         required: false
         type: string
       release:
@@ -157,6 +162,7 @@ jobs:
           GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL: ${{ vars.GCP_BROKER_URL }}
           GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
           VERSION: ${{ inputs.version }}
+          REQUEST_ID: release-cut-${{ github.run_id }}
         run: |
           set -euo pipefail
           go run -mod=readonly ./cmd/git-governance \
@@ -166,7 +172,83 @@ jobs:
             --pull-request-provider github \
             workflow release cut \
             --version "$VERSION" \
-            --dispatch
+            --dispatch \
+            --defer-verification \
+            --request-id "$REQUEST_ID"
+          {
+            echo "### Protected release cut awaiting child approval"
+            echo
+            echo "Approve the correlated Create Protected Shared Line run, then dispatch release-cut-verify."
+            echo "version: \`$VERSION\`"
+            echo "request_id: \`$REQUEST_ID\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-cut-verify:
+    if: ${{ inputs.operation == 'release-cut-verify' }}
+    name: Verify protected release cut
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: release
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          check-latest: false
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Require protected release verification inputs
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          BROKER_URL: ${{ vars.GCP_BROKER_URL }}
+          WIF_PROVIDER: ${{ vars.GCP_BROKER_WIF_PROVIDER }}
+          INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$VERSION" || { echo "release-cut-verify requires version" >&2; exit 1; }
+          test -n "$REQUEST_ID" || { echo "release-cut-verify requires request_id" >&2; exit 1; }
+          for variable in BROKER_URL WIF_PROVIDER INVOKER_SERVICE_ACCOUNT; do
+            test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+          done
+
+      - name: Obtain short-lived broker audience token
+        id: broker_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          create_credentials_file: false
+          workload_identity_provider: ${{ vars.GCP_BROKER_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ vars.GCP_BROKER_URL }}
+
+      - name: Verify approved protected release cut
+        shell: bash
+        env:
+          GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL: ${{ vars.GCP_BROKER_URL }}
+          GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
+          VERSION: ${{ inputs.version }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          go run -mod=readonly ./cmd/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow release cut \
+            --version "$VERSION" \
+            --verify-request-id "$REQUEST_ID"
 
   reconciliation-align:
     if: ${{ inputs.operation == 'reconciliation-align' || inputs.operation == 'reconciliation-resume' }}

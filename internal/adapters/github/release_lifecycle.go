@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ const (
 
 var releaseRequestIDGenerator = newReleaseRequestID
 var releaseRandomReader io.Reader = rand.Reader
+var sharedLineRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 type workflowDispatchRequest struct {
 	Ref    string            `json:"ref"`
@@ -127,9 +129,9 @@ type compareResponse struct {
 	Files   []json.RawMessage `json:"files"`
 }
 
-// DispatchSharedLine starts the named protected-line workflow, waits for its
-// correlated result, and leaves Git verification of the created reference to
-// the application service.
+// DispatchSharedLine starts the named protected-line workflow. Unless
+// verification is explicitly deferred, it waits for the correlated result and
+// leaves Git verification of the created reference to the application service.
 func (publisher *Publisher) DispatchSharedLine(
 	ctx context.Context,
 	request port.SharedLineDispatchRequest,
@@ -145,8 +147,11 @@ func (publisher *Publisher) DispatchSharedLine(
 			"prepare a complete protected-line intent before dispatching it",
 		)
 	}
-	requestID, err := releaseRequestIDGenerator()
+	requestID, err := resolveSharedLineRequestID(request.RequestID)
 	if err != nil {
+		if request.RequestID != "" {
+			return port.SharedLineDispatchResult{}, err
+		}
 		return port.SharedLineDispatchResult{}, lifecycleExternalProblem(
 			"generate a protected-line workflow request identifier",
 			err,
@@ -173,12 +178,49 @@ func (publisher *Publisher) DispatchSharedLine(
 			"dispatch the protected-line creation workflow",
 		)
 	}
+	if request.DeferVerification {
+		return port.SharedLineDispatchResult{
+			RequestID:            requestID,
+			Branch:               request.Branch,
+			VerificationDeferred: true,
+		}, nil
+	}
 	runURL, err := publisher.waitForWorkflowRun(ctx, apiBase, repository, request.Workflow, requestID)
 	if err != nil {
 		return port.SharedLineDispatchResult{}, err
 	}
 	return port.SharedLineDispatchResult{
 		WorkflowRunURL: runURL,
+		RequestID:      requestID,
+		Branch:         request.Branch,
+	}, nil
+}
+
+// VerifySharedLine waits for a previously dispatched correlated protected-line
+// workflow. It deliberately does not dispatch another request, so an
+// environment approval can complete without duplicating the protected line.
+func (publisher *Publisher) VerifySharedLine(
+	ctx context.Context,
+	request port.SharedLineVerificationRequest,
+) (port.SharedLineDispatchResult, error) {
+	apiBase, repository, err := publisher.lifecycleTarget(request.RemoteURL)
+	if err != nil {
+		return port.SharedLineDispatchResult{}, err
+	}
+	if request.Branch.IsZero() || !validWorkflowFile(request.Workflow) || !validSharedLineRequestID(request.RequestID) {
+		return port.SharedLineDispatchResult{}, lifecycleConfigurationProblem(
+			"protected-line verification",
+			"a branch, workflow file, and valid correlated request identifier",
+			"approve the existing protected-line workflow, then verify it with the exact request identifier",
+		)
+	}
+	runURL, err := publisher.waitForWorkflowRun(ctx, apiBase, repository, request.Workflow, request.RequestID)
+	if err != nil {
+		return port.SharedLineDispatchResult{}, err
+	}
+	return port.SharedLineDispatchResult{
+		WorkflowRunURL: runURL,
+		RequestID:      request.RequestID,
 		Branch:         request.Branch,
 	}, nil
 }
@@ -306,7 +348,7 @@ func (publisher *Publisher) waitForWorkflowRun(
 			return "", lifecycleResponseProblem(status, "inspect the protected-line workflow run")
 		}
 		for _, run := range runs.WorkflowRuns {
-			if !strings.Contains(run.DisplayTitle, requestID) {
+			if !workflowRunMatchesRequestID(run.DisplayTitle, requestID) {
 				continue
 			}
 			if run.Status != "completed" {
@@ -612,6 +654,11 @@ func validWorkflowFile(value string) bool {
 		value != ""
 }
 
+func workflowRunMatchesRequestID(displayTitle, requestID string) bool {
+	title := strings.TrimSpace(displayTitle)
+	return title == requestID || strings.HasSuffix(title, "("+requestID+")")
+}
+
 // isSuccessfulHTTPStatus accepts any successful dispatch response. The
 // correlated workflow run remains the authoritative proof that the requested
 // protected-line operation completed.
@@ -625,6 +672,24 @@ func newReleaseRequestID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(value[:]), nil
+}
+
+func resolveSharedLineRequestID(value string) (string, error) {
+	if value == "" {
+		return releaseRequestIDGenerator()
+	}
+	if !validSharedLineRequestID(value) {
+		return "", lifecycleConfigurationProblem(
+			"protected-line request identifier",
+			"1 to 64 ASCII letters, digits, underscores, or hyphens",
+			"provide the exact non-secret correlation identifier for the protected-line workflow",
+		)
+	}
+	return value, nil
+}
+
+func validSharedLineRequestID(value string) bool {
+	return value == strings.TrimSpace(value) && sharedLineRequestIDPattern.MatchString(value)
 }
 
 func lifecycleResponseProblem(status int, operation string) error {

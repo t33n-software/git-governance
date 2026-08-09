@@ -20,6 +20,21 @@ accepts a successful HTTP `2xx` dispatch response, then requires the
 correlated workflow run to succeed and the requested remote line to exist
 before it reports the release cut as complete.
 
+The protected `release-control.yml` controller uses the bounded deferred form
+when its child workflow can wait for an independent `release`-environment
+approval:
+
+```text
+workflow release cut --dispatch --defer-verification --request-id <correlation>
+```
+
+This result proves only that the protected child workflow was accepted. It does
+not claim that `release/<semver>` exists. After approving the correlated
+`Create Protected Shared Line` run, dispatch `release-cut-verify` in
+`release-control.yml` with the same version and `request_id`. That operation
+waits for the correlated successful child run, fetches the remote, and verifies
+the protected line without dispatching a duplicate workflow.
+
 Without `--dispatch`, `cut` remains an intent-only plan. It is useful for
 review or a manually operated release process, but it does not prove that a
 release line exists and cannot advance the governed release lifecycle.
@@ -63,6 +78,10 @@ First dispatch `broker-smoke`. It proves that the broker accepts the approved
 `CyberT33N/git-governance` repository request and rejects an unapproved request
 without printing the returned installation token. Only after that smoke test
 passes may a release owner dispatch `release-cut` with a concrete SemVer value.
+The initial operation records a non-secret correlation ID in the job summary.
+If the child workflow awaits an environment approval, approve that child and
+then run `release-cut-verify` with the recorded version and correlation ID.
+Only the verification operation proves that the protected release line exists.
 
 ## Managed reconciliation control
 

@@ -210,12 +210,15 @@ type releaseWhiteboxPublisher struct {
 }
 
 type releaseWhiteboxLifecycle struct {
-	dispatchResult port.SharedLineDispatchResult
-	dispatchErr    error
-	evidence       port.ReleaseReconciliationEvidence
-	verifyErr      error
-	dispatches     []port.SharedLineDispatchRequest
-	reconciles     []port.ReleaseReconciliationRequest
+	dispatchResult     port.SharedLineDispatchResult
+	dispatchErr        error
+	sharedLineResult   port.SharedLineDispatchResult
+	sharedLineErr      error
+	evidence           port.ReleaseReconciliationEvidence
+	verifyErr          error
+	dispatches         []port.SharedLineDispatchRequest
+	sharedLineVerifies []port.SharedLineVerificationRequest
+	reconciles         []port.ReleaseReconciliationRequest
 }
 
 type releaseWhiteboxRecordStore struct {
@@ -252,6 +255,17 @@ func (lifecycle *releaseWhiteboxLifecycle) DispatchSharedLine(
 		return port.SharedLineDispatchResult{}, lifecycle.dispatchErr
 	}
 	return lifecycle.dispatchResult, nil
+}
+
+func (lifecycle *releaseWhiteboxLifecycle) VerifySharedLine(
+	_ context.Context,
+	request port.SharedLineVerificationRequest,
+) (port.SharedLineDispatchResult, error) {
+	lifecycle.sharedLineVerifies = append(lifecycle.sharedLineVerifies, request)
+	if lifecycle.sharedLineErr != nil {
+		return port.SharedLineDispatchResult{}, lifecycle.sharedLineErr
+	}
+	return lifecycle.sharedLineResult, nil
 }
 
 func (lifecycle *releaseWhiteboxLifecycle) VerifyReleaseReconciliation(
@@ -1495,6 +1509,64 @@ func TestReleaseWhiteboxDispatchAndAssessReleaseLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("defers a protected-line dispatch without checking an unapproved child branch", func(t *testing.T) {
+		git := &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		lifecycle := &releaseWhiteboxLifecycle{
+			dispatchResult: port.SharedLineDispatchResult{
+				RequestID:            "release-cut-123",
+				Branch:               release,
+				VerificationDeferred: true,
+			},
+		}
+		service := newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(lifecycle)
+		intent, err := service.CutRelease(context.Background(), CutReleaseRequest{
+			Repository: testRepository(),
+			Version:    version,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := service.DeferSharedLineVerification(context.Background(), DeferredSharedLineDispatchRequest{
+			Repository: testRepository(),
+			Intent:     intent.Intent,
+			RequestID:  "release-cut-123",
+		})
+		if err != nil || !result.VerificationDeferred || result.RequestID != "release-cut-123" ||
+			len(lifecycle.dispatches) != 1 || !lifecycle.dispatches[0].DeferVerification ||
+			lifecycle.dispatches[0].RequestID != "release-cut-123" {
+			t.Fatalf("DeferSharedLineVerification() = (%#v, %v), dispatches=%#v", result, err, lifecycle.dispatches)
+		}
+		if countCall(git.calls, "fetch") != 1 {
+			t.Fatalf("deferred dispatch fetched the child branch: %v", git.calls)
+		}
+	})
+
+	t.Run("verifies a deferred protected-line dispatch and its fetched reference", func(t *testing.T) {
+		git := &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), targetExists: true}
+		lifecycle := &releaseWhiteboxLifecycle{
+			sharedLineResult: port.SharedLineDispatchResult{
+				WorkflowRunURL: "https://example.invalid/actions/43",
+				RequestID:      "release-cut-123",
+				Branch:         release,
+			},
+		}
+		service := newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(lifecycle)
+		result, err := service.VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			Intent: SharedLineIntent{
+				Workflow: "create-protected-line.yml",
+				Kind:     "release",
+				Branch:   release,
+			},
+			RequestID: "release-cut-123",
+		})
+		if err != nil || result.WorkflowRunURL == "" || len(lifecycle.sharedLineVerifies) != 1 ||
+			lifecycle.sharedLineVerifies[0].RequestID != "release-cut-123" ||
+			countCall(git.calls, "fetch") != 1 {
+			t.Fatalf("VerifySharedLine() = (%#v, %v), verifies=%#v, calls=%v", result, err, lifecycle.sharedLineVerifies, git.calls)
+		}
+	})
+
 	t.Run("rejects incomplete dispatch dependencies, intents, provider failures, and mismatched lines", func(t *testing.T) {
 		intent := SharedLineIntent{
 			Workflow: "create-protected-line.yml",
@@ -1518,10 +1590,134 @@ func TestReleaseWhiteboxDispatchAndAssessReleaseLifecycle(t *testing.T) {
 		_, err = service.DispatchSharedLine(context.Background(), testRepository(), intent)
 		assertReleaseErrorIs(t, err, dispatchFailure)
 
+		_, err = service.DeferSharedLineVerification(context.Background(), DeferredSharedLineDispatchRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		_, err = (&ReleaseService{}).VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+			RequestID:  "release-cut-123",
+		})
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		_, err = (&ReleaseService{git: git}).VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+			RequestID:  "release-cut-123",
+		})
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		service = newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{})
+		_, err = service.VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		_, err = service.VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			RequestID:  "release-cut-123",
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		_, err = service.VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Intent:    intent,
+			RequestID: "release-cut-123",
+		})
+		assertProblemCode(t, err, problem.CodeRepositoryNotFound)
+
+		remoteFailureGit := &releaseLifecycleGit{
+			releaseWhiteboxGit: newReleaseWhiteboxGit(),
+			remoteURLErr:       errors.New("verification remote unavailable"),
+		}
+		_, err = newReleaseWhiteboxService(remoteFailureGit, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{}).
+			VerifySharedLine(context.Background(), VerifySharedLineRequest{
+				Repository: testRepository(),
+				Intent:     intent,
+				RequestID:  "release-cut-123",
+			})
+		assertReleaseErrorIs(t, err, remoteFailureGit.remoteURLErr)
+
 		service = newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{
 			dispatchResult: port.SharedLineDispatchResult{Branch: mustBranch("release/2.9.0")},
 		})
 		_, err = service.DispatchSharedLine(context.Background(), testRepository(), intent)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		verifyFailure := errors.New("verification failed")
+		service = newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{
+			sharedLineErr: verifyFailure,
+		})
+		_, err = service.VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+			RequestID:  "release-cut-123",
+		})
+		assertReleaseErrorIs(t, err, verifyFailure)
+	})
+
+	t.Run("rejects mismatched deferred provider contracts before fetching a protected reference", func(t *testing.T) {
+		intent := SharedLineIntent{
+			Workflow: "create-protected-line.yml",
+			Kind:     "release",
+			Branch:   release,
+			Inputs:   map[string]string{"kind": "release", "version": "2.8.0"},
+		}
+		for _, dispatchResult := range []port.SharedLineDispatchResult{
+			{VerificationDeferred: true, RequestID: "release-cut-123", Branch: release},
+			{VerificationDeferred: true, Branch: release},
+			{VerificationDeferred: true, RequestID: "release-cut-123", Branch: mustBranch("release/2.9.0")},
+			{Branch: release},
+		} {
+			git := &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), targetExists: true}
+			service := newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{
+				dispatchResult: dispatchResult,
+			})
+			if dispatchResult.VerificationDeferred && dispatchResult.RequestID != "" && dispatchResult.Branch == release {
+				_, err := service.DispatchSharedLine(context.Background(), testRepository(), intent)
+				assertProblemCode(t, err, problem.CodeInvalidInput)
+				continue
+			}
+			_, err := service.DeferSharedLineVerification(context.Background(), DeferredSharedLineDispatchRequest{
+				Repository: testRepository(),
+				Intent:     intent,
+				RequestID:  "release-cut-123",
+			})
+			assertProblemCode(t, err, problem.CodeInvalidInput)
+		}
+
+		git := &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		service := newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{
+			dispatchResult: port.SharedLineDispatchResult{
+				VerificationDeferred: true,
+				RequestID:            "release-cut-123",
+			},
+		})
+		result, err := service.DeferSharedLineVerification(context.Background(), DeferredSharedLineDispatchRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+			RequestID:  "release-cut-123",
+		})
+		if err != nil || result.Branch != release {
+			t.Fatalf("zero-value deferred branch = (%#v, %v)", result, err)
+		}
+
+		git = &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), targetExists: true}
+		service = newReleaseWhiteboxService(git, nil).WithReleaseLifecycleProvider(&releaseWhiteboxLifecycle{
+			sharedLineResult: port.SharedLineDispatchResult{
+				VerificationDeferred: true,
+				RequestID:            "release-cut-123",
+				Branch:               release,
+			},
+		})
+		_, err = service.VerifySharedLine(context.Background(), VerifySharedLineRequest{
+			Repository: testRepository(),
+			Intent:     intent,
+			RequestID:  "release-cut-123",
+		})
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 	})
 

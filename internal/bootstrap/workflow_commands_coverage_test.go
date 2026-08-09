@@ -656,6 +656,116 @@ func TestReleaseCommandsDispatchProtectedLinesAndSkipNoopBackmerges(t *testing.T
 		}
 	})
 
+	t.Run("defers and later verifies a protected release line through its correlation identifier", func(t *testing.T) {
+		git := newCommandGit(t, "feature/ABC-123-add-export", nil)
+		runtime := commandRuntime(git)
+		publisher := &workflowRecordingPublisher{
+			dispatchResult: port.SharedLineDispatchResult{
+				RequestID:            "release-cut-123",
+				VerificationDeferred: true,
+			},
+		}
+		runtime.Publisher = publisher
+		command := NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+
+		output, err := executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"--pull-request-provider", "github",
+			"workflow", "release", "cut",
+			"--version", "2.8.0",
+			"--dispatch",
+			"--defer-verification",
+			"--request-id", "release-cut-123",
+		)
+		if err != nil || publisher.dispatchCalls != 1 ||
+			!publisher.dispatchRequest.DeferVerification ||
+			publisher.dispatchRequest.RequestID != "release-cut-123" ||
+			!strings.Contains(output, `"verificationDeferred":"true"`) ||
+			!strings.Contains(output, `"requestID":"release-cut-123"`) {
+			t.Fatalf("deferred release dispatch = (%q, %v), publisher=%#v", output, err, publisher)
+		}
+
+		publisher.verifySharedResult = port.SharedLineDispatchResult{
+			RequestID:      "release-cut-123",
+			WorkflowRunURL: "https://example.invalid/actions/protected-line",
+		}
+		command = NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+		output, err = executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"--pull-request-provider", "github",
+			"workflow", "release", "cut",
+			"--version", "2.8.0",
+			"--verify-request-id", "release-cut-123",
+		)
+		if err != nil || publisher.dispatchCalls != 1 || publisher.verifySharedCalls != 1 ||
+			publisher.verifySharedRequest.RequestID != "release-cut-123" ||
+			!strings.Contains(output, `"verificationRequested":"true"`) {
+			t.Fatalf("protected release verification = (%q, %v), publisher=%#v", output, err, publisher)
+		}
+	})
+
+	t.Run("rejects incompatible deferred and verification release-cut options", func(t *testing.T) {
+		for _, arguments := range [][]string{
+			{"--version", "2.8.0", "--defer-verification"},
+			{"--version", "2.8.0", "--request-id", "release-cut-123"},
+			{"--version", "2.8.0", "--dispatch", "--request-id", "release-cut-123"},
+			{"--version", "2.8.0", "--dispatch", "--verify-request-id", "release-cut-123"},
+			{"--version", "2.8.0", "--dispatch", "--defer-verification", "--verify-request-id", "release-cut-123"},
+			{"--dry-run", "--version", "2.8.0", "--dispatch", "--defer-verification", "--request-id", "release-cut-123"},
+			{"--dry-run", "--version", "2.8.0", "--verify-request-id", "release-cut-123"},
+		} {
+			runtime := commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
+			runtime.Publisher = &workflowRecordingPublisher{}
+			command := NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+			_, err := executeBootstrapCommand(
+				t,
+				command,
+				append(
+					[]string{"--interactive", "never", "--output", "json", "--yes", "--pull-request-provider", "github", "workflow", "release", "cut"},
+					arguments...,
+				)...,
+			)
+			assertProblemCode(t, err, problem.CodeInvalidInput)
+		}
+	})
+
+	t.Run("rejects unavailable and failed protected release verification providers", func(t *testing.T) {
+		runtime := commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
+		runtime.Publisher = plainWorkflowPublisher{}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+		_, err := executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"--pull-request-provider", "github",
+			"workflow", "release", "cut",
+			"--version", "2.8.0",
+			"--verify-request-id", "release-cut-123",
+		)
+		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
+
+		verifyErr := errors.New("protected workflow unavailable")
+		runtime = commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", nil))
+		runtime.Publisher = &workflowRecordingPublisher{verifySharedErr: verifyErr}
+		command = NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+		_, err = executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"--pull-request-provider", "github",
+			"workflow", "release", "cut",
+			"--version", "2.8.0",
+			"--verify-request-id", "release-cut-123",
+		)
+		if !errors.Is(err, verifyErr) {
+			t.Fatalf("release verification error = %v, want %v", err, verifyErr)
+		}
+	})
+
 	t.Run("records a no-op release reconciliation without creating a pull request", func(t *testing.T) {
 		git := newCommandGit(t, "release/2.8.0", nil)
 		runtime := commandRuntime(git)
@@ -1213,6 +1323,10 @@ type workflowRecordingPublisher struct {
 	dispatchRequest     port.SharedLineDispatchRequest
 	dispatchResult      port.SharedLineDispatchResult
 	dispatchErr         error
+	verifySharedCalls   int
+	verifySharedRequest port.SharedLineVerificationRequest
+	verifySharedResult  port.SharedLineDispatchResult
+	verifySharedErr     error
 	hotfixMergeCalls    int
 	hotfixMerge         port.MainHotfixMergeEvidence
 	hotfixMergeErr      error
@@ -1248,6 +1362,28 @@ func (publisher *workflowRecordingPublisher) DispatchSharedLine(
 	result := publisher.dispatchResult
 	if result.Branch.IsZero() {
 		result.Branch = request.Branch
+	}
+	if result.WorkflowRunURL == "" {
+		result.WorkflowRunURL = "https://example.invalid/actions/protected-line"
+	}
+	return result, nil
+}
+
+func (publisher *workflowRecordingPublisher) VerifySharedLine(
+	_ context.Context,
+	request port.SharedLineVerificationRequest,
+) (port.SharedLineDispatchResult, error) {
+	publisher.verifySharedCalls++
+	publisher.verifySharedRequest = request
+	if publisher.verifySharedErr != nil {
+		return port.SharedLineDispatchResult{}, publisher.verifySharedErr
+	}
+	result := publisher.verifySharedResult
+	if result.Branch.IsZero() {
+		result.Branch = request.Branch
+	}
+	if result.RequestID == "" {
+		result.RequestID = request.RequestID
 	}
 	if result.WorkflowRunURL == "" {
 		result.WorkflowRunURL = "https://example.invalid/actions/protected-line"

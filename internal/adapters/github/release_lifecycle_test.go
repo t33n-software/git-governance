@@ -121,6 +121,38 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		}
 	})
 
+	t.Run("defers provider verification with a caller-bound request identifier", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if !strings.HasSuffix(request.URL.Path, "/dispatches") {
+				t.Fatalf("unexpected path %q", request.URL.Path)
+			}
+			var payload workflowDispatchRequest
+			if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Inputs["request_id"] != "release-cut-123" {
+				t.Fatalf("deferred dispatch request ID = %q", payload.Inputs["request_id"])
+			}
+			writer.WriteHeader(http.StatusNoContent)
+		}))
+		defer server.Close()
+
+		release, _ := branch.ParseName("release/2.8.0")
+		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
+		result, err := publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
+			RemoteURL:         "https://" + server.URL[len("https://"):] + "/acme/governance.git",
+			Workflow:          "create-protected-line.yml",
+			Ref:               "main",
+			Branch:            release,
+			RequestID:         "release-cut-123",
+			DeferVerification: true,
+		})
+		if err != nil || !result.VerificationDeferred || result.RequestID != "release-cut-123" ||
+			result.WorkflowRunURL != "" || result.Branch != release {
+			t.Fatalf("deferred DispatchSharedLine() = (%#v, %v)", result, err)
+		}
+	})
+
 	t.Run("waits through an in-progress workflow", func(t *testing.T) {
 		var requestID string
 		calls := 0
@@ -176,6 +208,15 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		})
 		assertProblem(t, err, problem.CodeConfigurationInvalid)
 
+		_, err = publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
+			RemoteURL: "https://github.com/acme/governance.git",
+			Workflow:  "create-protected-line.yml",
+			Ref:       "main",
+			Branch:    release,
+			RequestID: "invalid request identifier",
+		})
+		assertProblem(t, err, problem.CodeConfigurationInvalid)
+
 		original := releaseRequestIDGenerator
 		releaseRequestIDGenerator = func() (string, error) { return "", errors.New("random unavailable") }
 		t.Cleanup(func() { releaseRequestIDGenerator = original })
@@ -227,6 +268,79 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
 			Workflow:  "create-protected-line.yml",
 			Ref:       "main",
+			Branch:    release,
+		})
+		assertProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+}
+
+func TestPublisherVerifySharedLine(t *testing.T) {
+	t.Run("verifies the completed correlated workflow without dispatching again", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if !strings.HasSuffix(request.URL.Path, "/runs") {
+				t.Fatalf("unexpected path %q", request.URL.Path)
+			}
+			_ = json.NewEncoder(writer).Encode(workflowRunsResponse{
+				WorkflowRuns: []workflowRunResponse{{
+					Status:       "completed",
+					Conclusion:   "success",
+					HTMLURL:      "https://github.example/actions/runs/45",
+					DisplayTitle: "Create release line 2.8.0 (release-cut-123)",
+				}},
+			})
+		}))
+		defer server.Close()
+
+		release, _ := branch.ParseName("release/2.8.0")
+		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
+		result, err := publisher.VerifySharedLine(context.Background(), port.SharedLineVerificationRequest{
+			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
+			Workflow:  "create-protected-line.yml",
+			RequestID: "release-cut-123",
+			Branch:    release,
+		})
+		if err != nil || result.WorkflowRunURL != "https://github.example/actions/runs/45" ||
+			result.RequestID != "release-cut-123" || result.Branch != release {
+			t.Fatalf("VerifySharedLine() = (%#v, %v)", result, err)
+		}
+	})
+
+	t.Run("rejects invalid, unavailable, and failed workflow verification", func(t *testing.T) {
+		release, _ := branch.ParseName("release/2.8.0")
+		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: defaultAPIBaseURL})
+		_, err := publisher.VerifySharedLine(context.Background(), port.SharedLineVerificationRequest{
+			RemoteURL: "https://github.com/acme/governance.git",
+			Workflow:  "create-protected-line.yml",
+			RequestID: "invalid request identifier",
+			Branch:    release,
+		})
+		assertProblem(t, err, problem.CodeConfigurationInvalid)
+
+		_, err = publisher.VerifySharedLine(context.Background(), port.SharedLineVerificationRequest{
+			Workflow:  "create-protected-line.yml",
+			RequestID: "release-cut-123",
+			Branch:    release,
+		})
+		assertProblem(t, err, problem.CodeConfigurationInvalid)
+
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if !strings.HasSuffix(request.URL.Path, "/runs") {
+				t.Fatalf("unexpected path %q", request.URL.Path)
+			}
+			_ = json.NewEncoder(writer).Encode(workflowRunsResponse{
+				WorkflowRuns: []workflowRunResponse{{
+					Status:       "completed",
+					Conclusion:   "failure",
+					DisplayTitle: "release-cut-123",
+				}},
+			})
+		}))
+		defer server.Close()
+		publisher = New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
+		_, err = publisher.VerifySharedLine(context.Background(), port.SharedLineVerificationRequest{
+			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
+			Workflow:  "create-protected-line.yml",
+			RequestID: "release-cut-123",
 			Branch:    release,
 		})
 		assertProblem(t, err, problem.CodeConfigurationInvalid)
@@ -530,6 +644,11 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 		if !validWorkflowFile("release.yml") || validWorkflowFile("") || validWorkflowFile("release.yaml") ||
 			validWorkflowFile("../release.yml") || validWorkflowFile("release.yml\n") {
 			t.Fatal("workflow file validation is incorrect")
+		}
+		if !workflowRunMatchesRequestID("Create release line 2.8.0 (release-cut-123)", "release-cut-123") ||
+			!workflowRunMatchesRequestID("release-cut-123", "release-cut-123") ||
+			workflowRunMatchesRequestID("Create release line release-cut-123 later", "release-cut-123") {
+			t.Fatal("workflow run request ID matching is incorrect")
 		}
 		for _, testCase := range []struct {
 			status int

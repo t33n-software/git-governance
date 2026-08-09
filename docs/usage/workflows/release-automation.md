@@ -42,6 +42,14 @@ backmerge, add `--create-pull-request`. Stabilization also requires `--push`;
 promotion and backmerge do not. `cut --dispatch` and `support --dispatch`
 wait for protected-line creation and verify the resulting remote line.
 
+When `release-control.yml` dispatches `release-cut`, it uses a bounded
+deferred dispatch so an independently approved child workflow cannot outlive
+the parent wait. The controller records a non-secret correlation ID, exits
+after dispatch acceptance, and requires a later `release-cut-verify` operation
+with that same ID. The verification operation is the only step that confirms
+the child succeeded and the remote protected line exists; it does not dispatch
+a second child workflow.
+
 Backmerge must run only after the main promotion, exact immutable tag, and
 release artifact delivery are complete. It returns `not-required` instead of
 creating an empty PR when no effective release-only delta remains. Automation

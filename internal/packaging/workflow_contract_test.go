@@ -230,6 +230,8 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"workflow_dispatch:",
 		"broker-smoke",
 		"release-cut",
+		"release-cut-verify",
+		"request_id:",
 		"reconciliation-align",
 		"reconciliation-resume",
 		"ticket_key:",
@@ -244,6 +246,10 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
 		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
 		`--dispatch`,
+		`--defer-verification`,
+		`--verify-request-id "$REQUEST_ID"`,
+		"Protected release cut awaiting child approval",
+		"release-cut-verify requires request_id",
 		`"repository":"git-governance"`,
 		`"repository":"not-approved"`,
 		`test "$approved_status" = "200"`,
@@ -279,6 +285,48 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("release-control workflow must not contain %q", forbidden)
 		}
+	}
+}
+
+func TestReleaseControlWorkflowDefersThenVerifiesProtectedReleaseCuts(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "release-control.yml")
+	dispatchStart := strings.Index(workflow, "  release-cut:")
+	verifyStart := strings.Index(workflow, "  release-cut-verify:")
+	reconciliationStart := strings.Index(workflow, "  reconciliation-align:")
+	if dispatchStart == -1 || verifyStart == -1 || reconciliationStart == -1 {
+		t.Fatal("release-control workflow does not define separated release-cut dispatch and verification jobs")
+	}
+	dispatchJob := workflow[dispatchStart:verifyStart]
+	verifyJob := workflow[verifyStart:reconciliationStart]
+
+	for _, expected := range []string{
+		"environment: release",
+		"REQUEST_ID: release-cut-${{ github.run_id }}",
+		`--dispatch`,
+		`--defer-verification`,
+		`--request-id "$REQUEST_ID"`,
+		`>> "$GITHUB_STEP_SUMMARY"`,
+	} {
+		if !strings.Contains(dispatchJob, expected) {
+			t.Fatalf("release-cut dispatch job does not contain %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		"environment: release",
+		"release-cut-verify requires version",
+		"release-cut-verify requires request_id",
+		`--verify-request-id "$REQUEST_ID"`,
+		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
+		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
+	} {
+		if !strings.Contains(verifyJob, expected) {
+			t.Fatalf("release-cut verification job does not contain %q", expected)
+		}
+	}
+	if strings.Contains(verifyJob, "--dispatch") || strings.Contains(verifyJob, "--defer-verification") {
+		t.Fatal("release-cut verification job must verify the original request without dispatching another protected line workflow")
 	}
 }
 

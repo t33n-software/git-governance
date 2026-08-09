@@ -700,6 +700,13 @@ Das Kommando:
 - übergibt mit `--dispatch` die tatsächliche Remote-Erstellung an einen
   geschützten, autorisierten CI-Workflow, wartet auf dessen korrelierten Erfolg
   und verifiziert den gefetchten Remote-Branch
+- erlaubt für den geschützten Controller mit
+  `--dispatch --defer-verification --request-id <id>` ausschließlich die
+  bestätigte Workflow-Dispatch-Anfrage; das Ergebnis ist kein Nachweis einer
+  vorhandenen Release-Linie
+- verifiziert eine zuvor deferierte Anfrage mit
+  `--verify-request-id <id>` anhand des korrelierten erfolgreichen
+  Provider-Workflows und der gefetchten Remote-Linie, ohne erneut zu dispatchen
 - bleibt ohne `--dispatch` absichtlich bei einem Intent; dieser kann keinen
   nachfolgenden Release-Zustand beweisen
 - erklärt die danach erlaubte begrenzte Stabilisierung

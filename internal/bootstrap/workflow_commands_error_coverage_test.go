@@ -56,6 +56,13 @@ func (workflowFailurePublisher) DispatchSharedLine(
 	return port.SharedLineDispatchResult{}, nil
 }
 
+func (workflowFailurePublisher) VerifySharedLine(
+	context.Context,
+	port.SharedLineVerificationRequest,
+) (port.SharedLineDispatchResult, error) {
+	return port.SharedLineDispatchResult{}, nil
+}
+
 func (workflowFailurePublisher) VerifyReleaseReconciliation(
 	_ context.Context,
 	request port.ReleaseReconciliationRequest,
@@ -85,6 +92,13 @@ func (publisher workflowPreflightFailurePublisher) Validate(context.Context, por
 func (workflowPreflightFailurePublisher) DispatchSharedLine(
 	context.Context,
 	port.SharedLineDispatchRequest,
+) (port.SharedLineDispatchResult, error) {
+	return port.SharedLineDispatchResult{}, nil
+}
+
+func (workflowPreflightFailurePublisher) VerifySharedLine(
+	context.Context,
+	port.SharedLineVerificationRequest,
 ) (port.SharedLineDispatchResult, error) {
 	return port.SharedLineDispatchResult{}, nil
 }

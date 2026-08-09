@@ -1351,8 +1351,11 @@ func addQualityFields(fields map[string]string, result workflow.PublishTicketRes
 
 func newReleaseCutCommand(application *application) *cobra.Command {
 	var (
-		versionRaw string
-		dispatch   bool
+		versionRaw         string
+		dispatch           bool
+		requestIDRaw       string
+		deferVerification  bool
+		verifyRequestIDRaw string
 	)
 	command := &cobra.Command{
 		Use:   "cut",
@@ -1368,7 +1371,28 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 				return err
 			}
 			inputs.add("release version", version.String())
-			if err := application.confirmMutation(command.Context(), "Cut release", "Create release/"+version.String()+" from origin/develop?"); err != nil {
+			if deferVerification && !dispatch {
+				return invalidOption("defer-verification", "true", "--dispatch")
+			}
+			if verifyRequestIDRaw != "" && dispatch {
+				return invalidOption("verify-request-id", verifyRequestIDRaw, "a verification invocation without --dispatch")
+			}
+			if requestIDRaw != "" && !deferVerification {
+				return invalidOption("request-id", requestIDRaw, "--dispatch --defer-verification")
+			}
+			if (deferVerification || verifyRequestIDRaw != "") && application.options.dryRun {
+				return invalidOption("deferred or explicit protected-line verification", "configured", "a non-dry-run invocation")
+			}
+			label := "Cut release"
+			description := "Create release/" + version.String() + " from origin/develop?"
+			if verifyRequestIDRaw != "" {
+				label = "Verify protected release cut"
+				description = "Verify the approved protected release workflow for release/" + version.String() + "?"
+			} else if deferVerification {
+				label = "Dispatch protected release cut"
+				description = "Dispatch release/" + version.String() + " for approval and defer its provider verification?"
+			}
+			if err := application.confirmMutation(command.Context(), label, description); err != nil {
 				return err
 			}
 			result, err := services.releases.CutRelease(command.Context(), workflow.CutReleaseRequest{
@@ -1380,17 +1404,43 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 				return err
 			}
 			var dispatched port.SharedLineDispatchResult
-			if dispatch && !application.options.dryRun {
+			verificationRequested := verifyRequestIDRaw != ""
+			if verificationRequested {
 				if services.lifecycle == nil {
 					return releaseLifecycleProviderUnavailable()
 				}
-				dispatched, err = services.releases.DispatchSharedLine(command.Context(), repository, result.Intent)
+				dispatched, err = services.releases.VerifySharedLine(command.Context(), workflow.VerifySharedLineRequest{
+					Repository: repository,
+					Intent:     result.Intent,
+					RequestID:  verifyRequestIDRaw,
+				})
+				if err != nil {
+					return err
+				}
+			} else if dispatch && !application.options.dryRun {
+				if services.lifecycle == nil {
+					return releaseLifecycleProviderUnavailable()
+				}
+				if deferVerification {
+					dispatched, err = services.releases.DeferSharedLineVerification(command.Context(), workflow.DeferredSharedLineDispatchRequest{
+						Repository: repository,
+						Intent:     result.Intent,
+						RequestID:  requestIDRaw,
+					})
+				} else {
+					dispatched, err = services.releases.DispatchSharedLine(command.Context(), repository, result.Intent)
+				}
 				if err != nil {
 					return err
 				}
 			}
 			summary := "Protected release-line creation intent prepared."
-			if dispatch && !application.options.dryRun {
+			switch {
+			case verificationRequested:
+				summary = "Protected release line verified."
+			case dispatched.VerificationDeferred:
+				summary = "Protected release-line dispatch accepted; child workflow approval and explicit verification remain required."
+			case dispatch && !application.options.dryRun:
 				summary = "Protected release line created and verified."
 			}
 			return application.report(command, port.Report{
@@ -1401,12 +1451,15 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 					fetchCompleted(result.DryRun, result.Plan),
 				),
 				Fields: map[string]string{
-					"branch":            result.Intent.Branch.String(),
-					"base":              result.Intent.Source.String(),
-					"workflow":          result.Intent.Workflow,
-					"dispatchRequested": boolString(dispatch),
-					"workflowRunURL":    dispatched.WorkflowRunURL,
-					"dryRun":            boolString(result.DryRun),
+					"branch":                result.Intent.Branch.String(),
+					"base":                  result.Intent.Source.String(),
+					"workflow":              result.Intent.Workflow,
+					"dispatchRequested":     boolString(dispatch),
+					"verificationRequested": boolString(verificationRequested),
+					"verificationDeferred":  boolString(dispatched.VerificationDeferred),
+					"requestID":             dispatched.RequestID,
+					"workflowRunURL":        dispatched.WorkflowRunURL,
+					"dryRun":                boolString(result.DryRun),
 				},
 				Data: result.Intent,
 			})
@@ -1414,6 +1467,9 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 	}
 	command.Flags().StringVar(&versionRaw, "version", "", "release semantic version")
 	command.Flags().BoolVar(&dispatch, "dispatch", false, "dispatch and verify the protected-line workflow through the configured provider")
+	command.Flags().StringVar(&requestIDRaw, "request-id", "", "non-secret protected-line workflow correlation identifier for deferred dispatch")
+	command.Flags().BoolVar(&deferVerification, "defer-verification", false, "dispatch without waiting for child environment approval; requires later verification")
+	command.Flags().StringVar(&verifyRequestIDRaw, "verify-request-id", "", "verify a previously dispatched protected-line workflow by correlation identifier")
 	return command
 }
 

@@ -384,6 +384,23 @@ func (service *ReleaseService) CutRelease(ctx context.Context, request CutReleas
 	)
 }
 
+// DeferredSharedLineDispatchRequest identifies a release-control dispatch that
+// must return after provider acceptance so a separately approved child workflow
+// can be verified later without a duplicate dispatch.
+type DeferredSharedLineDispatchRequest struct {
+	Repository port.RepositoryIdentity
+	Intent     SharedLineIntent
+	RequestID  string
+}
+
+// VerifySharedLineRequest identifies the original protected-line dispatch that
+// must now be correlated, completed, and verified against the remote.
+type VerifySharedLineRequest struct {
+	Repository port.RepositoryIdentity
+	Intent     SharedLineIntent
+	RequestID  string
+}
+
 // DispatchSharedLine delegates protected-line creation to the configured
 // hosting provider, then verifies that the provider-created remote line is
 // available as a fetched remote-tracking reference.
@@ -391,6 +408,77 @@ func (service *ReleaseService) DispatchSharedLine(
 	ctx context.Context,
 	repository port.RepositoryIdentity,
 	intent SharedLineIntent,
+) (port.SharedLineDispatchResult, error) {
+	return service.dispatchSharedLine(ctx, repository, intent, "", false)
+}
+
+// DeferSharedLineVerification dispatches the protected-line workflow without
+// waiting for a child workflow that may be blocked on its own environment
+// approval. The original request ID is required for a later explicit verify.
+func (service *ReleaseService) DeferSharedLineVerification(
+	ctx context.Context,
+	request DeferredSharedLineDispatchRequest,
+) (port.SharedLineDispatchResult, error) {
+	if strings.TrimSpace(request.RequestID) == "" {
+		return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+			"a protected-line request identifier is required for deferred verification",
+			"provide the exact non-secret correlation identifier that the later verification will use",
+		)
+	}
+	return service.dispatchSharedLine(ctx, request.Repository, request.Intent, request.RequestID, true)
+}
+
+// VerifySharedLine checks the correlated protected-line workflow after its
+// environment approval, then verifies the created remote reference.
+func (service *ReleaseService) VerifySharedLine(
+	ctx context.Context,
+	request VerifySharedLineRequest,
+) (port.SharedLineDispatchResult, error) {
+	if service.git == nil {
+		return port.SharedLineDispatchResult{}, internalDependencyError("Git repository")
+	}
+	if service.lifecycle == nil {
+		return port.SharedLineDispatchResult{}, internalDependencyError("release lifecycle provider")
+	}
+	if strings.TrimSpace(request.RequestID) == "" {
+		return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+			"a protected-line request identifier is required for verification",
+			"provide the correlation identifier emitted by the deferred release-cut request",
+		)
+	}
+	if request.Intent.Branch.IsZero() || strings.TrimSpace(request.Intent.Workflow) == "" || strings.TrimSpace(request.Intent.Kind) == "" {
+		return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+			"a complete protected shared-line intent is required",
+			"prepare the release or support intent before verifying its provider workflow",
+		)
+	}
+	normalized, err := normalizeWorkflowRepository(request.Repository)
+	if err != nil {
+		return port.SharedLineDispatchResult{}, err
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, normalized)
+	if err != nil {
+		return port.SharedLineDispatchResult{}, err
+	}
+	result, err := service.lifecycle.VerifySharedLine(ctx, port.SharedLineVerificationRequest{
+		Repository: normalized,
+		RemoteURL:  remoteURL,
+		Workflow:   request.Intent.Workflow,
+		RequestID:  request.RequestID,
+		Branch:     request.Intent.Branch,
+	})
+	if err != nil {
+		return port.SharedLineDispatchResult{}, err
+	}
+	return service.verifySharedLineReference(ctx, normalized, request.Intent, result)
+}
+
+func (service *ReleaseService) dispatchSharedLine(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	intent SharedLineIntent,
+	requestID string,
+	deferVerification bool,
 ) (port.SharedLineDispatchResult, error) {
 	if service.git == nil {
 		return port.SharedLineDispatchResult{}, internalDependencyError("Git repository")
@@ -413,15 +501,62 @@ func (service *ReleaseService) DispatchSharedLine(
 		return port.SharedLineDispatchResult{}, err
 	}
 	result, err := service.lifecycle.DispatchSharedLine(ctx, port.SharedLineDispatchRequest{
-		Repository: normalized,
-		RemoteURL:  remoteURL,
-		Workflow:   intent.Workflow,
-		Ref:        mustMain().String(),
-		Inputs:     intent.Inputs,
-		Branch:     intent.Branch,
+		Repository:        normalized,
+		RemoteURL:         remoteURL,
+		Workflow:          intent.Workflow,
+		Ref:               mustMain().String(),
+		Inputs:            intent.Inputs,
+		Branch:            intent.Branch,
+		RequestID:         requestID,
+		DeferVerification: deferVerification,
 	})
 	if err != nil {
 		return port.SharedLineDispatchResult{}, err
+	}
+	if result.VerificationDeferred {
+		if !deferVerification {
+			return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+				"deferred protected-line verification is allowed only for an explicit deferred dispatch",
+				"retry the protected-line dispatch or use the release-control deferred verification contract",
+			)
+		}
+		if result.RequestID == "" {
+			return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+				"a deferred protected-line dispatch must return its request identifier",
+				"repair the release lifecycle provider before relying on later verification",
+			)
+		}
+		if result.Branch.IsZero() {
+			result.Branch = intent.Branch
+		}
+		if result.Branch.String() != intent.Branch.String() {
+			return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+				"the deferred provider workflow must bind the requested protected line",
+				"retry the dispatch with the exact release or support branch from the prepared intent",
+			)
+		}
+		return result, nil
+	}
+	if deferVerification {
+		return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+			"a deferred protected-line dispatch must not wait for provider completion",
+			"repair the release lifecycle provider to return a correlated deferred dispatch result",
+		)
+	}
+	return service.verifySharedLineReference(ctx, normalized, intent, result)
+}
+
+func (service *ReleaseService) verifySharedLineReference(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	intent SharedLineIntent,
+	result port.SharedLineDispatchResult,
+) (port.SharedLineDispatchResult, error) {
+	if result.VerificationDeferred {
+		return port.SharedLineDispatchResult{}, invalidWorkflowInput(
+			"protected-line verification requires a completed provider workflow",
+			"approve and complete the child workflow before requesting verification",
+		)
 	}
 	if result.Branch.IsZero() {
 		result.Branch = intent.Branch
@@ -432,14 +567,14 @@ func (service *ReleaseService) DispatchSharedLine(
 			"retry the dispatch with the exact release or support branch from the prepared intent",
 		)
 	}
-	if err := service.git.Fetch(ctx, normalized); err != nil {
+	if err := service.git.Fetch(ctx, repository); err != nil {
 		return port.SharedLineDispatchResult{}, err
 	}
-	base, err := branch.NewTargetBase(normalized.Remote, intent.Branch)
+	base, err := branch.NewTargetBase(repository.Remote, intent.Branch)
 	if err != nil {
 		return port.SharedLineDispatchResult{}, err
 	}
-	exists, err := service.git.TargetBaseExists(ctx, normalized, base)
+	exists, err := service.git.TargetBaseExists(ctx, repository, base)
 	if err != nil {
 		return port.SharedLineDispatchResult{}, err
 	}

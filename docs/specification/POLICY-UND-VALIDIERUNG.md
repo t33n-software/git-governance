@@ -334,6 +334,26 @@ Payload, Checksums, SBOM, Sigstore-Bundle und erfolgreichem Artifact-Workflow
 vollständig. Ein pauschaler `main -> develop`-Merge ist weder Propagation noch
 Reconciliation und bleibt verboten.
 
+### 6.3.1 Geschützte Line-Erzeugung mit Environment-Freigabe
+
+Eine erfolgreich angenommene Dispatch-Anfrage beweist nur, dass der Provider
+den geschützten Child-Workflow entgegengenommen hat. Wenn dessen eigener Job
+auf eine Environment-Freigabe wartet, darf der Parent-Controller weder durch
+eine begrenzte Wartezeit einen endgültigen Fehler behaupten noch die
+Line-Erzeugung als abgeschlossen ausgeben.
+
+Der zulässige Recovery-Vertrag lautet:
+
+```text
+deferierte Dispatch-Anfrage mit nicht-geheimem Korrelations-ID
+→ Freigabe des Child-Workflows
+→ explizite korrelierte Provider- und Remote-Ref-Verifikation
+```
+
+Die spätere Verifikation dispatcht keinen zweiten Child-Workflow. Erst ihr
+erfolgreicher Nachweis des korrelierten Workflow-Erfolgs und der gefetchten
+Remote-Linie darf den Release-Cut als abgeschlossen markieren.
+
 ### 6.4 Lokale Workflow-Basis-Metadaten
 
 Hotfix-, Release-Stabilisierungs- und Propagation-Workflows speichern ihre
