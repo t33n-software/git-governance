@@ -23,8 +23,10 @@ git governance workflow hotfix propagate
 git governance workflow release cut
 git governance workflow release stabilize
 git governance workflow release publish-stabilization
+git governance workflow release align-promotion-base
 git governance workflow release promote
 git governance workflow release backmerge
+git governance workflow release align-reconciliation-base
 git governance workflow release support
 git governance workflow cleanup
 

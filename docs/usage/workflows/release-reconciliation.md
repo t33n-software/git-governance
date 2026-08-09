@@ -47,7 +47,9 @@ reconciliation. They belong to the next integration phase and must never be
 merged, rebased, or otherwise written back into the delivered
 `release/<semver>` reference.
 
-When Develop requires a current pull-request head, the protected
+When the Develop protection policy accepts the release head, the controlled
+direct pull request `release/<semver> -> develop` remains valid. When the
+policy requires a current pull-request head, the protected
 `reconciliation-align` operation in `release-control.yml` builds a trusted
 binary from `main`, creates a ticket-bound release-preparation branch, and
 executes `workflow release align-reconciliation-base` there. The operation

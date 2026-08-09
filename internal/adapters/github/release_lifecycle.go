@@ -364,11 +364,13 @@ func (publisher *Publisher) mergedPromotion(
 		}
 		for _, pullRequest := range pullRequests {
 			if isMergedReleasePromotion(pullRequest, repository, release) {
-				mergeCommitSHA, err := publisher.promotionMergeCommit(ctx, apiBase, repository, release, pullRequest)
-				if err != nil {
-					return releasePullRequestResponse{}, err
+				if strings.TrimSpace(pullRequest.MergeCommitSHA) == "" {
+					mergeCommitSHA, err := publisher.promotionMergeCommit(ctx, apiBase, repository, release, pullRequest)
+					if err != nil {
+						return releasePullRequestResponse{}, err
+					}
+					pullRequest.MergeCommitSHA = mergeCommitSHA
 				}
-				pullRequest.MergeCommitSHA = mergeCommitSHA
 				return pullRequest, nil
 			}
 		}

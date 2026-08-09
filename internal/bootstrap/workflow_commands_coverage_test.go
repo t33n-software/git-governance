@@ -1200,19 +1200,25 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 }
 
 type workflowRecordingPublisher struct {
-	calls            int
-	request          port.PullRequest
-	result           port.PublishedPullRequest
-	err              error
-	lifecycleCalls   int
-	lifecycleRequest port.ReleaseReconciliationRequest
-	lifecycleResult  port.ReleaseReconciliationEvidence
-	lifecycleSet     bool
-	lifecycleErr     error
-	dispatchCalls    int
-	dispatchRequest  port.SharedLineDispatchRequest
-	dispatchResult   port.SharedLineDispatchResult
-	dispatchErr      error
+	calls               int
+	request             port.PullRequest
+	result              port.PublishedPullRequest
+	err                 error
+	lifecycleCalls      int
+	lifecycleRequest    port.ReleaseReconciliationRequest
+	lifecycleResult     port.ReleaseReconciliationEvidence
+	lifecycleSet        bool
+	lifecycleErr        error
+	dispatchCalls       int
+	dispatchRequest     port.SharedLineDispatchRequest
+	dispatchResult      port.SharedLineDispatchResult
+	dispatchErr         error
+	hotfixMergeCalls    int
+	hotfixMerge         port.MainHotfixMergeEvidence
+	hotfixMergeErr      error
+	hotfixDeliveryCalls int
+	hotfixDelivery      port.MainHotfixDeliveryEvidence
+	hotfixDeliveryErr   error
 }
 
 type plainWorkflowPublisher struct{}
@@ -1275,5 +1281,54 @@ func (publisher *workflowRecordingPublisher) VerifyReleaseReconciliation(
 	return result, nil
 }
 
+func (publisher *workflowRecordingPublisher) VerifyMainHotfixMerge(
+	_ context.Context,
+	request port.MainHotfixDeliveryRequest,
+) (port.MainHotfixMergeEvidence, error) {
+	publisher.hotfixMergeCalls++
+	if publisher.hotfixMergeErr != nil {
+		return port.MainHotfixMergeEvidence{}, publisher.hotfixMergeErr
+	}
+	result := publisher.hotfixMerge
+	if result.PullRequestURL == "" {
+		result.PullRequestURL = "https://example.invalid/pr/hotfix"
+	}
+	if result.MergeCommit == "" {
+		result.MergeCommit = "0123456789abcdef0123456789abcdef01234567"
+	}
+	if result.Tag == "" {
+		result.Tag = "v" + request.Record.TargetVersion().String()
+	}
+	return result, nil
+}
+
+func (publisher *workflowRecordingPublisher) VerifyMainHotfixDelivery(
+	_ context.Context,
+	request port.MainHotfixDeliveryRequest,
+) (port.MainHotfixDeliveryEvidence, error) {
+	publisher.hotfixDeliveryCalls++
+	if publisher.hotfixDeliveryErr != nil {
+		return port.MainHotfixDeliveryEvidence{}, publisher.hotfixDeliveryErr
+	}
+	result := publisher.hotfixDelivery
+	if result.PullRequestURL == "" {
+		result.PullRequestURL = "https://example.invalid/pr/hotfix"
+	}
+	if result.MergeCommit == "" {
+		result.MergeCommit = "0123456789abcdef0123456789abcdef01234567"
+	}
+	if result.Tag == "" {
+		result.Tag = "v" + request.Record.TargetVersion().String()
+	}
+	if result.ReleaseURL == "" {
+		result.ReleaseURL = "https://example.invalid/releases/" + result.Tag
+	}
+	if result.WorkflowRunURL == "" {
+		result.WorkflowRunURL = "https://example.invalid/actions/hotfix-delivery"
+	}
+	return result, nil
+}
+
 var _ port.PullRequestPublisher = (*workflowRecordingPublisher)(nil)
 var _ port.ReleaseLifecycleProvider = (*workflowRecordingPublisher)(nil)
+var _ port.MainHotfixLifecycleProvider = (*workflowRecordingPublisher)(nil)

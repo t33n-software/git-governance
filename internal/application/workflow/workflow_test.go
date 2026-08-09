@@ -385,10 +385,10 @@ func TestPublishTicketValidatesSeriesAndBuildsPullRequest(t *testing.T) {
 	if !result.Pushed || result.PullRequest.Source.String() != name.String() || result.PullRequest.Target.String() != "develop" || !result.PullRequest.Draft {
 		t.Fatalf("PublishTicket() = %#v", result)
 	}
-	if result.PublishedURL != "https://example.invalid/pr/1" || publisher.calls != 1 || quality.calls != 1 {
+	if result.PublishedURL != "https://example.invalid/pr/1" || publisher.calls != 1 || quality.calls != 2 {
 		t.Fatalf("publish result = %#v, publisher=%d, quality=%d", result, publisher.calls, quality.calls)
 	}
-	expected := "validate-ref,fetch,commit-messages,validate-ref,worktree-clean,publication,missing-base,push,remote-url"
+	expected := "validate-ref,fetch,commit-messages,validate-ref,worktree-clean,publication,missing-base,validate-ref,fetch,publication,missing-base,push,remote-url"
 	if got := strings.Join(git.calls, ","); got != expected {
 		t.Fatalf("calls = %q, want %q", got, expected)
 	}
@@ -444,13 +444,13 @@ func TestPublishTicketRevalidatesAfterRebase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Sync.Mutated || quality.calls != 2 {
+	if !result.Sync.Mutated || quality.calls != 1 {
 		t.Fatalf("PublishTicket() = %#v, quality calls=%d", result, quality.calls)
 	}
 	if countCall(git.calls, "commit-messages") != 2 {
 		t.Fatalf("commit-series validation calls = %v", git.calls)
 	}
-	if countCall(git.calls, "validate-ref") != 3 {
+	if countCall(git.calls, "validate-ref") != 2 {
 		t.Fatalf("branch/policy validation calls = %v", git.calls)
 	}
 }

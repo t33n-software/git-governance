@@ -21,7 +21,8 @@ func TestDefaultRuntimeConstructsAllAdapters(t *testing.T) {
 	if runtime.GitFactory == nil || runtime.StoreFactory == nil || runtime.KeyPolicy == nil ||
 		runtime.QualityFactory == nil || runtime.GitHubAuthFactory == nil || runtime.Browser == nil ||
 		runtime.GitHubAppClientID == nil || runtime.GitHubCredentialBrokerURL == nil ||
-		runtime.GitHubWorkloadIdentity == nil || runtime.Tools == nil || runtime.PromptFactory == nil ||
+		runtime.GitHubWorkloadIdentity == nil || runtime.HotfixPropagationPublisherEnabled == nil ||
+		runtime.Tools == nil || runtime.PromptFactory == nil ||
 		runtime.InputIsTerminal == nil || runtime.OutputIsTerminal == nil {
 		t.Fatal("default runtime left a required dependency unset")
 	}
@@ -40,8 +41,29 @@ func TestDefaultRuntimeConstructsAllAdapters(t *testing.T) {
 	_ = runtime.GitHubAppClientID()
 	_ = runtime.GitHubCredentialBrokerURL()
 	_ = runtime.GitHubWorkloadIdentity()
+	_ = runtime.HotfixPropagationPublisherEnabled()
 	if runtime.PromptFactory(true, "never") == nil {
 		t.Fatal("default prompt factory returned nil")
+	}
+}
+
+func TestDefaultRuntimeHotfixPropagationPublisherRequiresManagedBoundary(t *testing.T) {
+	t.Setenv("GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER", "server")
+	t.Setenv("GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL", "https://broker.example")
+	t.Setenv("GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN", "workload-identity")
+	if !defaultRuntime().HotfixPropagationPublisherEnabled() {
+		t.Fatal("default runtime did not enable the managed hotfix propagation publisher")
+	}
+
+	t.Setenv("GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN", "")
+	if defaultRuntime().HotfixPropagationPublisherEnabled() {
+		t.Fatal("default runtime enabled the publisher without workload identity")
+	}
+
+	t.Setenv("GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN", "workload-identity")
+	t.Setenv("GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER", "local")
+	if defaultRuntime().HotfixPropagationPublisherEnabled() {
+		t.Fatal("default runtime enabled the publisher without the server marker")
 	}
 }
 
@@ -55,7 +77,8 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 		withFallbacks.runtime.KeyPolicy == nil || withFallbacks.runtime.QualityFactory == nil ||
 		withFallbacks.runtime.GitHubAuthFactory == nil || withFallbacks.runtime.Browser == nil ||
 		withFallbacks.runtime.GitHubAppClientID == nil || withFallbacks.runtime.GitHubCredentialBrokerURL == nil ||
-		withFallbacks.runtime.GitHubWorkloadIdentity == nil || withFallbacks.runtime.Tools == nil || withFallbacks.runtime.PromptFactory == nil ||
+		withFallbacks.runtime.GitHubWorkloadIdentity == nil || withFallbacks.runtime.HotfixPropagationPublisherEnabled == nil ||
+		withFallbacks.runtime.Tools == nil || withFallbacks.runtime.PromptFactory == nil ||
 		withFallbacks.runtime.InputIsTerminal == nil || withFallbacks.runtime.OutputIsTerminal == nil {
 		t.Fatal("newApplication did not supply all runtime fallbacks")
 	}
@@ -99,6 +122,9 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 		GitHubWorkloadIdentity: func() string {
 			return "workload-identity"
 		},
+		HotfixPropagationPublisherEnabled: func() bool {
+			return true
+		},
 		Tools: tools,
 		PromptFactory: func(bool, string) port.Prompt {
 			return prompt
@@ -117,6 +143,7 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 		application.runtime.GitHubAppClientID() != "public-client-id" ||
 		application.runtime.GitHubCredentialBrokerURL() != "https://broker.example" ||
 		application.runtime.GitHubWorkloadIdentity() != "workload-identity" ||
+		!application.runtime.HotfixPropagationPublisherEnabled() ||
 		application.runtime.Tools != tools ||
 		application.runtime.PromptFactory(false, "auto") != prompt {
 		t.Fatal("newApplication replaced an injected runtime dependency")

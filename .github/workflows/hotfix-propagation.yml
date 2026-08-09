@@ -1,0 +1,252 @@
+name: Publish Approved Hotfix Propagation
+
+on:
+  workflow_dispatch:
+    inputs:
+      hotfix_branch:
+        description: Merged hotfix/<ticket>-<slug> branch with a delivered patch record.
+        required: true
+        type: string
+      target_line:
+        description: Declared develop, release/<semver>, or support/<major.minor> propagation target.
+        required: true
+        type: string
+      record:
+        description: Optional controlled hotfix release record path.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hotfix-propagation-${{ inputs.hotfix_branch }}-${{ inputs.target_line }}
+  cancel-in-progress: false
+
+jobs:
+  verify-delivery:
+    name: Verify delivered main hotfix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: release
+    outputs:
+      record: ${{ steps.inputs.outputs.record }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out trusted main control-plane source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          check-latest: false
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Require approved hotfix propagation inputs
+        id: inputs
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.hotfix_branch }}
+          TARGET_LINE: ${{ inputs.target_line }}
+          RECORD: ${{ inputs.record }}
+          BROKER_URL: ${{ vars.GCP_BROKER_URL }}
+          WIF_PROVIDER: ${{ vars.GCP_BROKER_WIF_PROVIDER }}
+          INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          if [[ "$SOURCE_BRANCH" =~ ^hotfix/([A-Z][A-Z0-9]*-[1-9][0-9]*)-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            ticket="${BASH_REMATCH[1]}"
+          else
+            echo "hotfix_branch must be a ticket-bound hotfix branch" >&2
+            exit 1
+          fi
+          [[ "$TARGET_LINE" == "develop" ||
+             "$TARGET_LINE" =~ ^release/[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ||
+             "$TARGET_LINE" =~ ^support/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "target_line must be develop, release/<semver>, or support/<major.minor>" >&2
+            exit 1
+          }
+          expected_record=".git-governance/hotfix-release-records/${ticket}.json"
+          if test -n "$RECORD"; then
+            test "$RECORD" = "$expected_record" || {
+              echo "record must bind the supplied hotfix ticket" >&2
+              exit 1
+            }
+          else
+            RECORD="$expected_record"
+          fi
+          for variable in BROKER_URL WIF_PROVIDER INVOKER_SERVICE_ACCOUNT; do
+            test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+          done
+          echo "record=$RECORD" >> "$GITHUB_OUTPUT"
+
+      - name: Obtain short-lived release broker audience token
+        id: broker_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          create_credentials_file: false
+          workload_identity_provider: ${{ vars.GCP_BROKER_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ vars.GCP_BROKER_URL }}
+
+      - name: Build trusted hotfix delivery verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build/bin
+          go build -mod=readonly -trimpath -o .build/bin/git-governance ./cmd/git-governance
+          ./.build/bin/git-governance --version
+
+      - name: Verify immutable main hotfix delivery
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.hotfix_branch }}
+          RECORD: ${{ steps.inputs.outputs.record }}
+          GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL: ${{ vars.GCP_BROKER_URL }}
+          GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
+        run: |
+          set -euo pipefail
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --pull-request-provider github \
+            workflow hotfix verify-delivery \
+            --branch "$SOURCE_BRANCH" \
+            --record "$RECORD"
+
+  propagate:
+    needs: verify-delivery
+    name: Publish verified hotfix propagation candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: hotfix-propagation
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out trusted main control-plane source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          check-latest: false
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+
+      - name: Require publisher configuration
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.hotfix_branch }}
+          TARGET_LINE: ${{ inputs.target_line }}
+          RECORD: ${{ needs.verify-delivery.outputs.record }}
+          BROKER_URL: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_BROKER_URL }}
+          WIF_PROVIDER: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_WIF_PROVIDER }}
+          INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$SOURCE_BRANCH" =~ ^hotfix/[A-Z][A-Z0-9]*-[1-9][0-9]*-[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
+            { echo "hotfix_branch must be a ticket-bound hotfix branch" >&2; exit 1; }
+          [[ "$TARGET_LINE" == "develop" ||
+             "$TARGET_LINE" =~ ^release/[0-9]+(\.[0-9]+){2}(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ||
+             "$TARGET_LINE" =~ ^support/(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+            echo "target_line must be develop, release/<semver>, or support/<major.minor>" >&2
+            exit 1
+          }
+          test -n "$RECORD"
+          for variable in BROKER_URL WIF_PROVIDER INVOKER_SERVICE_ACCOUNT; do
+            test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+          done
+
+      - name: Obtain short-lived hotfix publisher audience token
+        id: broker_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          create_credentials_file: false
+          workload_identity_provider: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_BROKER_URL }}
+
+      - name: Build trusted hotfix propagation controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .build/bin
+          go build -mod=readonly -trimpath -o .build/bin/git-governance ./cmd/git-governance
+          ./.build/bin/git-governance --version
+
+      - name: Publish the governed propagation candidate
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.hotfix_branch }}
+          TARGET_LINE: ${{ inputs.target_line }}
+          RECORD: ${{ needs.verify-delivery.outputs.record }}
+          BROKER_URL: ${{ vars.GCP_HOTFIX_PROPAGATION_PUBLISHER_BROKER_URL }}
+          BROKER_ID_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          cleanup() {
+            rm -f "$response"
+            unset basic BROKER_ID_TOKEN
+            unset GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0
+            unset GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL
+            unset GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN
+            unset GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER
+          }
+          trap cleanup EXIT
+
+          status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request POST "$BROKER_URL/v1/github/installations/token" \
+            --header "Authorization: Bearer $BROKER_ID_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"host":"github.com","owner":"CyberT33N","repository":"git-governance"}')"
+          test "$status" = "200"
+
+          token="$(jq --exit-status --raw-output '.access_token' "$response")"
+          test -n "$token"
+          echo "::add-mask::$token"
+          basic="$(printf 'x-access-token:%s' "$token" | base64 --wrap=0)"
+          echo "::add-mask::$basic"
+          unset token
+          rm -f "$response"
+
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic"
+          export GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL="$BROKER_URL"
+          export GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN="$BROKER_ID_TOKEN"
+          export GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER="server"
+
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow hotfix propagate-manifest \
+            --source "$SOURCE_BRANCH" \
+            --target-line "$TARGET_LINE" \
+            --record "$RECORD" \
+            --publish

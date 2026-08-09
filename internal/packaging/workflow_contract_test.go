@@ -37,6 +37,7 @@ func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 
 	releaseWorkflow := readWorkflow(t, "release.yml")
 	for _, expected := range []string{
+		"run-name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}",
 		"push:",
 		"tags:",
 		`- "v*"`,
@@ -45,6 +46,92 @@ func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 	} {
 		if !strings.Contains(releaseWorkflow, expected) {
 			t.Fatalf("release workflow does not contain %q", expected)
+		}
+	}
+}
+
+func TestMainHotfixDeliveryWorkflowUsesTrustedReleaseBoundary(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "hotfix-delivery.yml")
+	for _, expected := range []string{
+		"pull_request:",
+		"- main",
+		"- closed",
+		"workflow_dispatch:",
+		"startsWith(github.event.pull_request.head.ref, 'hotfix/')",
+		"environment: release",
+		"id-token: write",
+		"google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
+		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
+		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
+		"workflow hotfix verify-merge",
+		"workflow hotfix verify-delivery",
+		`git tag --annotate "$tag" "$merge_commit"`,
+		`git push origin "refs/tags/$tag"`,
+		"GITHUB_TOKEN: ${{ github.token }}",
+		"actions/workflows/release.yml/dispatches",
+		`\"inputs\":{\"tag\":\"${tag}\"}`,
+		`rm -f "$response"`,
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("main hotfix delivery workflow does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"workflow hotfix propagate",
+		"git cherry-pick",
+		"--no-verify",
+		"GIT_GOVERNANCE_GITHUB_TOKEN",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("main hotfix delivery workflow must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestHotfixPropagationWorkflowUsesDedicatedPublisherBoundary(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "hotfix-propagation.yml")
+	for _, expected := range []string{
+		"workflow_dispatch:",
+		"environment: release",
+		"environment: hotfix-propagation",
+		"needs: verify-delivery",
+		"id-token: write",
+		"test \"$GITHUB_REF\" = \"refs/heads/main\"",
+		"GCP_BROKER_URL",
+		"GCP_BROKER_WIF_PROVIDER",
+		"GCP_BROKER_INVOKER_SERVICE_ACCOUNT",
+		"GCP_HOTFIX_PROPAGATION_PUBLISHER_BROKER_URL",
+		"GCP_HOTFIX_PROPAGATION_PUBLISHER_WIF_PROVIDER",
+		"GCP_HOTFIX_PROPAGATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT",
+		"google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
+		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
+		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
+		`GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER="server"`,
+		`GIT_CONFIG_KEY_0="http.https://github.com/.extraheader"`,
+		`echo "::add-mask::$token"`,
+		"workflow hotfix verify-delivery",
+		"workflow hotfix propagate-manifest",
+		"--publish",
+		`rm -f "$response"`,
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("hotfix propagation workflow does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"actions: write",
+		"contents: write",
+		"GITHUB_TOKEN",
+		"git cherry-pick",
+		"git push",
+		"--no-verify",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("hotfix propagation workflow must not contain %q", forbidden)
 		}
 	}
 }
@@ -94,6 +181,24 @@ func TestCIWorkflowUsesBuildWorkspaceForNativeSmokeBinary(t *testing.T) {
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("CI workflow must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestCIWorkflowValidatesMainHotfixRecordInsideRequiredQualityGate(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "ci.yml")
+	for _, expected := range []string{
+		"name: Validate reviewed main hotfix release record",
+		"matrix.name == 'linux-amd64'",
+		"github.event.pull_request.base.ref == 'main'",
+		"startsWith(github.event.pull_request.head.ref, 'hotfix/')",
+		"workflow hotfix validate-record",
+		`--branch "$HOTFIX_BRANCH"`,
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("CI workflow does not validate main hotfix records with %q", expected)
 		}
 	}
 }

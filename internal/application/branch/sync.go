@@ -22,9 +22,10 @@ const (
 
 // Synchronizer centralizes base freshness and rewrite policy.
 type Synchronizer struct {
-	git       port.GitRepository
-	validator *Service
-	quality   port.QualityRunner
+	git          port.GitRepository
+	validator    *Service
+	quality      port.QualityRunner
+	finalQuality *FinalQualityGate
 }
 
 // NewSynchronizer creates a synchronization service.
@@ -36,16 +37,24 @@ func NewSynchronizer(git port.GitRepository, validator *Service, quality port.Qu
 	}
 }
 
+// WithFinalQualityGate adds revision-bound final quality evidence to pre-push
+// validation without changing direct synchronization quality behavior.
+func (synchronizer *Synchronizer) WithFinalQualityGate(gate *FinalQualityGate) *Synchronizer {
+	synchronizer.finalQuality = gate
+	return synchronizer
+}
+
 // SyncRequest describes a base-synchronization request.
 type SyncRequest struct {
-	Repository      port.RepositoryIdentity
-	Name            branch.BranchName
-	Base            *branch.TargetBase
-	Strategy        SyncStrategy
-	MergeMessage    *commitmsg.Message
-	DryRun          bool
-	SkipFetch       bool
-	WorkflowManaged bool
+	Repository               port.RepositoryIdentity
+	Name                     branch.BranchName
+	Base                     *branch.TargetBase
+	Strategy                 SyncStrategy
+	MergeMessage             *commitmsg.Message
+	DryRun                   bool
+	SkipFetch                bool
+	WorkflowManaged          bool
+	DeferPostMutationQuality bool
 }
 
 // SyncResult describes the observed state and any mutation performed.
@@ -171,13 +180,15 @@ func (synchronizer *Synchronizer) Sync(ctx context.Context, request SyncRequest)
 		if err := synchronizer.git.Rebase(ctx, repository, base); err != nil {
 			return SyncResult{}, synchronizer.classifyRebaseFailure(ctx, repository, base, err)
 		}
-		quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
-		if err != nil {
-			return SyncResult{}, err
-		}
-		result.Quality = &quality
 		result.Mutated = true
 		result.RecommendedAction = "rebased"
+		if !request.DeferPostMutationQuality {
+			quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
+			if err != nil {
+				return SyncResult{}, err
+			}
+			result.Quality = &quality
+		}
 		return result, nil
 	}
 
@@ -192,13 +203,15 @@ func (synchronizer *Synchronizer) Sync(ctx context.Context, request SyncRequest)
 		if err := synchronizer.git.Rebase(ctx, repository, base); err != nil {
 			return SyncResult{}, synchronizer.classifyRebaseFailure(ctx, repository, base, err)
 		}
-		quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
-		if err != nil {
-			return SyncResult{}, err
-		}
-		result.Quality = &quality
 		result.Mutated = true
 		result.RecommendedAction = "rebased"
+		if !request.DeferPostMutationQuality {
+			quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
+			if err != nil {
+				return SyncResult{}, err
+			}
+			result.Quality = &quality
+		}
 		return result, nil
 	}
 
@@ -227,13 +240,15 @@ func (synchronizer *Synchronizer) Sync(ctx context.Context, request SyncRequest)
 	if err := synchronizer.git.Merge(ctx, repository, base, *request.MergeMessage); err != nil {
 		return SyncResult{}, err
 	}
-	quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
-	if err != nil {
-		return SyncResult{}, err
-	}
-	result.Quality = &quality
 	result.Mutated = true
 	result.RecommendedAction = "merged"
+	if !request.DeferPostMutationQuality {
+		quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		result.Quality = &quality
+	}
 	return result, nil
 }
 
@@ -241,10 +256,11 @@ func (synchronizer *Synchronizer) Sync(ctx context.Context, request SyncRequest)
 // rebase. It deliberately contains no mutation strategy: the only permitted
 // action is to continue the in-progress rebase after user conflict resolution.
 type ResumeRebaseRequest struct {
-	Repository      port.RepositoryIdentity
-	Name            branch.BranchName
-	Base            *branch.TargetBase
-	WorkflowManaged bool
+	Repository               port.RepositoryIdentity
+	Name                     branch.BranchName
+	Base                     *branch.TargetBase
+	WorkflowManaged          bool
+	DeferPostMutationQuality bool
 }
 
 // ResumeRebase continues a user-resolved rebase or verifies an externally
@@ -307,9 +323,13 @@ func (synchronizer *Synchronizer) ResumeRebase(ctx context.Context, request Resu
 	if missing {
 		return SyncResult{}, rebaseConflict(base, nil)
 	}
-	quality, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
-	if err != nil {
-		return SyncResult{}, err
+	var quality *port.QualityResult
+	if !request.DeferPostMutationQuality {
+		completed, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		quality = &completed
 	}
 	return SyncResult{
 		Name:              request.Name,
@@ -317,7 +337,7 @@ func (synchronizer *Synchronizer) ResumeRebase(ctx context.Context, request Resu
 		Publication:       publication,
 		Mutated:           true,
 		RecommendedAction: "rebased",
-		Quality:           &quality,
+		Quality:           quality,
 	}, nil
 }
 
@@ -369,7 +389,7 @@ func (synchronizer *Synchronizer) ValidatePrePush(ctx context.Context, request P
 		return PrePushResult{}, err
 	}
 	if request.Name.Family() == branch.FamilyScratch {
-		quality, err := synchronizer.runQuality(ctx, repository, request.Name.Family())
+		quality, err := synchronizer.prePushQuality(ctx, repository, request.Name, nil)
 		if err != nil {
 			return PrePushResult{}, err
 		}
@@ -427,7 +447,7 @@ func (synchronizer *Synchronizer) ValidatePrePush(ctx context.Context, request P
 			Remediation: "run branch sync-base --strategy rebase, rerun quality checks, then push again",
 		})
 	}
-	quality, err := synchronizer.runQuality(ctx, repository, request.Name.Family())
+	quality, err := synchronizer.prePushQuality(ctx, repository, request.Name, &base)
 	if err != nil {
 		return PrePushResult{}, err
 	}
@@ -458,6 +478,18 @@ func (synchronizer *Synchronizer) runQuality(
 		}, nil
 	}
 	return synchronizer.quality.Run(ctx, repository, port.QualityRequest{Families: families})
+}
+
+func (synchronizer *Synchronizer) prePushQuality(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	name branch.BranchName,
+	base *branch.TargetBase,
+) (port.QualityResult, error) {
+	if synchronizer.finalQuality != nil {
+		return synchronizer.finalQuality.ValidateOrRunForBranch(ctx, repository, name, base)
+	}
+	return synchronizer.runQuality(ctx, repository, name.Family())
 }
 
 func (synchronizer *Synchronizer) workflowBase(

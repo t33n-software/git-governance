@@ -262,45 +262,47 @@ func TestWindowsReplaceConfigurationReportsPostRecoveryTargetStatError(t *testin
 	temporaryPath := createTemporaryConfiguration(t, filepath.Dir(path), "replacement")
 
 	handle, event := requestLevel1Oplock(t, backup)
-	replaced := make(chan error, 1)
 	waiterDone := make(chan struct{})
-	go func() {
-		defer close(waiterDone)
-
-		backgroundErr := func() error {
-			status, err := windows.WaitForSingleObject(event, 5_000)
-			if err != nil {
-				return err
-			}
-			if status != windows.WAIT_OBJECT_0 {
-				return fmt.Errorf("oplock wait status = %#x", status)
-			}
-			if err := os.Remove(path); err != nil {
-				return err
-			}
-			if err := os.Symlink(filepath.Base(path), path); err != nil {
-				return err
-			}
-			return nil
-		}()
-		if err := windows.CloseHandle(handle); err != nil && backgroundErr == nil {
-			backgroundErr = fmt.Errorf("close oplock handle: %w", err)
-		}
-		replaced <- backgroundErr
-	}()
-	t.Cleanup(func() {
+	defer func() {
 		<-waiterDone
-		if err := windows.CloseHandle(event); err != nil {
-			t.Errorf("close oplock event: %v", err)
+		_ = windows.CloseHandle(event)
+	}()
+
+	replaced := make(chan error, 1)
+	go func() {
+		var replacementErr error
+		defer func() {
+			if err := windows.CloseHandle(handle); err != nil && replacementErr == nil {
+				replacementErr = fmt.Errorf("close oplock handle: %w", err)
+			}
+			replaced <- replacementErr
+			close(waiterDone)
+		}()
+
+		status, err := windows.WaitForSingleObject(event, 5_000)
+		if err != nil {
+			replacementErr = err
+			return
 		}
-	})
+		if status != windows.WAIT_OBJECT_0 {
+			replacementErr = fmt.Errorf("oplock wait status = %#x", status)
+			return
+		}
+		if err := os.Remove(path); err != nil {
+			replacementErr = err
+			return
+		}
+		if err := os.Symlink(filepath.Base(path), path); err != nil {
+			replacementErr = err
+			return
+		}
+	}()
 
 	err := replaceConfiguration(path, temporaryPath)
-	backgroundErr := <-replaced
-	<-waiterDone
-	if backgroundErr != nil {
+	if backgroundErr := <-replaced; backgroundErr != nil {
 		t.Fatalf("replace target during oplock break: %v", backgroundErr)
 	}
+	<-waiterDone
 	assertNonNotExistError(t, err)
 	assertFileContent(t, temporaryPath, "replacement")
 

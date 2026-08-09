@@ -48,3 +48,33 @@ creating an empty PR when no effective release-only delta remains. Automation
 must use a managed credential broker or another least-privileged release
 identity; it never starts a browser login. See
 [GitHub App authentication](../authentication.md).
+
+## Main-hotfix patch delivery
+
+`hotfix-delivery.yml` is a separate main-bound controller for a merged
+same-repository `hotfix/* -> main` pull request. It validates the reviewed
+ticket record and ordered manifest through the managed release broker before
+creating an immutable patch tag. It then dispatches `release.yml` for that tag
+and waits for the artifact workflow and published evidence.
+
+The controller may use the release-automation boundary only for tag and
+artifact delivery. It does not publish a propagation candidate, mutate
+`develop`, or grant local credentials any release authority.
+
+## Main-hotfix propagation
+
+`hotfix-propagation.yml` is a separate, main-bound controller for one declared
+additional target of a delivered main hotfix. It uses the protected
+`hotfix-propagation` environment, its own OIDC/WIF path, and a separate
+least-privilege Publisher broker. The controller independently rechecks the
+delivery record before invoking:
+
+```text
+workflow hotfix propagate-manifest --publish
+```
+
+The source CLI prepares the ordered `cherry-pick -x` candidate, runs its
+quality gates, pushes only the non-shared `fix/*` branch, and creates one PR
+for the declared target. The controller does not merge that PR, mutate a
+Shared Line directly, or reuse the release-automation or reconciliation
+publisher identity.

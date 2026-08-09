@@ -3,7 +3,10 @@ name: Dependency Review
 on:
   pull_request:
     branches:
+      - develop
       - main
+      - release/**
+      - support/**
 
 permissions:
   contents: read

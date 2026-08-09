@@ -22,6 +22,11 @@ type promotionAlignmentCommandGit struct {
 	mergedMessage commitmsg.Message
 	pushErr       error
 	pushed        bool
+	active        bool
+	operation     string
+	conflicts     bool
+	targetMatches bool
+	continued     bool
 }
 
 func (git *promotionAlignmentCommandGit) HasMissingBaseCommits(
@@ -60,6 +65,30 @@ func (git *promotionAlignmentCommandGit) Push(
 	return nil
 }
 
+func (git *promotionAlignmentCommandGit) ActiveOperation(context.Context, port.RepositoryIdentity) (string, bool, error) {
+	return git.operation, git.active, nil
+}
+
+func (git *promotionAlignmentCommandGit) HasUnmergedConflicts(context.Context, port.RepositoryIdentity) (bool, error) {
+	return git.conflicts, nil
+}
+
+func (git *promotionAlignmentCommandGit) ActiveMergeTargetMatches(
+	context.Context,
+	port.RepositoryIdentity,
+	branch.TargetBase,
+) (bool, error) {
+	return git.targetMatches, nil
+}
+
+func (git *promotionAlignmentCommandGit) ContinueMerge(context.Context, port.RepositoryIdentity) error {
+	git.continued = true
+	git.active = false
+	git.operation = ""
+	git.missing = false
+	return nil
+}
+
 type promotionAlignmentCommandQuality struct {
 	calls int
 	err   error
@@ -91,7 +120,7 @@ func newPromotionAlignmentCommandGit(t *testing.T) *promotionAlignmentCommandGit
 	}
 	base := newCommandGit(t, worker.String(), nil)
 	base.workflowBases = map[string]branch.TargetBase{worker.String(): releaseBase}
-	return &promotionAlignmentCommandGit{commandGit: base, missing: true}
+	return &promotionAlignmentCommandGit{commandGit: base, missing: true, targetMatches: true}
 }
 
 func newPromotionAlignmentCommand(t *testing.T, git port.GitRepository, quality port.QualityRunner) *cobra.Command {
@@ -138,6 +167,27 @@ func TestReleaseAlignPromotionBaseCommand(t *testing.T) {
 			quality.calls != 1 || !strings.Contains(output, `"qualityStatus":"passed"`) {
 			t.Fatalf("alignment = (%q, %v), merged=%t base=%q message=%q quality=%d",
 				output, err, git.merged, git.mergedBase, git.mergedMessage, quality.calls)
+		}
+	})
+
+	t.Run("continues a resolved promotion merge only with --resume", func(t *testing.T) {
+		git := newPromotionAlignmentCommandGit(t)
+		git.active = true
+		git.operation = "merge"
+		quality := &promotionAlignmentCommandQuality{}
+		command := newPromotionAlignmentCommand(t, git, quality)
+
+		output, err := executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"workflow", "release", "align-promotion-base",
+			"--release", "release/1.0.1",
+			"--resume",
+		)
+		if err != nil || !git.continued || quality.calls != 1 ||
+			!strings.Contains(output, `"resumed":"true"`) {
+			t.Fatalf("resume = (%q, %v), continued=%t quality=%d", output, err, git.continued, quality.calls)
 		}
 	})
 

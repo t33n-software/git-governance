@@ -34,6 +34,12 @@ The required model is:
    go run -mod=readonly .\cmd\build
    ```
 
+   During governed publication this same suite runs after the final allowed
+   synchronization, not as stale evidence before a rebase or merge. The CLI
+   records a short-lived, revision-bound local Git-metadata proof and pre-push
+   may reuse it only for the exact final candidate. Raw pushes without a
+   matching proof still run the suite locally.
+
 2. Pull requests run the same complete build gate natively in CI on Linux,
    macOS, and Windows. Each runner independently executes linting, tests,
    uncached 100%-coverage, race detection, static analysis, vulnerability

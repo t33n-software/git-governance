@@ -1,6 +1,6 @@
 # ADR-0003: Governed Release Promotion Base Alignment
 
-- Status: proposed
+- Status: angenommen
 - Datum: 2026-08-01
 - Geltungsbereich: `release/<semver> -> main` bei strikter Main-Basisaktualität
 - Entscheider: Release-Governance
@@ -66,6 +66,10 @@ Die Entscheidung wird auf mehreren Ebenen durchgesetzt:
   Branch mit gespeicherter Basis `origin/release/<semver>`.
 - Der Merge von `origin/main` entsteht auf der Working-Branch mit einer
   ticketgebundenen Nachricht, nicht auf der Shared Line.
+- Ein Konflikt bleibt auf der Working-Branch fail-closed. Der kontrollierte
+  Resume-Pfad verlangt explizit gestagte Resolution-Pfade, bindet
+  `MERGE_HEAD` an die gefetchte Main-Revision und verwirft einen Kandidaten,
+  wenn Main vor der Veröffentlichung weitergelaufen ist.
 - Vor Push und PR laufen die Repository-Quality-Gates.
 - Der PR zurück auf `release/*` und der spätere Promotion-PR nach `main`
   bleiben unabhängige Review-Ereignisse.

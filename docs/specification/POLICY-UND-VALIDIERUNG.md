@@ -280,6 +280,14 @@ Release-Linie. Der erzeugte Merge-Commit ist ticketgebunden und append-only.
 Erst nach dessen Merge werden der bestehende Promotion-PR und seine
 Main-Gates erneut bewertet.
 
+Konflikte bleiben auf der Preparation-Branch fail-closed. Eine Resolution darf
+nur die exakten Konfliktpfade stagen. Der CLI-Resume-Pfad prüft vor der
+Fortsetzung, dass der aktive Merge weiterhin den nach Fetch aktuellen
+`origin/main`-Commit integriert, und prüft diese Basis erneut vor Quality,
+Push und PR. Bei einer weitergelaufenen Main-Linie ist der Kandidat verworfen;
+ein Rohaufruf von `git merge --continue`, ein Rebase oder eine
+Release-Ref-Mutation sind keine zulässigen Recovery-Mechanismen.
+
 GitHub Rulesets schützen die zugrunde liegende Release-Ref, können aber die
 UI-Aktion anhand ihrer Head-Branch-Familie nicht eigenständig ausblenden.
 Deshalb müssen direkte Ref-Updates serverseitig abgewiesen und die
@@ -298,6 +306,34 @@ einer weiteren aktiven Linie benötigt wird, erzeugt das Tool dort einen
 kontrollierten `fix/*`-Branch und führt `git cherry-pick -x <sha>` aus. Die
 Herkunft bleibt dadurch in der Commit-Historie sichtbar.
 
+Ein Main-Hotfix erhält vor dem Merge einen versionierten Record unter
+`.git-governance/hotfix-release-records/<KEY-NUMBER>.json`. Der Record bindet
+Ticket, Incident, betroffene Linie, vorherigen Tag, Patch-Zielversion,
+Same-Repository-PR, vollständiges SHA-Manifest, Commit-Budget-Ausnahme und
+alle zusätzlichen Ziel-Linien. Ein bis drei semantische Manifest-Commits sind
+normal; vier benötigen eine begründete Ausnahme. Fünf oder mehr benötigen
+zusätzlich eine explizite, im Record referenzierte Release-Freigabe; ohne sie
+wird der Main-Merge fail-closed abgewiesen.
+
+Die Ein-Commit-Oberfläche `workflow hotfix propagate` bleibt für einen
+reviewten Commit bestehen. `workflow hotfix propagate-manifest` darf nur
+deklarierte Ziele verwenden und erzeugt einen lokalen, nicht-shared
+`fix/*`-Kandidaten. Er speichert den Resume-Cursor ausschließlich in lokaler
+Git-Metadatenauflösung, nicht im Record und nicht im Arbeitsbaum. Der Kandidat
+wird ausschließlich durch die getrennte Hotfix-Propagation-Publisher-Grenze
+veröffentlicht. Der geschützte Controller revalidiert Delivery, Record,
+Manifest, Ziel-Linie und Quality, konfiguriert nur temporäre maskierte
+Git-Transport-Credentials und ruft `propagate-manifest --publish` auf. Es gibt
+keine lokale `--push`- oder PR-Umgehung, keinen pauschalen `main -> develop`-
+Merge und keine direkte Shared-Line-Mutation.
+
+Ein serverseitiger Main-Hotfix-Delivery-Controller revalidiert Record,
+PR-Identität, Merge, Manifest und Tag-Idempotenz, bevor er den immutable
+Patch-Tag erzeugt. Anschließend ist der Release erst nach nicht-draft Release,
+Payload, Checksums, SBOM, Sigstore-Bundle und erfolgreichem Artifact-Workflow
+vollständig. Ein pauschaler `main -> develop`-Merge ist weder Propagation noch
+Reconciliation und bleibt verboten.
+
 ### 6.4 Lokale Workflow-Basis-Metadaten
 
 Hotfix-, Release-Stabilisierungs- und Propagation-Workflows speichern ihre
@@ -312,9 +348,9 @@ ein Hotfix- oder Stabilisierung-Branch nicht fälschlich gegen
 
 Eine vorhandene, gültige `git-governance.quality.json` ist ein expliziter
 Repository-Vertrag. Auf allen offiziellen Arbeitsbranches sind ihre Gates
-vor jedem Push verpflichtend. Der Pre-Push-Validator führt die Suite nach der
-Prüfung aller tatsächlichen Ref-Updates genau einmal aus. Ein Push mehrerer
-offizieller Refs führt nicht zu mehrfacher Gate-Ausführung.
+vor jedem Push verpflichtend. Der Pre-Push-Validator prüft alle tatsächlichen
+Ref-Updates immer strukturell. Ein Push mehrerer offizieller Refs führt die
+Suite höchstens einmal aus.
 
 Die Konfiguration verwendet einen Default-Scope und einen Scope je Gate.
 `includeFamilies` wählt Branch-Familien aus; `excludeFamilies` wird danach
@@ -326,6 +362,22 @@ Stress-Test nur auf `feature/*` und `perf/*`.
 `scratch/*` ist private Exploration und nicht Teil des Default-Scopes. Ein
 konkretes Gate kann Scratch aber über `includeFamilies` bewusst einschließen.
 Eine fehlende Datei lautet stets `unconfigured`, nie `passed`.
+
+Die finale lokale Suite eines Publish-Workflows läuft erst nach der letzten
+zulässigen Synchronisationsmutation. Ihr Ergebnis wird als kurzlebiger,
+revisionsgebundener Datensatz unter
+`git-governance.final-quality-evidence` in der lokalen Git-Konfiguration
+gespeichert, nicht im versionierten Arbeitsbaum. Der Datensatz enthält keine
+Credentials und bindet Ref und Commit, Zielbasisrevision, Remote,
+Konfigurationsdigest, Gate-Auswahl, Toolchain, sauberen Arbeitsbaum und
+Erstellungszeit.
+
+Ein passender Nachweis verhindert nur die Wiederholung derselben lokalen
+Suite. Er ersetzt nie die strukturelle Pre-Push-Policy, Remote-CI, Required
+Checks, Review oder Shared-Line-Schutz. Fehlt der Nachweis, ist er abgelaufen
+oder passt nicht exakt, läuft die Suite einmal als Fallback. Beschädigte oder
+unvollständige Nachweise werden fail-closed abgewiesen; `--no-verify`,
+Hook-Deaktivierung und ungebundene Skip-Schalter bleiben unzulässig.
 
 ### 6.6 Cleanup-Grenze
 
@@ -361,13 +413,17 @@ nur bei effektivem Delta:
 Ein offener Promotion-PR, ein bloßer Tagname oder eine fehlende
 Artefakt-Delivery sind keine zulässigen Backmerge-Voraussetzungen.
 
-Erzwingt das Develop-Ziel einen aktuellen PR-Head, startet nur die geschützte
-Main-Control-Plane die Reconciliation. Sie baut den vertrauenswürdigen
-CLI-Binary vor dem Preparation-Branch-Wechsel, erhält kurzlebige
-Broker-Identität und lässt ausschließlich diese Branch den aktuellen
-Develop-Stand mergen. Weder die ausgelieferte Release-Ref noch ein lokaler
-Dry-Run dürfen einen Provider-Publish oder eine Pull-Request-Erstellung
-auslösen.
+Erzwingt das Develop-Ziel einen aktuellen PR-Head, darf die veröffentlichte
+`release/<semver>`-Ref nicht aktualisiert werden. In diesem Fall erstellt die
+geschützte Main-Control-Plane eine ticketgebundene, release-abgeleitete
+`chore/*`-Preparation-Branch. Sie baut den vertrauenswürdigen CLI-Binary vor
+dem Preparation-Branch-Wechsel, erhält kurzlebige Broker-Identität und lässt
+ausschließlich diese Branch den aktuellen Develop-Stand mergen. Der Workflow
+verlangt die gespeicherte Release-Basis, einen effektiven Delta und vollständige
+Delivery-Evidenz. Weder die ausgelieferte Release-Ref noch ein lokaler Dry-Run
+dürfen einen Provider-Publish oder eine Pull-Request-Erstellung auslösen. Ein
+Rebase, Force Push, Plattform-Update der Release-Ref oder ein
+`develop -> release/<semver>`-PR verletzt den Vertrag.
 
 Nach bestätigter Delivery ist die Controller-Bewertung im Zielpfad
 programmatisch und idempotent. Sie erstellt bei effektivem Delta den

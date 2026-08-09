@@ -397,10 +397,12 @@ Release-Delivery prüft der Hosting-Adapter den effektiven
 ohne Delta wird ein auditierbares `not-required`-Ergebnis geliefert.
 
 Erzwingt das Develop-Ziel einen aktuellen Pull-Request-Head, bleibt die
-ausgelieferte Release-Ref unverändert. Der geschützte Main-Control-Plane-
-Workflow baut vor dem Wechsel auf die Preparation-Branch einen
-vertrauenswürdigen Binary und führt die kontrollierte Reconciliation von dort
-aus. ADR-0004 beschreibt diese Ausführungsgrenze; ADR-0005 trennt die
+ausgelieferte Release-Ref unverändert. Die kontrollierte Kombination mit dem
+aktuellen Develop-Stand erfolgt ausschließlich auf einer ticketgebundenen
+Preparation-Branch und wird per Merge-Commit-PR nach Develop geprüft. Der
+geschützte Main-Control-Plane-Workflow baut vor dem Wechsel auf diese Branch
+einen vertrauenswürdigen Binary und führt die kontrollierte Reconciliation von
+dort aus. ADR-0004 beschreibt diese Ausführungsgrenze; ADR-0005 trennt die
 Reconciliation-Publisher-Identität von der Release-Automation.
 
 Nach vollständig bestätigter Delivery bewertet der Zielpfad die Reconciliation
@@ -441,6 +443,14 @@ pre-push:
 ```
 
 Keine Regex und keine Git-Workflow-Logik werden in `lefthook.yml` dupliziert.
+
+Die lokale Vollsuite wird im Publish-Use-Case nach der finalen
+Synchronisationsentscheidung erzeugt und an den konkreten Publish-Kandidaten
+gebunden. Der Hook bleibt für jede ausgehende Ref-Aktualisierung zuständig und
+darf diesen Nachweis nur bei exakter Revision-, Basis-, Konfigurations-,
+Toolchain- und Worktree-Übereinstimmung wiederverwenden. Damit reduziert die
+lokale Deduplizierung keine Policy-Prüfung und ersetzt weder CI noch
+Branch-Protection.
 
 Quellen:
 

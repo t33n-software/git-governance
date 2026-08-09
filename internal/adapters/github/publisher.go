@@ -167,6 +167,18 @@ type createPullRequestRequest struct {
 	Draft bool   `json:"draft"`
 }
 
+type githubAPIErrorResponse struct {
+	Message string                     `json:"message"`
+	Errors  []githubAPIValidationError `json:"errors"`
+}
+
+type githubAPIValidationError struct {
+	Resource string `json:"resource"`
+	Field    string `json:"field"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+}
+
 func (publisher *Publisher) findOpenPullRequest(
 	ctx context.Context,
 	apiBase *url.URL,
@@ -185,7 +197,7 @@ func (publisher *Publisher) findOpenPullRequest(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", false, responseProblem(response.StatusCode, "find an existing GitHub pull request")
+		return "", false, responseProblemWithBody(response, "find an existing GitHub pull request")
 	}
 
 	var pullRequests []pullRequestResponse
@@ -220,7 +232,7 @@ func (publisher *Publisher) createPullRequest(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		return port.PublishedPullRequest{}, responseProblem(response.StatusCode, "create a GitHub pull request")
+		return port.PublishedPullRequest{}, responseProblemWithBody(response, "create a GitHub pull request")
 	}
 
 	var created pullRequestResponse
@@ -403,6 +415,43 @@ func decodeResponse(reader io.Reader, target any) error {
 }
 
 func responseProblem(status int, operation string) error {
+	return responseProblemForAPIError(status, operation, githubAPIErrorResponse{})
+}
+
+func responseProblemWithBody(response *http.Response, operation string) error {
+	var apiError githubAPIErrorResponse
+	if err := decodeResponse(response.Body, &apiError); err != nil {
+		return responseProblem(response.StatusCode, operation)
+	}
+	return responseProblemForAPIError(response.StatusCode, operation, apiError)
+}
+
+func responseProblemForAPIError(status int, operation string, apiError githubAPIErrorResponse) error {
+	if status == http.StatusUnauthorized || status == http.StatusForbidden || githubAPIErrorIndicatesPermission(apiError) {
+		return problem.New(problem.Details{
+			Code:        problem.CodeExternalCommandFailed,
+			Category:    problem.CategoryExternal,
+			Field:       "GitHub pull request authorization",
+			Actual:      http.StatusText(status),
+			Expected:    "a GitHub App session with Pull requests: write and Contents: write on the head repository",
+			Rule:        "pull-request publication must use an app authorized for the selected repository and source branch",
+			Remediation: "verify the GitHub App installation, repository selection, and Pull requests/Contents permissions before " + operation,
+		})
+	}
+	if status == http.StatusNotFound {
+		return problem.New(problem.Details{
+			Code:        problem.CodeExternalCommandFailed,
+			Category:    problem.CategoryExternal,
+			Field:       "GitHub pull request repository visibility",
+			Actual:      http.StatusText(status),
+			Expected:    "a repository and source branch visible to the GitHub App",
+			Rule:        "pull-request publication must address a repository visible to the selected app session",
+			Remediation: "verify the repository installation boundary and source branch visibility before " + operation,
+		})
+	}
+	if status == http.StatusUnprocessableEntity {
+		return githubValidationProblem(operation, apiError)
+	}
 	return problem.New(problem.Details{
 		Code:        problem.CodeExternalCommandFailed,
 		Category:    problem.CategoryExternal,
@@ -412,6 +461,104 @@ func responseProblem(status int, operation string) error {
 		Rule:        "GitHub pull-request publication must complete without an API error",
 		Remediation: operation + " after checking GitHub permissions, branch visibility, and repository access",
 	})
+}
+
+func githubValidationProblem(operation string, apiError githubAPIErrorResponse) error {
+	if githubAPIErrorIndicatesDuplicatePullRequest(apiError) {
+		return problem.New(problem.Details{
+			Code:        problem.CodeExternalCommandFailed,
+			Category:    problem.CategoryExternal,
+			Field:       "GitHub pull request duplicate",
+			Actual:      "an equivalent pull request already exists",
+			Expected:    "at most one pull request for the selected source and target branches",
+			Rule:        "pull-request publication must return an existing equivalent pull request instead of creating a duplicate",
+			Remediation: "inspect the existing pull request or choose the intended source and target branches before " + operation,
+		})
+	}
+	for _, validationError := range apiError.Errors {
+		switch strings.ToLower(strings.TrimSpace(validationError.Field)) {
+		case "head":
+			return problem.New(problem.Details{
+				Code:        problem.CodeExternalCommandFailed,
+				Category:    problem.CategoryExternal,
+				Field:       "GitHub pull request source branch",
+				Actual:      "GitHub rejected the source branch",
+				Expected:    "a pushed source branch visible to the GitHub App",
+				Rule:        "pull-request publication must use an existing source branch in the selected repository",
+				Remediation: "verify that the source branch was pushed and remains visible to the GitHub App before " + operation,
+			})
+		case "base":
+			return problem.New(problem.Details{
+				Code:        problem.CodeExternalCommandFailed,
+				Category:    problem.CategoryExternal,
+				Field:       "GitHub pull request target branch",
+				Actual:      "GitHub rejected the target branch",
+				Expected:    "an existing target branch in the selected repository",
+				Rule:        "pull-request publication must target an existing repository branch",
+				Remediation: "verify the governed target branch and repository visibility before " + operation,
+			})
+		case "title":
+			return problem.New(problem.Details{
+				Code:        problem.CodeExternalCommandFailed,
+				Category:    problem.CategoryExternal,
+				Field:       "GitHub pull request title",
+				Actual:      "GitHub rejected the pull-request title",
+				Expected:    "a GitHub-accepted pull-request title",
+				Rule:        "pull-request publication must provide a valid title",
+				Remediation: "repair the governed pull-request title before " + operation,
+			})
+		}
+	}
+	return problem.New(problem.Details{
+		Code:        problem.CodeExternalCommandFailed,
+		Category:    problem.CategoryExternal,
+		Field:       "GitHub pull request validation",
+		Actual:      "GitHub rejected the pull-request semantics",
+		Expected:    "a GitHub-accepted source, target, and title combination",
+		Rule:        "pull-request publication must satisfy GitHub validation without exposing provider response content",
+		Remediation: "verify the governed pull-request intent and repository state before " + operation,
+	})
+}
+
+func githubAPIErrorIndicatesPermission(apiError githubAPIErrorResponse) bool {
+	return githubAPIErrorContains(apiError, "resource not accessible by integration") ||
+		githubAPIErrorContains(apiError, "resource not accessible by personal access token")
+}
+
+func githubAPIErrorIndicatesDuplicatePullRequest(apiError githubAPIErrorResponse) bool {
+	for _, message := range githubAPIErrorMessages(apiError) {
+		if strings.Contains(message, "pull request") && strings.Contains(message, "already exists") {
+			return true
+		}
+	}
+	for _, validationError := range apiError.Errors {
+		if strings.EqualFold(strings.TrimSpace(validationError.Code), "already_exists") {
+			return true
+		}
+	}
+	return false
+}
+
+func githubAPIErrorContains(apiError githubAPIErrorResponse, expected string) bool {
+	for _, message := range githubAPIErrorMessages(apiError) {
+		if strings.Contains(message, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func githubAPIErrorMessages(apiError githubAPIErrorResponse) []string {
+	messages := make([]string, 0, len(apiError.Errors)+1)
+	if message := strings.ToLower(strings.TrimSpace(apiError.Message)); message != "" {
+		messages = append(messages, message)
+	}
+	for _, validationError := range apiError.Errors {
+		if message := strings.ToLower(strings.TrimSpace(validationError.Message)); message != "" {
+			messages = append(messages, message)
+		}
+	}
+	return messages
 }
 
 func responseDecodeProblem(field string, cause error) error {

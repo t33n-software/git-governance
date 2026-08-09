@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -220,6 +221,90 @@ func TestPublisherClassifiesHTTPAndResponseFailures(t *testing.T) {
 	})
 }
 
+func TestPublisherClassifiesSafeGitHubResponseDetails(t *testing.T) {
+	testCases := []struct {
+		name           string
+		status         int
+		body           string
+		expectedField  string
+		expectedActual string
+	}{
+		{
+			name:           "authorization",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"message":"Resource not accessible by integration secret-token"}`,
+			expectedField:  "GitHub pull request authorization",
+			expectedActual: http.StatusText(http.StatusUnprocessableEntity),
+		},
+		{
+			name:           "repository visibility",
+			status:         http.StatusNotFound,
+			body:           `{"message":"repository secret-token was not found"}`,
+			expectedField:  "GitHub pull request repository visibility",
+			expectedActual: http.StatusText(http.StatusNotFound),
+		},
+		{
+			name:           "source branch",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"message":"Validation Failed","errors":[{"resource":"PullRequest","field":"head","code":"invalid","message":"secret-token"}]}`,
+			expectedField:  "GitHub pull request source branch",
+			expectedActual: "GitHub rejected the source branch",
+		},
+		{
+			name:           "target branch",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"message":"Validation Failed","errors":[{"resource":"PullRequest","field":"base","code":"invalid","message":"secret-token"}]}`,
+			expectedField:  "GitHub pull request target branch",
+			expectedActual: "GitHub rejected the target branch",
+		},
+		{
+			name:           "title",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"message":"Validation Failed","errors":[{"resource":"PullRequest","field":"title","code":"invalid","message":"secret-token"}]}`,
+			expectedField:  "GitHub pull request title",
+			expectedActual: "GitHub rejected the pull-request title",
+		},
+		{
+			name:           "duplicate message",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"A pull request already exists for secret-token"}]}`,
+			expectedField:  "GitHub pull request duplicate",
+			expectedActual: "an equivalent pull request already exists",
+		},
+		{
+			name:           "duplicate code",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"errors":[{"resource":"PullRequest","code":"already_exists"}]}`,
+			expectedField:  "GitHub pull request duplicate",
+			expectedActual: "an equivalent pull request already exists",
+		},
+		{
+			name:           "unknown validation",
+			status:         http.StatusUnprocessableEntity,
+			body:           `{"message":"Validation Failed secret-token"}`,
+			expectedField:  "GitHub pull request validation",
+			expectedActual: "GitHub rejected the pull-request semantics",
+		},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			err := responseProblemWithBody(&http.Response{
+				StatusCode: testCase.status,
+				Body:       io.NopCloser(strings.NewReader(testCase.body)),
+			}, "create a GitHub pull request")
+			value, ok := problem.As(err)
+			if !ok {
+				t.Fatalf("problem = %T, want classified problem", err)
+			}
+			if value.Field != testCase.expectedField || value.Actual != testCase.expectedActual {
+				t.Fatalf("problem = %#v, want field=%q actual=%q", value.Details, testCase.expectedField, testCase.expectedActual)
+			}
+			assertNoPublisherResponseLeak(t, err, value)
+		})
+	}
+}
+
 func TestPublisherCredentialResolutionFailures(t *testing.T) {
 	publication := testPublication("https://github.com", false)
 	resolverErr := errors.New("credential unavailable")
@@ -385,6 +470,24 @@ func assertProblem(t *testing.T, err error, code problem.Code) {
 	value, ok := problem.As(err)
 	if !ok || value.Code != code {
 		t.Fatalf("problem = %#v, want code %q", err, code)
+	}
+}
+
+func assertNoPublisherResponseLeak(t *testing.T, err error, value *problem.Problem) {
+	t.Helper()
+
+	for _, output := range []string{
+		err.Error(),
+		value.Actual,
+		value.Context,
+		value.Diagnostic,
+		value.Expected,
+		value.Rule,
+		value.Remediation,
+	} {
+		if strings.Contains(output, "secret-token") {
+			t.Fatalf("publisher response leaked sensitive content in %q", output)
+		}
 	}
 }
 

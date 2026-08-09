@@ -21,6 +21,23 @@ Die Konfigurationsdatei selbst ist das Opt-in. Ohne Datei wird keine
 projekt- oder sprachspezifische Build-, Test- oder Lint-Annahme getroffen; der
 Status lautet dann `unconfigured`, nie `passed`.
 
+Für eine reguläre Veröffentlichung läuft die vollständige lokale Suite erst,
+nachdem der Branch gegen seine aktuelle Zielbasis synchronisiert wurde. Ein
+bestandener Lauf erzeugt einen kurzlebigen, revisionsgebundenen Nachweis in
+der lokalen Git-Metadatenauflösung unter
+`git-governance.final-quality-evidence`. Der Nachweis enthält keine Secrets
+und wird nicht committed. Er bindet mindestens ausgehende Ref und Commit,
+Remote und Zielbasisrevision, Quality-Konfigurationsdigest, Gate-Auswahl,
+Toolchain, sauberen Arbeitsbaum und Erstellungszeit.
+
+Der Pre-Push-Pfad prüft weiterhin jede tatsächliche Ref-Aktualisierung
+strukturell. Er darf den Nachweis nur wiederverwenden, wenn alle Bindungen
+noch exakt passen und der Nachweis frisch ist. Fehlt er, ist er abgelaufen
+oder passt nicht, läuft die vollständige Suite einmal als Fallback. Ein
+beschädigter oder unvollständiger Nachweis blockiert fail-closed. Weder
+`--no-verify` noch Hook-Deaktivierung oder ein ungebundener Skip-Schalter sind
+eine zulässige Deduplizierung.
+
 Dieses Repository verwendet zusätzlich den plattformneutralen
 `go run ./cmd/check-coverage`-Gate. Er führt
 `go test -count=1 -cover ./...` aus und bricht ab, wenn ein Go-Package keine
@@ -60,7 +77,8 @@ Marktanteile noch allgemeine Qualitätswerte.
 gültige Quality-Datei
 → Pre-Push prüft alle tatsächlichen Git-Ref-Updates
 → Shared-Line-, Rewrite- und Basisregeln bestehen
-→ berechtigte Gates laufen einmal pro Push
+→ passender finaler Nachweis wird nur für exakt dieselben Updates verwendet
+→ sonst laufen berechtigte Gates einmal pro Push
 → Push darf fortgesetzt werden
 ```
 

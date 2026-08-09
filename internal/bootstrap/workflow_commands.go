@@ -2,12 +2,15 @@ package bootstrap
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
 	"github.com/CyberT33N/git-governance/internal/application/port"
 	"github.com/CyberT33N/git-governance/internal/application/workflow"
 	"github.com/CyberT33N/git-governance/internal/domain/branch"
 	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
+	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
 	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 	"github.com/spf13/cobra"
@@ -616,10 +619,182 @@ func newHotfixWorkflowCommand(application *application) *cobra.Command {
 	start.Flags().StringVar(&affectedRaw, "affected-line", "", "main, release/<semver>, or support/<major.minor>")
 	command.AddCommand(
 		start,
+		newHotfixValidateRecordCommand(application),
+		newHotfixVerifyMergeCommand(application),
+		newHotfixVerifyDeliveryCommand(application),
 		newHotfixPublishCommand(application),
 		newHotfixPropagateCommand(application),
+		newHotfixPropagateManifestCommand(application),
 	)
 	return command
+}
+
+func newHotfixValidateRecordCommand(application *application) *cobra.Command {
+	var (
+		branchRaw string
+		recordRaw string
+	)
+	command := &cobra.Command{
+		Use:   "validate-record",
+		Short: "Validate the reviewed release record for a main hotfix",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			name, err := currentOrSpecified(command.Context(), services, branchRaw, repository)
+			if err != nil {
+				return err
+			}
+			inputs.add("hotfix branch", name.String())
+			if name.Family() != branch.FamilyHotfix {
+				return invalidOption("branch", name.String(), "a hotfix/<ticket>-<slug> branch")
+			}
+			result, err := services.releases.ValidateMainHotfixRecord(command.Context(), workflow.ValidateMainHotfixRecordRequest{
+				Repository: repository,
+				Branch:     name,
+				Location:   recordRaw,
+			})
+			if err != nil {
+				return err
+			}
+			manifest := result.Record.Manifest()
+			targets := result.Record.PropagationTargets()
+			targetValues := make([]string, 0, len(targets))
+			for _, target := range targets {
+				targetValues = append(targetValues, target.String())
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.hotfix.validate-record",
+				Summary:   "Main hotfix release record is valid.",
+				Fields: map[string]string{
+					"ticket":                  result.Record.Ticket().String(),
+					"incident":                result.Record.Incident(),
+					"source":                  result.Record.ExpectedSource().String(),
+					"affectedLine":            result.Record.AffectedLine().String(),
+					"targetVersion":           result.Record.TargetVersion().String(),
+					"previousTag":             result.Record.PreviousTag(),
+					"manifestCommitCount":     strconv.Itoa(len(manifest)),
+					"commitBudgetException":   result.Record.CommitBudgetException(),
+					"scopeEscalationApproval": result.Record.ScopeEscalationApproval(),
+					"propagationTargets":      strings.Join(targetValues, ","),
+				},
+			})
+		}),
+	}
+	command.Flags().StringVar(&branchRaw, "branch", "", "hotfix branch; defaults to the current branch")
+	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	return command
+}
+
+func newHotfixVerifyMergeCommand(application *application) *cobra.Command {
+	var (
+		branchRaw string
+		recordRaw string
+	)
+	command := &cobra.Command{
+		Use:   "verify-merge",
+		Short: "Verify merged main-hotfix evidence before immutable tagging",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			name, err := currentOrSpecified(command.Context(), services, branchRaw, repository)
+			if err != nil {
+				return err
+			}
+			inputs.add("hotfix branch", name.String())
+			result, err := services.releases.VerifyMainHotfixMerge(command.Context(), workflow.VerifyMainHotfixMergeRequest{
+				Repository: repository,
+				Branch:     name,
+				Location:   recordRaw,
+			})
+			if err != nil {
+				return err
+			}
+			fields := mainHotfixRecordFields(result.Record)
+			fields["pullRequestURL"] = result.Evidence.PullRequestURL
+			fields["mergeCommit"] = result.Evidence.MergeCommit
+			fields["tag"] = result.Evidence.Tag
+			return application.report(command, port.Report{
+				Operation: "workflow.hotfix.verify-merge",
+				Summary:   "Merged main hotfix evidence is valid for immutable patch tagging.",
+				Fields:    fields,
+			})
+		}),
+	}
+	command.Flags().StringVar(&branchRaw, "branch", "", "merged hotfix branch; defaults to the current branch")
+	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	return command
+}
+
+func newHotfixVerifyDeliveryCommand(application *application) *cobra.Command {
+	var (
+		branchRaw string
+		recordRaw string
+	)
+	command := &cobra.Command{
+		Use:   "verify-delivery",
+		Short: "Verify immutable main-hotfix patch delivery evidence",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			name, err := currentOrSpecified(command.Context(), services, branchRaw, repository)
+			if err != nil {
+				return err
+			}
+			inputs.add("hotfix branch", name.String())
+			result, err := services.releases.VerifyMainHotfixDelivery(command.Context(), workflow.VerifyMainHotfixDeliveryRequest{
+				Repository: repository,
+				Branch:     name,
+				Location:   recordRaw,
+			})
+			if err != nil {
+				return err
+			}
+			fields := mainHotfixRecordFields(result.Record)
+			fields["pullRequestURL"] = result.Evidence.PullRequestURL
+			fields["mergeCommit"] = result.Evidence.MergeCommit
+			fields["tag"] = result.Evidence.Tag
+			fields["releaseURL"] = result.Evidence.ReleaseURL
+			fields["workflowRunURL"] = result.Evidence.WorkflowRunURL
+			return application.report(command, port.Report{
+				Operation: "workflow.hotfix.verify-delivery",
+				Summary:   "Main hotfix patch delivery evidence is complete.",
+				Fields:    fields,
+			})
+		}),
+	}
+	command.Flags().StringVar(&branchRaw, "branch", "", "merged hotfix branch; defaults to the current branch")
+	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	return command
+}
+
+func mainHotfixRecordFields(record hotfix.ReleaseRecord) map[string]string {
+	manifest := record.Manifest()
+	targets := record.PropagationTargets()
+	targetValues := make([]string, 0, len(targets))
+	for _, target := range targets {
+		targetValues = append(targetValues, target.String())
+	}
+	return map[string]string{
+		"ticket":                  record.Ticket().String(),
+		"incident":                record.Incident(),
+		"source":                  record.ExpectedSource().String(),
+		"affectedLine":            record.AffectedLine().String(),
+		"targetVersion":           record.TargetVersion().String(),
+		"previousTag":             record.PreviousTag(),
+		"manifestCommitCount":     strconv.Itoa(len(manifest)),
+		"commitBudgetException":   record.CommitBudgetException(),
+		"scopeEscalationApproval": record.ScopeEscalationApproval(),
+		"propagationTargets":      strings.Join(targetValues, ","),
+	}
 }
 
 func newHotfixPublishCommand(application *application) *cobra.Command {
@@ -912,6 +1087,192 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
 	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved cherry-pick")
 	return command
+}
+
+func newHotfixPropagateManifestCommand(application *application) *cobra.Command {
+	var (
+		sourceRaw string
+		targetRaw string
+		recordRaw string
+		slugRaw   string
+		branchRaw string
+		resume    bool
+		publish   bool
+	)
+	command := &cobra.Command{
+		Use:   "propagate-manifest",
+		Short: "Prepare or publish an ordered multi-commit hotfix propagation candidate",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			if resume && application.options.dryRun {
+				return invalidOption("resume", "true", "a non-dry-run invocation")
+			}
+			if publish && !application.hotfixManifestPublisherEnabled() {
+				return hotfixManifestPublisherUnavailable()
+			}
+			if resume && sourceRaw == "" {
+				return missingInput("hotfix source branch")
+			}
+			source, err := currentOrSpecified(command.Context(), services, sourceRaw, repository)
+			if err != nil {
+				return err
+			}
+			inputs.add("source branch", source.String())
+			if source.Family() != branch.FamilyHotfix {
+				return invalidOption("source", source.String(), "a hotfix/<ticket>-<slug> branch")
+			}
+			target, err := application.resolvePropagationTarget(command.Context(), targetRaw)
+			if err != nil {
+				return err
+			}
+			inputs.add("target line", target.String())
+			if resume {
+				if branchRaw == "" {
+					return missingInput("propagation branch")
+				}
+				candidate, err := branch.ParseName(branchRaw)
+				if err != nil {
+					return err
+				}
+				inputs.add("propagation branch", candidate.String())
+				label := "Resume hotfix manifest propagation"
+				description := "Continue the resolved ordered cherry-pick on " + candidate.String() + " without publishing it?"
+				if publish {
+					label = "Publish resumed hotfix manifest propagation"
+					description = "Continue the resolved ordered cherry-pick on " + candidate.String() + " and publish it only through the dedicated server-side publisher?"
+				}
+				if err := application.confirmMutation(
+					command.Context(),
+					label,
+					description,
+				); err != nil {
+					return err
+				}
+				result, err := services.releases.ResumeHotfixManifestPropagation(
+					command.Context(),
+					workflow.ResumeHotfixManifestPropagationRequest{
+						Repository: repository,
+						Source:     source,
+						TargetLine: target,
+						Branch:     candidate,
+						Location:   recordRaw,
+						Publish:    publish,
+					},
+				)
+				if err != nil {
+					return err
+				}
+				summary := "Hotfix manifest propagation candidate resumed and verified."
+				if publish {
+					summary = "Hotfix manifest propagation candidate resumed, verified, and published."
+				}
+				return application.report(command, port.Report{
+					Operation: "workflow.hotfix.propagate-manifest",
+					Summary:   summary,
+					Fields:    manifestPropagationFields(result, true),
+				})
+			}
+
+			var slug branch.Slug
+			if slugRaw != "" {
+				slug, err = branch.ParseSlug(slugRaw)
+				if err != nil {
+					return err
+				}
+				inputs.add("propagation description", slug.String())
+			}
+			label := "Prepare hotfix manifest propagation"
+			description := "Create a controlled local fix branch from " + target.String() + " and apply the reviewed manifest without publishing it?"
+			if publish {
+				label = "Publish hotfix manifest propagation"
+				description = "Create a controlled fix branch from " + target.String() + ", apply the reviewed manifest, and publish it only through the dedicated server-side publisher?"
+			}
+			if err := application.confirmMutation(
+				command.Context(),
+				label,
+				description,
+			); err != nil {
+				return err
+			}
+			result, err := services.releases.PropagateHotfixManifest(
+				command.Context(),
+				workflow.PropagateHotfixManifestRequest{
+					Repository: repository,
+					Source:     source,
+					TargetLine: target,
+					Location:   recordRaw,
+					Slug:       slug,
+					Publish:    publish,
+					DryRun:     application.options.dryRun,
+				},
+			)
+			if err != nil {
+				return err
+			}
+			summary := "Hotfix manifest propagation candidate prepared without publication."
+			if publish {
+				summary = "Hotfix manifest propagation candidate prepared, verified, and published."
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.hotfix.propagate-manifest",
+				Summary:   summary,
+				Fields:    manifestPropagationFields(result, false),
+			})
+		}),
+	}
+	command.Flags().StringVar(&sourceRaw, "source", "", "hotfix source branch; defaults to the current branch")
+	command.Flags().StringVar(&targetRaw, "target-line", "", "declared develop, release/<semver>, or support/<major.minor> target")
+	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	command.Flags().StringVar(&slugRaw, "slug", "", "optional kebab-case propagation branch description")
+	command.Flags().StringVar(&branchRaw, "branch", "", "generated fix branch; required with --resume")
+	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved manifest cherry-pick")
+	command.Flags().BoolVar(&publish, "publish", false, "publish only through the dedicated server-side hotfix propagation publisher")
+	return command
+}
+
+func manifestPropagationFields(result workflow.PropagateHotfixManifestResult, resumed bool) map[string]string {
+	pushed := "false"
+	publishedPullRequest := ""
+	if result.Publication != nil {
+		pushed = boolString(result.Publication.Pushed)
+		publishedPullRequest = result.Publication.PublishedURL
+	}
+	fields := map[string]string{
+		"source":               result.Record.ExpectedSource().String(),
+		"target":               result.Branch.Base.Branch().String(),
+		"branch":               result.Branch.Name.String(),
+		"cherryPickCount":      strconv.Itoa(result.CherryPickCount),
+		"manifestCommitCount":  strconv.Itoa(len(result.Record.Manifest())),
+		"pushed":               pushed,
+		"publishedPullRequest": publishedPullRequest,
+		"resumed":              boolString(resumed),
+		"dryRun":               boolString(result.DryRun),
+	}
+	if result.Quality != nil {
+		fields["qualityStatus"] = string(result.Quality.Status)
+		fields["qualityDetail"] = result.Quality.Detail
+	}
+	return fields
+}
+
+func (application *application) hotfixManifestPublisherEnabled() bool {
+	return application.runtime.HotfixPropagationPublisherEnabled != nil &&
+		application.runtime.HotfixPropagationPublisherEnabled()
+}
+
+func hotfixManifestPublisherUnavailable() error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeConfigurationUnavailable,
+		Category:    problem.CategoryConfig,
+		Field:       "hotfix propagation publisher",
+		Expected:    "the dedicated server-side hotfix propagation publisher boundary",
+		Rule:        "manifest candidates may be published only by the protected hotfix propagation controller",
+		Remediation: "run the protected hotfix propagation workflow after its broker, workload identity, and publisher application are configured",
+	})
 }
 
 func newReleaseWorkflowCommand(application *application) *cobra.Command {
@@ -1280,6 +1641,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 		push              bool
 		createPullRequest bool
 		draft             bool
+		resume            bool
 	)
 	command := &cobra.Command{
 		Use:   "align-promotion-base",
@@ -1325,6 +1687,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				Push:              push,
 				CreatePullRequest: createPullRequest,
 				Draft:             draft,
+				Resume:            resume,
 				DryRun:            application.options.dryRun,
 			})
 			if err != nil {
@@ -1336,6 +1699,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				"main":                 result.Main.String(),
 				"missingMainCommits":   boolString(result.MissingMainCommits),
 				"merged":               boolString(result.Merged),
+				"resumed":              boolString(result.Resumed),
 				"pushed":               boolString(result.Pushed),
 				"publishedPullRequest": result.PublishedURL,
 				"dryRun":               boolString(result.DryRun),
@@ -1357,6 +1721,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 	command.Flags().BoolVar(&push, "push", false, "push the aligned release-preparation branch")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the release stabilization pull request after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
+	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved promotion-base merge")
 	return command
 }
 

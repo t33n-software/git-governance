@@ -24,6 +24,14 @@ type promotionAlignmentGit struct {
 	validateErrors []error
 	mergedBase     branch.TargetBase
 	mergedMessage  commitmsg.Message
+
+	resumeConflicts            bool
+	resumeConflictsErr         error
+	resumeTargetMatches        bool
+	resumeTargetErr            error
+	resumeContinueErr          error
+	resumeMissingAfterContinue bool
+	resumeContinued            bool
 }
 
 func (git *promotionAlignmentGit) CurrentBranch(context.Context, port.RepositoryIdentity) (branch.BranchName, error) {
@@ -71,10 +79,66 @@ func (git *promotionAlignmentGit) Merge(
 	return nil
 }
 
+func (git *promotionAlignmentGit) HasUnmergedConflicts(context.Context, port.RepositoryIdentity) (bool, error) {
+	git.calls = append(git.calls, "unmerged-conflicts")
+	if git.resumeConflictsErr != nil {
+		return false, git.resumeConflictsErr
+	}
+	return git.resumeConflicts, nil
+}
+
+func (git *promotionAlignmentGit) ActiveMergeTargetMatches(
+	context.Context,
+	port.RepositoryIdentity,
+	branch.TargetBase,
+) (bool, error) {
+	git.calls = append(git.calls, "active-merge-target")
+	if git.resumeTargetErr != nil {
+		return false, git.resumeTargetErr
+	}
+	return git.resumeTargetMatches, nil
+}
+
+func (git *promotionAlignmentGit) ContinueMerge(context.Context, port.RepositoryIdentity) error {
+	git.calls = append(git.calls, "continue-merge")
+	if git.resumeContinueErr != nil {
+		return git.resumeContinueErr
+	}
+	git.active = false
+	git.activeOperation = ""
+	git.missing = git.resumeMissingAfterContinue
+	git.resumeContinued = true
+	return nil
+}
+
 type promotionAlignmentPublisher struct {
 	releaseWhiteboxPublisher
 	preflightErr   error
 	preflightCalls int
+}
+
+type promotionAlignmentMinimalGit struct {
+	*releaseWhiteboxGit
+
+	current branch.BranchName
+}
+
+func (git *promotionAlignmentMinimalGit) CurrentBranch(context.Context, port.RepositoryIdentity) (branch.BranchName, error) {
+	git.calls = append(git.calls, "current-branch")
+	return git.current, nil
+}
+
+type promotionAlignmentMissingContinuatorGit struct {
+	*promotionAlignmentMinimalGit
+}
+
+func (git *promotionAlignmentMissingContinuatorGit) ActiveMergeTargetMatches(
+	context.Context,
+	port.RepositoryIdentity,
+	branch.TargetBase,
+) (bool, error) {
+	git.calls = append(git.calls, "active-merge-target")
+	return true, nil
 }
 
 func (publisher *promotionAlignmentPublisher) Validate(context.Context, port.PullRequestPublication) error {
@@ -95,14 +159,15 @@ func newPromotionAlignmentGit(t *testing.T) *promotionAlignmentGit {
 	base.workflowBases = map[string]branch.TargetBase{worker.String(): releaseBase}
 
 	return &promotionAlignmentGit{
-		releaseWhiteboxGit: base,
-		current:            worker,
-		targetExists:       true,
+		releaseWhiteboxGit:  base,
+		current:             worker,
+		targetExists:        true,
+		resumeTargetMatches: true,
 	}
 }
 
 func newPromotionAlignmentService(
-	git *promotionAlignmentGit,
+	git port.GitRepository,
 	quality port.QualityRunner,
 	publisher port.PullRequestPublisher,
 ) *ReleaseService {
@@ -111,6 +176,22 @@ func newPromotionAlignmentService(
 	return NewReleaseService(branches, git, publisher).
 		WithTicketService(tickets).
 		WithQualityRunner(quality)
+}
+
+func newPromotionAlignmentMinimalGit(t *testing.T) *promotionAlignmentMinimalGit {
+	t.Helper()
+
+	worker := mustBranch("chore/GOV-18-align-promotion-base")
+	release := mustBranch("release/1.0.1")
+	releaseBase := mustBase("origin", release.String())
+	base := newReleaseWhiteboxGit()
+	base.active = true
+	base.activeOperation = "merge"
+	base.workflowBases = map[string]branch.TargetBase{worker.String(): releaseBase}
+	return &promotionAlignmentMinimalGit{
+		releaseWhiteboxGit: base,
+		current:            worker,
+	}
 }
 
 func promotionAlignmentRequest() AlignReleasePromotionBaseRequest {
@@ -209,6 +290,330 @@ func TestReleasePromotionBaseAlignment(t *testing.T) {
 		if result.Merged || !result.Pushed || result.Quality == nil || quality.calls != 1 ||
 			len(git.pushed) != 1 {
 			t.Fatalf("already-aligned push = %#v, quality=%d, pushed=%v", result, quality.calls, git.pushed)
+		}
+	})
+}
+
+func TestReleasePromotionBaseAlignmentResume(t *testing.T) {
+	t.Run("continues the exact resolved merge before quality and publication", func(t *testing.T) {
+		git := newPromotionAlignmentGit(t)
+		git.active = true
+		git.activeOperation = "merge"
+		quality := &fakeQualityRunner{}
+		publisher := &promotionAlignmentPublisher{
+			releaseWhiteboxPublisher: releaseWhiteboxPublisher{
+				result: port.PublishedPullRequest{URL: "https://example.invalid/pr/resumed-alignment"},
+			},
+		}
+		request := promotionAlignmentRequest()
+		request.Resume = true
+		request.Push = true
+		request.CreatePullRequest = true
+
+		result, err := newPromotionAlignmentService(git, quality, publisher).AlignReleasePromotionBase(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.Merged || !result.Resumed || result.MissingMainCommits || !result.Pushed ||
+			result.PublishedURL != "https://example.invalid/pr/resumed-alignment" || result.Quality == nil {
+			t.Fatalf("resume result = %#v", result)
+		}
+		if !git.resumeContinued || quality.calls != 1 || len(git.pushed) != 1 ||
+			publisher.preflightCalls != 1 || len(publisher.requests) != 1 {
+			t.Fatalf("continued=%t quality=%d pushed=%v preflight=%d publications=%#v",
+				git.resumeContinued, quality.calls, git.pushed, publisher.preflightCalls, publisher.requests)
+		}
+	})
+
+	t.Run("rejects a dry-run resume", func(t *testing.T) {
+		request := promotionAlignmentRequest()
+		request.Resume = true
+		request.DryRun = true
+
+		_, err := newPromotionAlignmentService(newPromotionAlignmentGit(t), &fakeQualityRunner{}, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("rejects an inactive, wrong, or unresolved merge before continuation", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			configure func(*promotionAlignmentGit)
+		}{
+			{name: "inactive", configure: func(_ *promotionAlignmentGit) {}},
+			{name: "wrong operation", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "rebase"
+			}},
+			{name: "unresolved conflicts", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.resumeConflicts = true
+			}},
+		}
+		for _, testCase := range testCases {
+			testCase := testCase
+			t.Run(testCase.name, func(t *testing.T) {
+				git := newPromotionAlignmentGit(t)
+				testCase.configure(git)
+				request := promotionAlignmentRequest()
+				request.Resume = true
+
+				_, err := newPromotionAlignmentService(git, &fakeQualityRunner{}, nil).
+					AlignReleasePromotionBase(context.Background(), request)
+				assertProblemCode(t, err, problem.CodeInvalidInput)
+				if git.resumeContinued {
+					t.Fatal("resume continued an unsafe merge")
+				}
+			})
+		}
+	})
+
+	t.Run("fails closed when the merge target does not match current main", func(t *testing.T) {
+		git := newPromotionAlignmentGit(t)
+		git.active = true
+		git.activeOperation = "merge"
+		git.resumeTargetMatches = false
+		request := promotionAlignmentRequest()
+		request.Resume = true
+
+		_, err := newPromotionAlignmentService(git, &fakeQualityRunner{}, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		if git.resumeContinued {
+			t.Fatal("resume continued a stale main merge")
+		}
+	})
+
+	t.Run("fails closed when main advances after continuation", func(t *testing.T) {
+		git := newPromotionAlignmentGit(t)
+		git.active = true
+		git.activeOperation = "merge"
+		git.resumeMissingAfterContinue = true
+		quality := &fakeQualityRunner{}
+		request := promotionAlignmentRequest()
+		request.Resume = true
+
+		_, err := newPromotionAlignmentService(git, quality, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		if !git.resumeContinued || quality.calls != 0 {
+			t.Fatalf("continued=%t quality=%d", git.resumeContinued, quality.calls)
+		}
+	})
+
+	t.Run("returns a validated resumed candidate before optional publication", func(t *testing.T) {
+		git := newPromotionAlignmentGit(t)
+		git.active = true
+		git.activeOperation = "merge"
+		quality := &fakeQualityRunner{}
+		request := promotionAlignmentRequest()
+		request.Resume = true
+
+		result, err := newPromotionAlignmentService(git, quality, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		if err != nil || !result.Resumed || result.Pushed || quality.calls != 1 {
+			t.Fatalf("unpublished resume = (%#v, %v), quality=%d", result, err, quality.calls)
+		}
+
+		git = newPromotionAlignmentGit(t)
+		git.active = true
+		git.activeOperation = "merge"
+		request.Push = true
+		result, err = newPromotionAlignmentService(git, &fakeQualityRunner{}, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		if err != nil || !result.Pushed || result.PublishedURL != "" {
+			t.Fatalf("pushed resume = (%#v, %v)", result, err)
+		}
+	})
+
+	t.Run("fails before continuation when dependencies or merge checks fail", func(t *testing.T) {
+		resumeRequest := func() AlignReleasePromotionBaseRequest {
+			request := promotionAlignmentRequest()
+			request.Resume = true
+			return request
+		}
+
+		t.Run("missing quality runner", func(t *testing.T) {
+			git := newPromotionAlignmentGit(t)
+			git.active = true
+			git.activeOperation = "merge"
+			_, err := newPromotionAlignmentService(git, nil, nil).
+				AlignReleasePromotionBase(context.Background(), resumeRequest())
+			assertProblemCode(t, err, problem.CodeInternal)
+		})
+
+		t.Run("missing publisher composition", func(t *testing.T) {
+			git := newPromotionAlignmentGit(t)
+			git.active = true
+			git.activeOperation = "merge"
+			branches := branchapp.NewService(git, &fakeKeyPolicy{})
+			service := NewReleaseService(branches, git, nil).WithQualityRunner(&fakeQualityRunner{})
+			request := resumeRequest()
+			request.Push = true
+			request.CreatePullRequest = true
+			_, err := service.AlignReleasePromotionBase(context.Background(), request)
+			assertProblemCode(t, err, problem.CodeInternal)
+		})
+
+		t.Run("publisher preflight", func(t *testing.T) {
+			git := newPromotionAlignmentGit(t)
+			git.active = true
+			git.activeOperation = "merge"
+			publisher := &promotionAlignmentPublisher{preflightErr: errors.New("preflight")}
+			request := resumeRequest()
+			request.Push = true
+			request.CreatePullRequest = true
+			_, err := newPromotionAlignmentService(git, &fakeQualityRunner{}, publisher).
+				AlignReleasePromotionBase(context.Background(), request)
+			if err == nil || git.resumeContinued {
+				t.Fatalf("preflight err=%v continued=%t", err, git.resumeContinued)
+			}
+		})
+
+		testCases := []struct {
+			name      string
+			configure func(*promotionAlignmentGit)
+		}{
+			{name: "active operation", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.activeErr = errors.New("active")
+			}},
+			{name: "conflict inspection", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.resumeConflictsErr = errors.New("conflicts")
+			}},
+			{name: "fetch", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.fetchErrors = []error{errors.New("fetch")}
+			}},
+			{name: "target lookup", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.targetErr = errors.New("target")
+			}},
+			{name: "target absent", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.targetExists = false
+			}},
+			{name: "target inspector", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.resumeTargetErr = errors.New("inspect target")
+			}},
+			{name: "continuation", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.resumeContinueErr = errors.New("continue")
+			}},
+			{name: "second fetch", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.fetchErrors = []error{nil, errors.New("fetch after continue")}
+			}},
+			{name: "post-merge main comparison", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.missingErr = errors.New("missing")
+			}},
+			{name: "post-merge validation", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.validateErrors = []error{nil, errors.New("validate")}
+			}},
+		}
+		for _, testCase := range testCases {
+			testCase := testCase
+			t.Run(testCase.name, func(t *testing.T) {
+				git := newPromotionAlignmentGit(t)
+				testCase.configure(git)
+				_, err := newPromotionAlignmentService(git, &fakeQualityRunner{}, nil).
+					AlignReleasePromotionBase(context.Background(), resumeRequest())
+				if err == nil {
+					t.Fatal("expected resume failure")
+				}
+			})
+		}
+	})
+
+	t.Run("fails closed when optional resume capabilities are absent", func(t *testing.T) {
+		request := promotionAlignmentRequest()
+		request.Resume = true
+
+		missingInspector := newPromotionAlignmentMinimalGit(t)
+		_, err := newPromotionAlignmentService(missingInspector, &fakeQualityRunner{}, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		missingContinuator := &promotionAlignmentMissingContinuatorGit{
+			promotionAlignmentMinimalGit: newPromotionAlignmentMinimalGit(t),
+		}
+		_, err = newPromotionAlignmentService(missingContinuator, &fakeQualityRunner{}, nil).
+			AlignReleasePromotionBase(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("fails after continuation when quality or publication fails", func(t *testing.T) {
+		testCases := []struct {
+			name      string
+			configure func(*promotionAlignmentGit)
+			quality   *fakeQualityRunner
+			publisher port.PullRequestPublisher
+			request   func(*AlignReleasePromotionBaseRequest)
+		}{
+			{name: "quality", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+			}, quality: &fakeQualityRunner{err: errors.New("quality")}},
+			{name: "publication lookup", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.publicationErr = errors.New("publication")
+			}, request: func(request *AlignReleasePromotionBaseRequest) { request.Push = true }},
+			{name: "unknown publication", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.publication = branch.PublicationUnknown
+			}, request: func(request *AlignReleasePromotionBaseRequest) { request.Push = true }},
+			{name: "push", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+				git.pushErr = errors.New("push")
+			}, request: func(request *AlignReleasePromotionBaseRequest) { request.Push = true }},
+			{name: "publisher", configure: func(git *promotionAlignmentGit) {
+				git.active = true
+				git.activeOperation = "merge"
+			}, publisher: &promotionAlignmentPublisher{
+				releaseWhiteboxPublisher: releaseWhiteboxPublisher{err: errors.New("publish")},
+			}, request: func(request *AlignReleasePromotionBaseRequest) {
+				request.Push = true
+				request.CreatePullRequest = true
+			}},
+		}
+		for _, testCase := range testCases {
+			testCase := testCase
+			t.Run(testCase.name, func(t *testing.T) {
+				git := newPromotionAlignmentGit(t)
+				testCase.configure(git)
+				quality := testCase.quality
+				if quality == nil {
+					quality = &fakeQualityRunner{}
+				}
+				request := promotionAlignmentRequest()
+				request.Resume = true
+				if testCase.request != nil {
+					testCase.request(&request)
+				}
+				_, err := newPromotionAlignmentService(git, quality, testCase.publisher).
+					AlignReleasePromotionBase(context.Background(), request)
+				if err == nil {
+					t.Fatal("expected resume failure")
+				}
+			})
 		}
 	})
 }

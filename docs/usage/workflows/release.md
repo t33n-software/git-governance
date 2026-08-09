@@ -64,6 +64,23 @@ First dispatch `broker-smoke`. It proves that the broker accepts the approved
 without printing the returned installation token. Only after that smoke test
 passes may a release owner dispatch `release-cut` with a concrete SemVer value.
 
+## Managed reconciliation control
+
+Delivery-gated reconciliation uses the separate `release-reconciliation`
+environment. It does not reuse the release-cut broker identity. The protected
+controller consumes only these environment variables:
+
+```text
+GCP_RECONCILIATION_PUBLISHER_BROKER_URL
+GCP_RECONCILIATION_PUBLISHER_WIF_PROVIDER
+GCP_RECONCILIATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT
+```
+
+The controller obtains an ephemeral OIDC audience token, asks the dedicated
+publisher broker for a repository-bound installation token without printing it,
+and only then creates or validates the non-shared `chore/*` preparation
+candidate. It never mutates `release/<semver>` or `develop` directly.
+
 For a delivered release whose Backmerge target requires a current PR head,
 dispatch `reconciliation-align` from the workflow on `main` with `release`,
 `ticket_key`, `ticket`, and `slug`. The workflow builds the trusted
@@ -141,6 +158,25 @@ to the frozen release line. Merge that stabilization PR with a merge commit;
 then rerun the existing release-to-main PR checks and approval. This preserves
 the original promotion PR and never mutates a shared line directly.
 
+If the controlled merge conflicts, it remains fail-closed in the non-shared
+preparation branch. Resolve only the exact conflicted paths and stage them
+explicitly, then continue through the CLI:
+
+```powershell
+git governance --interactive never --output json --yes `
+  --pull-request-provider github workflow release align-promotion-base `
+  --release release/2.8.0 `
+  --resume `
+  --push `
+  --create-pull-request
+```
+
+The resume path fetches `origin/main`, requires the active merge target to
+match that current revision, continues Git's existing ticket-scoped merge, and
+then rechecks that Main did not advance before quality, push, or PR
+publication. A raw `git merge --continue`, GitHub **Update branch**, rebase,
+or force push is not a substitute.
+
 ## Promotion, delivery, and conditional backmerge
 
 After approval, create the release promotion:
@@ -183,12 +219,40 @@ The command verifies those delivery facts with GitHub and compares
 - `status=not-required`: no effective release-only delta remains, so it
   creates no empty PR. Record this result before release-branch cleanup.
 
-If Develop requires a current pull-request head, dispatch
-`reconciliation-align` from the protected `release-control.yml` workflow on
-`main`. The workflow builds the trusted control-plane binary before it creates
-the release-derived preparation branch, then aligns that branch and opens the
-reviewed PR to Develop. Do not use a local Device Flow session, GitHub
-**Update branch**, or a direct Develop-to-Release merge as a substitute.
+When Develop requires a current pull-request head, do not update the delivered
+release line. First create a `release-prep` stabilization branch from the
+release line, then align that branch with Develop:
+
+```powershell
+git governance --interactive never --output json --yes `
+  workflow release stabilize `
+  --release release/2.8.0 `
+  --kind release-prep `
+  --key ABC `
+  --ticket 999 `
+  --slug align-release-reconciliation-base
+```
+
+```powershell
+git governance --interactive never --output json --yes `
+  workflow release align-reconciliation-base `
+  --release release/2.8.0 `
+  --push `
+  --create-pull-request
+```
+
+The command accepts only the checked-out, ticket-bound `chore/*` preparation
+branch created from the stated release line. It verifies delivery and an
+effective delta, merges current Develop into the preparation branch, runs
+quality gates, and opens a merge-commit PR from that branch to Develop. It
+never updates `release/2.8.0`.
+
+For the protected production path, dispatch `reconciliation-align` from
+`release-control.yml` on `main`. The workflow builds the trusted control-plane
+binary before it creates the release-derived preparation branch, then aligns
+that branch and opens the reviewed PR to Develop. Do not use a local Device
+Flow session, GitHub **Update branch**, or a direct Develop-to-Release merge
+as a substitute.
 
 See [release reconciliation](release-reconciliation.md) for the complete
 state and evidence contract.

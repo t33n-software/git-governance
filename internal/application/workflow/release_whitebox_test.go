@@ -2,20 +2,25 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
 	"github.com/CyberT33N/git-governance/internal/application/port"
 	"github.com/CyberT33N/git-governance/internal/domain/branch"
+	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 )
 
 type releaseWhiteboxGit struct {
 	*fakeGitRepository
 
 	validateErr       error
+	validateErrors    []error
 	hasCommitsErr     error
 	cleanErr          error
 	branchExistsErr   error
@@ -53,6 +58,14 @@ func newReleaseWhiteboxGit() *releaseWhiteboxGit {
 
 func (git *releaseWhiteboxGit) ValidateBranchRef(ctx context.Context, repository port.RepositoryIdentity, name branch.BranchName) error {
 	git.validateContexts = append(git.validateContexts, ctx)
+	if len(git.validateErrors) > 0 {
+		err := git.validateErrors[0]
+		git.validateErrors = git.validateErrors[1:]
+		if err != nil {
+			git.calls = append(git.calls, "validate-ref")
+			return err
+		}
+	}
 	if git.validateErr != nil {
 		git.calls = append(git.calls, "validate-ref")
 		return git.validateErr
@@ -205,6 +218,31 @@ type releaseWhiteboxLifecycle struct {
 	reconciles     []port.ReleaseReconciliationRequest
 }
 
+type releaseWhiteboxRecordStore struct {
+	record     hotfix.ReleaseRecord
+	err        error
+	repository port.RepositoryIdentity
+	ticket     ticket.ID
+	location   string
+	calls      int
+}
+
+func (store *releaseWhiteboxRecordStore) LoadHotfixReleaseRecord(
+	_ context.Context,
+	repository port.RepositoryIdentity,
+	id ticket.ID,
+	location string,
+) (hotfix.ReleaseRecord, error) {
+	store.calls++
+	store.repository = repository
+	store.ticket = id
+	store.location = location
+	if store.err != nil {
+		return hotfix.ReleaseRecord{}, store.err
+	}
+	return store.record, nil
+}
+
 func (lifecycle *releaseWhiteboxLifecycle) DispatchSharedLine(
 	ctx context.Context,
 	request port.SharedLineDispatchRequest,
@@ -225,6 +263,149 @@ func (lifecycle *releaseWhiteboxLifecycle) VerifyReleaseReconciliation(
 		return port.ReleaseReconciliationEvidence{}, lifecycle.verifyErr
 	}
 	return lifecycle.evidence, nil
+}
+
+type releaseWhiteboxHotfixLifecycle struct {
+	mergeResult    port.MainHotfixMergeEvidence
+	mergeErr       error
+	deliveryResult port.MainHotfixDeliveryEvidence
+	deliveryErr    error
+	mergeRequests  []port.MainHotfixDeliveryRequest
+	deliveryCalls  []port.MainHotfixDeliveryRequest
+}
+
+func (lifecycle *releaseWhiteboxHotfixLifecycle) VerifyMainHotfixMerge(
+	_ context.Context,
+	request port.MainHotfixDeliveryRequest,
+) (port.MainHotfixMergeEvidence, error) {
+	lifecycle.mergeRequests = append(lifecycle.mergeRequests, request)
+	if lifecycle.mergeErr != nil {
+		return port.MainHotfixMergeEvidence{}, lifecycle.mergeErr
+	}
+	return lifecycle.mergeResult, nil
+}
+
+func (lifecycle *releaseWhiteboxHotfixLifecycle) VerifyMainHotfixDelivery(
+	_ context.Context,
+	request port.MainHotfixDeliveryRequest,
+) (port.MainHotfixDeliveryEvidence, error) {
+	lifecycle.deliveryCalls = append(lifecycle.deliveryCalls, request)
+	if lifecycle.deliveryErr != nil {
+		return port.MainHotfixDeliveryEvidence{}, lifecycle.deliveryErr
+	}
+	return lifecycle.deliveryResult, nil
+}
+
+type releaseWhiteboxQuality struct {
+	result   port.QualityResult
+	err      error
+	requests []port.QualityRequest
+}
+
+func (quality *releaseWhiteboxQuality) Run(
+	_ context.Context,
+	_ port.RepositoryIdentity,
+	request port.QualityRequest,
+) (port.QualityResult, error) {
+	quality.requests = append(quality.requests, request)
+	if quality.err != nil {
+		return port.QualityResult{}, quality.err
+	}
+	return quality.result, nil
+}
+
+type releaseManifestGit struct {
+	*releaseWhiteboxGit
+
+	current       branch.BranchName
+	currentErr    error
+	progress      port.HotfixManifestProgress
+	progressFound bool
+	loadErr       error
+	storeErr      error
+	storeErrors   []error
+	clearErr      error
+	stored        []port.HotfixManifestProgress
+	cleared       int
+}
+
+func (git *releaseManifestGit) CurrentBranch(context.Context, port.RepositoryIdentity) (branch.BranchName, error) {
+	if git.currentErr != nil {
+		return branch.BranchName{}, git.currentErr
+	}
+	if git.current.IsZero() {
+		return git.releaseWhiteboxGit.CurrentBranch(context.Background(), testRepository())
+	}
+	return git.current, nil
+}
+
+func (git *releaseManifestGit) LoadHotfixManifestProgress(
+	context.Context,
+	port.RepositoryIdentity,
+) (port.HotfixManifestProgress, bool, error) {
+	if git.loadErr != nil {
+		return port.HotfixManifestProgress{}, false, git.loadErr
+	}
+	return git.progress, git.progressFound, nil
+}
+
+func (git *releaseManifestGit) StoreHotfixManifestProgress(
+	_ context.Context,
+	_ port.RepositoryIdentity,
+	progress port.HotfixManifestProgress,
+) error {
+	if len(git.storeErrors) > 0 {
+		err := git.storeErrors[0]
+		git.storeErrors = git.storeErrors[1:]
+		if err != nil {
+			return err
+		}
+	}
+	if git.storeErr != nil {
+		return git.storeErr
+	}
+	git.progress = progress
+	git.progressFound = true
+	git.stored = append(git.stored, progress)
+	return nil
+}
+
+func (git *releaseManifestGit) ClearHotfixManifestProgress(context.Context, port.RepositoryIdentity) error {
+	if git.clearErr != nil {
+		return git.clearErr
+	}
+	git.cleared++
+	git.progress = port.HotfixManifestProgress{}
+	git.progressFound = false
+	return nil
+}
+
+type manifestNoContinueGit struct {
+	port.GitRepository
+	state *releaseManifestGit
+}
+
+func (git *manifestNoContinueGit) CurrentBranch(ctx context.Context, repository port.RepositoryIdentity) (branch.BranchName, error) {
+	return git.state.CurrentBranch(ctx, repository)
+}
+
+func (git *manifestNoContinueGit) LoadHotfixManifestProgress(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+) (port.HotfixManifestProgress, bool, error) {
+	return git.state.LoadHotfixManifestProgress(ctx, repository)
+}
+
+func (git *manifestNoContinueGit) StoreHotfixManifestProgress(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	progress port.HotfixManifestProgress,
+) error {
+	return git.state.StoreHotfixManifestProgress(ctx, repository, progress)
+}
+
+func (git *manifestNoContinueGit) ClearHotfixManifestProgress(ctx context.Context, repository port.RepositoryIdentity) error {
+	return git.state.ClearHotfixManifestProgress(ctx, repository)
 }
 
 type releaseLifecycleGit struct {
@@ -288,6 +469,722 @@ func releaseHotfixRequest() StartHotfixRequest {
 		Slug:         mustSlug("payment-timeout"),
 		AffectedLine: mustBranch("main"),
 	}
+}
+
+func TestReleaseWhiteboxValidateMainHotfixRecord(t *testing.T) {
+	source := mustBranch("hotfix/ABC-999-payment-timeout")
+	request := ValidateMainHotfixRecordRequest{
+		Repository: testRepository(),
+		Branch:     source,
+		Location:   ".git-governance/hotfix-release-records/ABC-999.json",
+	}
+
+	t.Run("requires a record store", func(t *testing.T) {
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).ValidateMainHotfixRecord(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("rejects non hotfix branches before loading", func(t *testing.T) {
+		store := &releaseWhiteboxRecordStore{}
+		request := request
+		request.Branch = mustBranch("feature/ABC-999-payment-timeout")
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			ValidateMainHotfixRecord(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		if store.calls != 0 {
+			t.Fatalf("record store calls = %d, want 0", store.calls)
+		}
+	})
+
+	t.Run("rejects an invalid repository before loading", func(t *testing.T) {
+		store := &releaseWhiteboxRecordStore{}
+		request := request
+		request.Repository = port.RepositoryIdentity{}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			ValidateMainHotfixRecord(context.Background(), request)
+		if err == nil {
+			t.Fatal("ValidateMainHotfixRecord unexpectedly accepted an invalid repository")
+		}
+		if store.calls != 0 {
+			t.Fatalf("record store calls = %d, want 0", store.calls)
+		}
+	})
+
+	t.Run("preserves record-store failures", func(t *testing.T) {
+		recordFailure := errors.New("record unavailable")
+		store := &releaseWhiteboxRecordStore{err: recordFailure}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			ValidateMainHotfixRecord(context.Background(), request)
+		if !errors.Is(err, recordFailure) {
+			t.Fatalf("ValidateMainHotfixRecord() error = %v, want %v", err, recordFailure)
+		}
+	})
+
+	t.Run("rejects records bound to another hotfix branch", func(t *testing.T) {
+		store := &releaseWhiteboxRecordStore{record: releaseRecord(t, "hotfix/ABC-999-other-hotfix", "main")}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			ValidateMainHotfixRecord(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("rejects non main patch records", func(t *testing.T) {
+		store := &releaseWhiteboxRecordStore{record: releaseRecord(t, source.String(), "release/1.0.2")}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			ValidateMainHotfixRecord(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("returns a matching reviewed main record", func(t *testing.T) {
+		record := releaseRecord(t, source.String(), "main")
+		store := &releaseWhiteboxRecordStore{record: record}
+		result, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			ValidateMainHotfixRecord(context.Background(), request)
+		if err != nil || result.Record.Ticket().String() != "ABC-999" {
+			t.Fatalf("ValidateMainHotfixRecord() = (%#v, %v)", result, err)
+		}
+		if store.calls != 1 || store.ticket.String() != "ABC-999" || store.location != request.Location {
+			t.Fatalf("record load = %#v", store)
+		}
+	})
+}
+
+func TestReleaseWhiteboxVerifyMainHotfixDelivery(t *testing.T) {
+	source := mustBranch("hotfix/ABC-999-payment-timeout")
+	record := releaseRecord(t, source.String(), "main")
+	request := VerifyMainHotfixMergeRequest{
+		Repository: testRepository(),
+		Branch:     source,
+		Location:   ".git-governance/hotfix-release-records/ABC-999.json",
+	}
+
+	t.Run("requires Git and a lifecycle provider", func(t *testing.T) {
+		store := &releaseWhiteboxRecordStore{record: record}
+		_, err := NewReleaseService(nil, nil, nil).
+			WithHotfixReleaseRecordStore(store).
+			VerifyMainHotfixMerge(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		_, err = newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(store).
+			VerifyMainHotfixMerge(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("preserves record and remote failures before provider use", func(t *testing.T) {
+		storeFailure := errors.New("record failure")
+		provider := &releaseWhiteboxHotfixLifecycle{}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{err: storeFailure}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixMerge(context.Background(), request)
+		if !errors.Is(err, storeFailure) {
+			t.Fatalf("record error = %v, want %v", err, storeFailure)
+		}
+		if len(provider.mergeRequests) != 0 {
+			t.Fatalf("provider merge requests = %#v", provider.mergeRequests)
+		}
+
+		remoteFailure := errors.New("remote URL failure")
+		git := &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), remoteURLErr: remoteFailure}
+		_, err = newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixMerge(context.Background(), request)
+		if !errors.Is(err, remoteFailure) {
+			t.Fatalf("remote error = %v, want %v", err, remoteFailure)
+		}
+	})
+
+	t.Run("rejects incomplete merge evidence", func(t *testing.T) {
+		provider := &releaseWhiteboxHotfixLifecycle{
+			mergeResult: port.MainHotfixMergeEvidence{Tag: "v1.0.2"},
+		}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixMerge(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("returns validated merge evidence", func(t *testing.T) {
+		provider := &releaseWhiteboxHotfixLifecycle{
+			mergeResult: port.MainHotfixMergeEvidence{
+				PullRequestURL: "https://example.invalid/pr/999",
+				MergeCommit:    strings.Repeat("a", 40),
+				Tag:            "v1.0.2",
+			},
+		}
+		result, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixMerge(context.Background(), request)
+		if err != nil || result.Evidence.MergeCommit != strings.Repeat("a", 40) {
+			t.Fatalf("VerifyMainHotfixMerge() = (%#v, %v)", result, err)
+		}
+		if len(provider.mergeRequests) != 1 || provider.mergeRequests[0].Record.Ticket().String() != "ABC-999" {
+			t.Fatalf("provider merge requests = %#v", provider.mergeRequests)
+		}
+	})
+
+	t.Run("preserves main hotfix provider merge failures", func(t *testing.T) {
+		mergeFailure := errors.New("merge evidence failure")
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(&releaseWhiteboxHotfixLifecycle{mergeErr: mergeFailure}).
+			VerifyMainHotfixMerge(context.Background(), request)
+		if !errors.Is(err, mergeFailure) {
+			t.Fatalf("merge evidence error = %v, want %v", err, mergeFailure)
+		}
+	})
+
+	t.Run("verifies complete delivery evidence", func(t *testing.T) {
+		provider := &releaseWhiteboxHotfixLifecycle{
+			deliveryResult: port.MainHotfixDeliveryEvidence{
+				MainHotfixMergeEvidence: port.MainHotfixMergeEvidence{
+					PullRequestURL: "https://example.invalid/pr/999",
+					MergeCommit:    strings.Repeat("a", 40),
+					Tag:            "v1.0.2",
+				},
+				ReleaseURL:     "https://example.invalid/releases/v1.0.2",
+				WorkflowRunURL: "https://example.invalid/actions/99",
+			},
+		}
+		result, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		if err != nil || result.Evidence.WorkflowRunURL == "" {
+			t.Fatalf("VerifyMainHotfixDelivery() = (%#v, %v)", result, err)
+		}
+		if len(provider.deliveryCalls) != 1 {
+			t.Fatalf("provider delivery calls = %#v", provider.deliveryCalls)
+		}
+	})
+
+	t.Run("rejects incomplete or failed delivery provider evidence", func(t *testing.T) {
+		deliveryFailure := errors.New("delivery provider failure")
+		provider := &releaseWhiteboxHotfixLifecycle{deliveryErr: deliveryFailure}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		if !errors.Is(err, deliveryFailure) {
+			t.Fatalf("delivery error = %v, want %v", err, deliveryFailure)
+		}
+
+		provider = &releaseWhiteboxHotfixLifecycle{
+			deliveryResult: port.MainHotfixDeliveryEvidence{
+				MainHotfixMergeEvidence: port.MainHotfixMergeEvidence{
+					PullRequestURL: "https://example.invalid/pr/999",
+					MergeCommit:    strings.Repeat("a", 40),
+					Tag:            "v1.0.2",
+				},
+			},
+		}
+		_, err = newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("requires Git and lifecycle before delivery verification", func(t *testing.T) {
+		_, err := NewReleaseService(nil, nil, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		_, err = newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("preserves delivery record and remote failures", func(t *testing.T) {
+		recordFailure := errors.New("delivery record failure")
+		provider := &releaseWhiteboxHotfixLifecycle{}
+		_, err := newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{err: recordFailure}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		if !errors.Is(err, recordFailure) {
+			t.Fatalf("delivery record error = %v", err)
+		}
+
+		remoteFailure := errors.New("delivery remote failure")
+		git := &releaseLifecycleGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), remoteURLErr: remoteFailure}
+		_, err = newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest(request))
+		if !errors.Is(err, remoteFailure) {
+			t.Fatalf("delivery remote error = %v", err)
+		}
+
+		_, err = newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithMainHotfixLifecycleProvider(provider).
+			VerifyMainHotfixDelivery(context.Background(), VerifyMainHotfixDeliveryRequest{
+				Repository: port.RepositoryIdentity{},
+				Branch:     source,
+			})
+		if err == nil {
+			t.Fatal("delivery verification unexpectedly accepted an invalid repository")
+		}
+	})
+}
+
+func TestReleaseWhiteboxPropagateHotfixManifest(t *testing.T) {
+	source := mustBranch("hotfix/ABC-999-payment-timeout")
+	target := mustBranch("develop")
+	manifest := []string{strings.Repeat("a", 40), strings.Repeat("b", 40)}
+	record := releaseRecordWithManifest(t, source.String(), "main", manifest, []string{"develop"})
+	request := PropagateHotfixManifestRequest{
+		Repository: testRepository(),
+		Source:     source,
+		TargetLine: target,
+	}
+
+	t.Run("requires complete dependencies and progress storage", func(t *testing.T) {
+		_, err := (&ReleaseService{}).PropagateHotfixManifest(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		_, err = newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(&releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("rejects undeclared targets before branch mutation", func(t *testing.T) {
+		git := &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		request := request
+		request.TargetLine = mustBranch("support/1.0")
+		_, err := newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(&releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		if len(git.createdNames) != 0 {
+			t.Fatalf("created branches = %#v", git.createdNames)
+		}
+	})
+
+	t.Run("plans a dry run without local propagation state", func(t *testing.T) {
+		git := &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		request := request
+		request.DryRun = true
+		result, err := newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(&releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if err != nil || !result.DryRun || result.Branch.Name.String() != "fix/ABC-999-propagate-to-develop" {
+			t.Fatalf("PropagateHotfixManifest() = (%#v, %v)", result, err)
+		}
+		if len(git.stored) != 0 || len(git.cherryPicked) != 0 {
+			t.Fatalf("dry run mutated progress=%#v cherry=%#v", git.stored, git.cherryPicked)
+		}
+	})
+
+	t.Run("creates and verifies a local ordered candidate without publication", func(t *testing.T) {
+		git := &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		quality := &releaseWhiteboxQuality{result: port.QualityResult{Status: port.QualityPassed}}
+		result, err := newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(quality).
+			PropagateHotfixManifest(context.Background(), request)
+		if err != nil ||
+			result.Branch.Name.String() != "fix/ABC-999-propagate-to-develop" ||
+			result.CherryPickCount != 2 ||
+			result.Quality == nil ||
+			len(git.cherryPicked) != 2 ||
+			git.cherryPicked[0] != manifest[0] ||
+			git.cherryPicked[1] != manifest[1] ||
+			git.cleared != 1 {
+			t.Fatalf("PropagateHotfixManifest() = (%#v, %v), git=%#v", result, err, git)
+		}
+		if len(quality.requests) != 1 || len(quality.requests[0].Families) != 1 || quality.requests[0].Families[0] != branch.FamilyFix {
+			t.Fatalf("quality requests = %#v", quality.requests)
+		}
+	})
+
+	t.Run("preserves a paused manifest cursor for conflict recovery", func(t *testing.T) {
+		cherryPickFailure := errors.New("cherry pick conflict")
+		base := newReleaseWhiteboxGit()
+		base.cherryPickErr = cherryPickFailure
+		base.active = true
+		base.activeOperation = "cherry-pick"
+		git := &releaseManifestGit{releaseWhiteboxGit: base}
+		_, err := newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(&releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeCherryPickConflict)
+		if !git.progressFound || git.progress.Next != 0 || git.cleared != 0 {
+			t.Fatalf("conflict progress = %#v", git)
+		}
+	})
+}
+
+func TestReleaseWhiteboxResumeHotfixManifestPropagation(t *testing.T) {
+	source := mustBranch("hotfix/ABC-999-payment-timeout")
+	target := mustBranch("develop")
+	candidate := mustBranch("fix/ABC-999-propagate-to-develop")
+	manifest := []string{strings.Repeat("a", 40), strings.Repeat("b", 40)}
+	record := releaseRecordWithManifest(t, source.String(), "main", manifest, []string{"develop"})
+	request := ResumeHotfixManifestPropagationRequest{
+		Repository: testRepository(),
+		Source:     source,
+		TargetLine: target,
+		Branch:     candidate,
+	}
+
+	t.Run("requires dependencies and matching state", func(t *testing.T) {
+		_, err := (&ReleaseService{}).ResumeHotfixManifestPropagation(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		_, err = newReleaseWhiteboxService(newReleaseWhiteboxGit(), nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(&releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("rejects candidate and progress mismatches before continuation", func(t *testing.T) {
+		base := newReleaseWhiteboxGit()
+		base.active = true
+		base.activeOperation = "cherry-pick"
+		git := &releaseManifestGit{
+			releaseWhiteboxGit: base,
+			current:            candidate,
+			progressFound:      true,
+			progress: port.HotfixManifestProgress{
+				Branch:   mustBranch("fix/ABC-999-wrong"),
+				Source:   source,
+				Target:   target,
+				Manifest: manifest,
+			},
+		}
+		_, err := newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(&releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("continues the resolved item then verifies remaining ordered commits", func(t *testing.T) {
+		base := newReleaseWhiteboxGit()
+		base.active = true
+		base.activeOperation = "cherry-pick"
+		git := &releaseManifestGit{
+			releaseWhiteboxGit: base,
+			current:            candidate,
+			progressFound:      true,
+			progress: port.HotfixManifestProgress{
+				Branch:   candidate,
+				Source:   source,
+				Target:   target,
+				Manifest: manifest,
+				Next:     0,
+			},
+		}
+		quality := &releaseWhiteboxQuality{result: port.QualityResult{Status: port.QualityPassed}}
+		result, err := newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(&releaseWhiteboxRecordStore{record: record}).
+			WithQualityRunner(quality).
+			ResumeHotfixManifestPropagation(context.Background(), request)
+		if err != nil || result.CherryPickCount != 2 || len(git.cherryPicked) != 1 || git.cherryPicked[0] != manifest[1] || git.cleared != 1 {
+			t.Fatalf("ResumeHotfixManifestPropagation() = (%#v, %v), git=%#v", result, err, git)
+		}
+	})
+}
+
+func TestReleaseWhiteboxManifestPropagationFailurePaths(t *testing.T) {
+	source := mustBranch("hotfix/ABC-999-payment-timeout")
+	target := mustBranch("develop")
+	candidate := mustBranch("fix/ABC-999-propagate-to-develop")
+	manifest := []string{strings.Repeat("a", 40), strings.Repeat("b", 40)}
+	record := releaseRecordWithManifest(t, source.String(), "main", manifest, []string{"develop"})
+	request := PropagateHotfixManifestRequest{Repository: testRepository(), Source: source, TargetLine: target}
+	resume := ResumeHotfixManifestPropagationRequest{Repository: testRepository(), Source: source, TargetLine: target, Branch: candidate}
+
+	newService := func(git port.GitRepository, store *releaseWhiteboxRecordStore, quality *releaseWhiteboxQuality) *ReleaseService {
+		return newReleaseWhiteboxService(git, nil).
+			WithHotfixReleaseRecordStore(store).
+			WithQualityRunner(quality)
+	}
+
+	t.Run("preserves record, branch, workflow-base, progress, clear, validation, and quality errors", func(t *testing.T) {
+		recordFailure := errors.New("record failure")
+		git := &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		_, err := newService(git, &releaseWhiteboxRecordStore{err: recordFailure}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if !errors.Is(err, recordFailure) {
+			t.Fatalf("record error = %v", err)
+		}
+
+		base := newReleaseWhiteboxGit()
+		createFailure := errors.New("create failure")
+		base.createErr = createFailure
+		git = &releaseManifestGit{releaseWhiteboxGit: base}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if !errors.Is(err, createFailure) {
+			t.Fatalf("create error = %v", err)
+		}
+
+		base = newReleaseWhiteboxGit()
+		workflowBaseFailure := errors.New("workflow base failure")
+		base.storeErr = workflowBaseFailure
+		git = &releaseManifestGit{releaseWhiteboxGit: base}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if !errors.Is(err, workflowBaseFailure) {
+			t.Fatalf("workflow base error = %v", err)
+		}
+
+		git = &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), storeErr: errors.New("progress store failure")}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if err == nil {
+			t.Fatal("progress store failure was lost")
+		}
+
+		git = &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit(), clearErr: errors.New("clear failure")}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if err == nil {
+			t.Fatal("clear failure was lost")
+		}
+
+		qualityFailure := errors.New("quality failure")
+		git = &releaseManifestGit{releaseWhiteboxGit: newReleaseWhiteboxGit()}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{err: qualityFailure}).
+			PropagateHotfixManifest(context.Background(), request)
+		if !errors.Is(err, qualityFailure) {
+			t.Fatalf("quality error = %v", err)
+		}
+
+		branchValidationFailure := errors.New("post-manifest validation failure")
+		base = newReleaseWhiteboxGit()
+		base.validateErrors = []error{nil, branchValidationFailure}
+		git = &releaseManifestGit{releaseWhiteboxGit: base}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if !errors.Is(err, branchValidationFailure) {
+			t.Fatalf("post-manifest validation error = %v", err)
+		}
+
+		git = &releaseManifestGit{
+			releaseWhiteboxGit: newReleaseWhiteboxGit(),
+			storeErrors:        []error{nil, errors.New("post-pick progress failure")},
+		}
+		_, err = newService(git, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			PropagateHotfixManifest(context.Background(), request)
+		if err == nil {
+			t.Fatal("post-pick progress failure was lost")
+		}
+	})
+
+	t.Run("enforces target and default or explicit slug contracts", func(t *testing.T) {
+		if err := validateManifestTarget(record, mustBranch("main")); err == nil {
+			t.Fatal("validateManifestTarget accepted main")
+		}
+		if err := validateManifestTarget(record, mustBranch("support/1.0")); err == nil {
+			t.Fatal("validateManifestTarget accepted undeclared support")
+		}
+		if err := validateManifestTarget(record, target); err != nil {
+			t.Fatal(err)
+		}
+		if got := resolveManifestPropagationSlug(mustSlug("custom-propagation"), target); got.String() != "custom-propagation" {
+			t.Fatalf("explicit slug = %q", got)
+		}
+		if got := resolveManifestPropagationSlug(branch.Slug{}, mustBranch("release/1.0.2")); got.String() != "propagate-to-release-1-0-2" {
+			t.Fatalf("default slug = %q", got)
+		}
+	})
+
+	t.Run("rejects invalid resume state before and during continuation", func(t *testing.T) {
+		base := newReleaseWhiteboxGit()
+		base.active = true
+		base.activeOperation = "cherry-pick"
+		state := &releaseManifestGit{
+			releaseWhiteboxGit: base,
+			current:            candidate,
+			progressFound:      true,
+			progress: port.HotfixManifestProgress{
+				Branch:   candidate,
+				Source:   source,
+				Target:   target,
+				Manifest: manifest,
+			},
+		}
+
+		wrongBranch := resume
+		wrongBranch.Branch = mustBranch("feature/ABC-999-wrong")
+		_, err := newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), wrongBranch)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		state.current = mustBranch("fix/ABC-999-other")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		state.current = candidate
+		state.currentErr = errors.New("current branch failure")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		if err == nil {
+			t.Fatal("current branch failure was lost")
+		}
+
+		state.currentErr = nil
+		state.loadErr = errors.New("progress load failure")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		if err == nil {
+			t.Fatal("progress load failure was lost")
+		}
+
+		state.loadErr = nil
+		state.progressFound = false
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		state.progressFound = true
+		base.activeErr = errors.New("active operation failure")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		if err == nil {
+			t.Fatal("active operation failure was lost")
+		}
+
+		base.activeErr = nil
+		base.active = false
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+
+		recordFailure := errors.New("resume record failure")
+		_, err = newService(state, &releaseWhiteboxRecordStore{err: recordFailure}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		if !errors.Is(err, recordFailure) {
+			t.Fatalf("resume record error = %v", err)
+		}
+
+		undeclared := resume
+		undeclared.TargetLine = mustBranch("support/1.0")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), undeclared)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("requires a continuator and preserves continuation and progress failures", func(t *testing.T) {
+		base := newReleaseWhiteboxGit()
+		base.active = true
+		base.activeOperation = "cherry-pick"
+		state := &releaseManifestGit{
+			releaseWhiteboxGit: base,
+			current:            candidate,
+			progressFound:      true,
+			progress: port.HotfixManifestProgress{
+				Branch:   candidate,
+				Source:   source,
+				Target:   target,
+				Manifest: manifest,
+			},
+		}
+		withoutContinuator := &manifestNoContinueGit{GitRepository: state.releaseWhiteboxGit, state: state}
+		_, err := newService(withoutContinuator, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		base.continueErr = errors.New("continue failure")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		assertProblemCode(t, err, problem.CodeCherryPickConflict)
+
+		base.continueErr = nil
+		base.active = true
+		base.activeOperation = "cherry-pick"
+		state.storeErr = errors.New("resume progress failure")
+		_, err = newService(state, &releaseWhiteboxRecordStore{record: record}, &releaseWhiteboxQuality{}).
+			ResumeHotfixManifestPropagation(context.Background(), resume)
+		if err == nil {
+			t.Fatal("resume progress failure was lost")
+		}
+	})
+
+	t.Run("matches only exact ordered progress", func(t *testing.T) {
+		progress := port.HotfixManifestProgress{Branch: candidate, Source: source, Target: target, Manifest: manifest}
+		if !matchesManifestProgress(progress, resume, manifest) {
+			t.Fatal("exact progress did not match")
+		}
+		for _, mutate := range []func(*port.HotfixManifestProgress){
+			func(value *port.HotfixManifestProgress) { value.Branch = mustBranch("fix/ABC-999-other") },
+			func(value *port.HotfixManifestProgress) { value.Source = mustBranch("hotfix/ABC-999-other") },
+			func(value *port.HotfixManifestProgress) { value.Target = mustBranch("support/1.0") },
+			func(value *port.HotfixManifestProgress) { value.Manifest = []string{manifest[1], manifest[0]} },
+			func(value *port.HotfixManifestProgress) { value.Next = len(manifest) },
+		} {
+			value := progress
+			value.Manifest = append([]string(nil), progress.Manifest...)
+			mutate(&value)
+			if matchesManifestProgress(value, resume, manifest) {
+				t.Fatalf("mismatched progress accepted: %#v", value)
+			}
+		}
+	})
+}
+
+func releaseRecord(t *testing.T, source, affected string) hotfix.ReleaseRecord {
+	t.Helper()
+
+	return releaseRecordWithManifest(
+		t,
+		source,
+		affected,
+		[]string{strings.Repeat("a", 40)},
+		[]string{"develop"},
+	)
+}
+
+func releaseRecordWithManifest(
+	t *testing.T,
+	source, affected string,
+	manifest, targets []string,
+) hotfix.ReleaseRecord {
+	t.Helper()
+
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetsJSON, err := json.Marshal(targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := fmt.Sprintf(
+		`{"schemaVersion":1,"ticket":"ABC-999","incident":"INC-999","affectedLine":%q,"targetVersion":"1.0.2","previousTag":"v1.0.1","expectedPullRequest":{"source":%q,"target":%q},"manifest":%s,"commitBudgetException":"","propagationTargets":%s}`,
+		affected,
+		source,
+		affected,
+		manifestJSON,
+		targetsJSON,
+	)
+	record, err := hotfix.ParseRecord([]byte(contents))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
 
 func releaseStabilizationRequest() CreateReleaseStabilizationRequest {

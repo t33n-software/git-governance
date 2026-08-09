@@ -81,6 +81,17 @@ Ein Gate ohne eigenen Scope erbt `defaults.includeFamilies`; ein Gate mit
 zieht danach Familien ab. Jedes dadurch berechtigte Gate läuft bei einem
 Multi-Ref-Push höchstens einmal.
 
+Ein finaler lokaler Quality-Lauf bindet seinen Nachweis an die ausgehenden
+Revisionen, die Zielbasisrevision, den Remote, den Konfigurationsdigest, die
+Gate-Auswahl, die Toolchain und einen sauberen Arbeitsbaum. Der Nachweis liegt
+nur in lokaler Git-Metadatenauflösung unter
+`git-governance.final-quality-evidence`, enthält keine Credentials und wird
+nicht committed. `validate pre-push` prüft alle strukturellen Regeln weiterhin
+immer. Es verwendet den Nachweis nur bei exakter, frischer Übereinstimmung;
+bei fehlendem, abgelaufenem oder nicht passendem Nachweis läuft die
+repo-definierte Vollsuite als Fallback einmal. Beschädigte oder unvollständige
+Nachweise werden fail-closed abgewiesen.
+
 Die empfohlene Default-Menge enthält alle offiziellen Arbeitsfamilien:
 `feature`, `fix`, `docs`, `refactor`, `chore`, `test`, `perf` und `hotfix`.
 `scratch` ist damit standardmäßig nicht ausgewählt, kann aber gezielt für ein
@@ -107,16 +118,21 @@ git governance
 │   │   └── publish
 │   ├── hotfix
 │   │   ├── start
+│   │   ├── validate-record
+│   │   ├── verify-merge
+│   │   ├── verify-delivery
 │   │   ├── publish
-│   │   └── propagate
-│   └── release
-│       ├── cut
-│       ├── stabilize
-│       ├── publish-stabilization
-│       ├── promote
-│       ├── backmerge
-│       ├── align-reconciliation-base
-│       └── support
+│   │   ├── propagate
+│   │   └── propagate-manifest
+│   ├── release
+│   │   ├── cut
+│   │   ├── stabilize
+│   │   ├── publish-stabilization
+│   │   ├── align-promotion-base
+│   │   ├── promote
+│   │   ├── backmerge
+│   │   ├── align-reconciliation-base
+│   │   └── support
 │   └── cleanup
 ├── validate
 │   └── pre-push
@@ -501,10 +517,11 @@ Ablauf:
    ausführen und auf dem offiziellen Branch fortsetzen
 4. offiziellen Ticket-Branch und sauberen Zustand prüfen
 5. Branch- und Commit-Serie validieren
-6. projektdefinierte Quality Checks ausführen
-7. Basisfrische prüfen
-8. bei unveröffentlichtem Branch und Basisdelta rebasen
-9. nach einem Rebase Branch-/Policy-Prüfung, Commit-Serie und Quality Gates erneut ausführen
+6. Basisfrische prüfen
+7. bei unveröffentlichtem Branch und Basisdelta rebasen
+8. nach einem Rebase Branch-/Policy-Prüfung und Commit-Serie erneut ausführen
+9. projektdefinierte Vollsuite auf dem finalen Publish-Kandidaten ausführen
+   und den revisionsgebundenen lokalen Nachweis erzeugen
 10. in der interaktiven Ansicht anzeigen, ob ein Rebase erfolgt ist oder warum
     er nicht erfolgt ist
 11. bei einem pausierten Scratch-Squash oder Rebase Konflikte lösen und
@@ -512,7 +529,9 @@ Ablauf:
     statt den Workflow von vorn zu starten
 12. vor dem ersten Push interaktiv bestätigen oder `--push` nicht-interaktiv
     explizit setzen
-13. nach einem Push bei konfiguriertem Provider interaktiv die PR-Erstellung
+13. Pre-Push-Policy gegen die tatsächliche Aktualisierung prüfen und den
+    Nachweis nur bei exakter Bindung wiederverwenden
+14. nach einem Push bei konfiguriertem Provider interaktiv die PR-Erstellung
     bestätigen; nicht-interaktiv `--create-pull-request` explizit setzen;
     ohne Provider nur den providerneutralen PR-Intent ausgeben
 
@@ -578,7 +597,7 @@ Ablauf:
 
 Ein Hotfix startet nie automatisch von `develop`.
 
-### 12.1 `workflow hotfix publish`
+### 13.1 `workflow hotfix publish`
 
 ```text
 git governance workflow hotfix publish \
@@ -593,7 +612,39 @@ Ein Hotfix wird niemals stillschweigend nach `develop` umgeleitet.
 manueller Rebase-Konfliktauflösung setzt `--resume` dieselbe Hotfix-Publikation
 ohne interaktive Eingaben fort.
 
-### 12.2 `workflow hotfix propagate`
+### 13.2 `workflow hotfix validate-record`
+
+```text
+git governance workflow hotfix validate-record \
+  --branch hotfix/<KEY-NUMBER>-<slug> \
+  [--record .git-governance/hotfix-release-records/<KEY-NUMBER>.json]
+```
+
+Der read-only Befehl lädt nur den Ticket-gebundenen JSON-Record aus dem
+kontrollierten Repository-Verzeichnis. Er verlangt Schema-Version 1, einen
+Main-Hotfix, einen stabilen Patch-Nachfolger des vorherigen Tags, die exakte
+Hotfix-PR-Bindung, einen geordneten vollständigen SHA-Manifest und deklarierte
+zusätzliche Propagationsziele.
+
+### 13.3 `workflow hotfix verify-merge` und `verify-delivery`
+
+```text
+git governance --pull-request-provider github workflow hotfix verify-merge \
+  --branch hotfix/<KEY-NUMBER>-<slug>
+
+git governance --pull-request-provider github workflow hotfix verify-delivery \
+  --branch hotfix/<KEY-NUMBER>-<slug>
+```
+
+`verify-merge` prüft den gemergten Same-Repository-Main-PR, den exakten
+GraphQL-Merge-Commit, das geordnete Commit-Manifest und die Abwesenheit des
+neuen immutable Tags. `verify-delivery` prüft zusätzlich, dass der Tag exakt
+auf den Merge zeigt, ein nicht-draft GitHub Release mit Payload, Checksums,
+SBOM und Sigstore-Bundle existiert und der Artifact-Workflow erfolgreich war.
+Beide Befehle sind read-only und erhalten ihre kurzlebige Identität nur im
+geschützten Controller.
+
+### 13.4 `workflow hotfix propagate`
 
 ```text
 git governance workflow hotfix propagate \
@@ -608,6 +659,28 @@ vor. Damit bleibt die Herkunft eines Forward- oder Backports nachweisbar.
 Bei einem pausierten Cherry-Pick löst der Benutzer die Konflikte und setzt
 anschließend mit `--source`, `--target-line`, dem erzeugten `--branch` und
 `--resume` fort. `--commit` ist beim Fortsetzen nicht erneut erforderlich.
+
+### 13.5 `workflow hotfix propagate-manifest`
+
+```text
+git governance workflow hotfix propagate-manifest \
+  --source hotfix/<KEY-NUMBER>-<slug> \
+  --target-line develop|release/<semver>|support/<major.minor> \
+  [--publish]
+```
+
+Der Befehl akzeptiert ausschließlich eine im geprüften Record deklarierte
+Ziel-Linie. Er erzeugt einen workflow-managed `fix/*`-Kandidaten, speichert
+seinen lokalen Resume-Cursor in Git-Metadaten, appliziert die deklarierte
+SHA-Serie in der angegebenen Reihenfolge und führt die Quality-Suite aus. Bei
+Konflikt verlangt `--resume` den identischen Source-, Target- und
+Kandidatenbranch. `--push` und `--create-pull-request` bleiben absichtlich
+nicht verfügbar. `--publish` ist nur innerhalb des geschützten
+Hotfix-Propagation-Publisher-Controllers zulässig: Er verlangt die dedizierte
+Broker-Workload-Identität, erzeugt den Kandidaten aus der erklärten Ziel-Linie,
+prüft ihn erneut, pusht nur den nicht-shared `fix/*`-Branch und erstellt dessen
+PR. Ohne diese serverseitige Boundary endet `--publish` fail-closed; lokale
+Kandidaten bleiben nicht veröffentlichend.
 
 ## 14. Release-Kommandos
 
@@ -657,6 +730,7 @@ Rebase-Konfliktauflösung setzt `--resume` die vorhandene Stabilisierung fort.
 git governance --pull-request-provider github workflow release align-promotion-base \
   --release release/<semver> \
   [--branch chore/<KEY-NUMBER>-<slug>] \
+  [--resume] \
   [--push --create-pull-request]
 ```
 
@@ -668,6 +742,14 @@ einen ticket-scoped Merge von `origin/main` aus. Nach der Quality-Suite kann
 er die Working-Branch pushen und ihren PR zurück auf die Release-Linie
 erstellen. Damit erfüllt ein striktes Main-Ruleset die Aktualitätsprüfung,
 ohne `Update branch`, Rebase oder Direktmutation einer Shared Line.
+
+Bei einem Konflikt bleibt die laufende Merge-Operation auf derselben
+nicht-shared Preparation-Branch. `--resume` verlangt eine aktive
+konfliktfreie Merge-Operation mit explizit gestagten Resolution-Pfaden,
+vergleicht `MERGE_HEAD` mit dem nach Fetch aktuellen `origin/main`, setzt nur
+diesen Merge fort und prüft vor Quality, Push und PR erneut die Main-Basis.
+Hat sich Main weiterentwickelt, endet der Kandidat fail-closed. `--resume` ist
+mit `--dry-run` nicht zulässig.
 
 ### 13.5 `workflow release promote`
 
@@ -754,7 +836,6 @@ Environment. Der lokale Resolution-Workspace erhält diese Identität nicht. Die
 Publisher-Identität ist auf den validierten `chore/*` Kandidaten und dessen PR
 beschränkt; sie besitzt keinen Ruleset-Bypass und keine direkte Shared-Line-
 Mutation-Berechtigung.
-
 `release/<semver>` bleibt unverändert. Im Dry-Run führt kein CLI-Workflow
 einen Fetch, Merge, Push, Provider-Preflight oder Provider-Publish aus.
 
@@ -805,8 +886,13 @@ Es liest die von Git gelieferte Ref-Liste begrenzt von stdin und prüft:
 - Löschungen, nicht-fast-forward-/Rewrite-Versuche und Mehrfach-Updates
 - Bundle-Präsenz und -Frische, sobald der Bundle-Adapter aktiv ist
 - Basislinien-Frische vor dem ersten Push
+- finalen lokalen Quality-Nachweis nur bei passender ausgehender Revision,
+  Basis, Konfiguration, Toolchain, Gate-Auswahl und frischem sauberen
+  Arbeitszustand
 
-Der Validator führt nie selbst Rebase oder Merge aus. Er blockiert mit einer konkreten, policy-konformen Handlungsanweisung.
+Der Validator führt nie selbst Rebase oder Merge aus. Fehlt ein passender
+finaler Nachweis, läuft die konfigurierte Vollsuite als lokaler Raw-Push-
+Fallback. Er blockiert mit einer konkreten, policy-konformen Handlungsanweisung.
 
 ## 16. Konfigurationskommandos
 

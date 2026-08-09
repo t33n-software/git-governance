@@ -62,13 +62,16 @@ does not rely on any external governance repository or unpublished rule set.
 | `branch list`, `validate`, `create`, `merge-scratch`, `sync-base` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, and structured commit composition |
 | `commit create`, `validate` | IMPLEMENTED | explicit staging, branch-derived ticket context, and canonical family selection are enforced |
 | `workflow ticket start` | IMPLEMENTED | optional scratch branch and provider-neutral PR intent |
-| `workflow ticket publish` | IMPLEMENTED | reports conditional rebase state, resumes resolved rebase and scratch-transfer conflicts interactively or with `--resume`, and creates a PR only through an explicit configured provider |
+| `workflow ticket publish` | IMPLEMENTED | reports conditional rebase state, runs final local quality only after synchronization, records revision-bound local Git metadata, resumes resolved rebase and scratch-transfer conflicts interactively or with `--resume`, and creates a PR only through an explicit configured provider |
 | `workflow hotfix start` | IMPLEMENTED | affected-line selection is mandatory |
-| hotfix publish and propagation | IMPLEMENTED | affected-line publish plus `cherry-pick -x` forward/backport workflow, including non-interactive `--resume` continuation |
-| `workflow release cut`, `stabilize`, `align-promotion-base`, `align-reconciliation-base`, `promote`, `backmerge`, `support`, `cleanup` | IMPLEMENTED | protected-line dispatch/verification, stabilization constraints, governed promotion- and reconciliation-base alignment, release-to-main intent, delivery-gated conditional backmerge, cleanup, and support-tag provenance are enforced |
+| hotfix publish and single-commit propagation | IMPLEMENTED | affected-line publish plus reviewed `cherry-pick -x` forward/backport workflow, including non-interactive `--resume` continuation |
+| main hotfix release record and delivery verification | IMPLEMENTED | schema-validated ticket record, semantic commit budget, GraphQL merge evidence, immutable tag/release evidence verification, and protected main delivery controller |
+| manifest hotfix propagation preparation | IMPLEMENTED | declared multi-commit SHA manifest creates and verifies a local resumable `fix/*` candidate without publication |
+| manifest hotfix candidate publication | IMPLEMENTED / PROVISIONING REQUIRED | protected `hotfix-propagation.yml` controller, controller-only `--publish`, masked ephemeral transport, and dedicated broker contract exist; App, Secret, Cloud Run, OIDC/WIF, IAM, Environment, and Artifact Registry resources remain external prerequisites |
+| `workflow release cut`, `stabilize`, `align-promotion-base`, `align-reconciliation-base`, `promote`, `backmerge`, `support`, `cleanup` | IMPLEMENTED | protected-line dispatch/verification, stabilization constraints, governed promotion- and reconciliation-base alignment with fail-closed conflict recovery and dedicated reconciliation-publisher provenance, release-to-main intent, delivery-gated conditional backmerge, cleanup, and support-tag provenance are enforced |
 | GitHub App pull-request adapter | IMPLEMENTED | just-in-time App credential resolution, host/repository isolation, bounded REST responses, and idempotent existing-PR lookup |
 | `auth login/status/logout github` | IMPLEMENTED | explicit Device Flow, redacted status, native secret-store session lifecycle, and CLI contract tests |
-| `validate pre-push` | IMPLEMENTED | parses every Git stdin ref update and validates the actual remote target |
+| `validate pre-push` | IMPLEMENTED | parses every Git stdin ref update, validates the actual remote target, and reuses final local quality evidence only when it exactly matches the outgoing candidate |
 | `config key` | IMPLEMENTED | OS configuration directory, atomic JSON storage |
 | `policy describe`, `completion`, `version` | IMPLEMENTED | policy and environment inspection are read-only |
 | `doctor` | IMPLEMENTED | Git version, remote, fail-closed Git transport dry-run authentication, Lefthook, policy, configuration, and in-progress-operation checks |
@@ -90,14 +93,15 @@ does not rely on any external governance repository or unpublished rule set.
 | Unpublished branch rebase | VERIFIED | only after a real base delta |
 | Interactive and non-interactive conflict continuation | IMPLEMENTED | rebase, scratch-squash, and hotfix-propagation continuations remain explicit and can resume with `--resume` after manual conflict resolution |
 | Published branch synchronization | VERIFIED | recommends or performs explicit merge, never routine rebase |
-| Release promotion-base alignment | VERIFIED | a release-preparation branch with recorded release provenance alone may merge `origin/main`, run quality gates, and return through a PR to the frozen release line; ADR-0003 records the provider-neutral boundary and GitHub UI limitation |
+| Release promotion-base alignment | VERIFIED | a release-preparation branch with recorded release provenance alone may merge `origin/main`, resume an explicitly resolved exact-path conflict only against the current Main revision, run quality gates, and return through a PR to the frozen release line; ADR-0003 records the provider-neutral boundary and GitHub UI limitation |
 | Trusted reconciliation control | IMPLEMENTED | protected Main workflow builds a trusted binary before release-derived branch checkout, uses ephemeral broker-backed transport, clears runner-local credentials on exit, and validates prepared conflict-recovery candidates before publication |
-| Separate reconciliation publisher identity | IN_PROGRESS | the protected `release-reconciliation` environment is wired for a dedicated broker-backed GitHub App that publishes validated candidates and Develop PRs without a Ruleset bypass |
+| Separate reconciliation publisher identity | IN PROGRESS | the protected `release-reconciliation` environment is wired for a dedicated broker-backed GitHub App that publishes validated candidates and Develop PRs without a Ruleset bypass |
 | Reconciliation conflict recovery | IMPLEMENTED | a resolved ticket-bound preparation merge can resume locally, while the protected Main controller validates exact release/develop merge-parent provenance before publishing the Develop PR |
 | Automated delivery-to-reconciliation orchestration | PLANNED | successful delivery must dispatch the idempotent reconciliation controller; manual dispatch remains incident, retry, and recovery fallback |
 | Scratch branch | VERIFIED | private local branch from the same-ticket official local branch; transfer resolves an existing local official target by ticket ID and squashes to one governed commit |
 | Protected release-line dispatch | VERIFIED | GitHub lifecycle adapter accepts a successful dispatch response, waits for its correlated result, then fetches and verifies the remote release or support line; adapter and CLI-contract tests pass; live `release/1.0.0` creation was verified from `develop` |
 | Delivery-gated release reconciliation | VERIFIED | GitHub verifies the merged promotion, exact tag, published release, and effective release-to-develop delta; backmerge is required only when that delta exists; adapter and workflow whitebox tests pass |
+| Strict-base reconciliation alignment | IMPLEMENTED | a ticket-bound chore branch from release merges current Develop, validates the combined state, and prepares a Merge-Commit PR to Develop without modifying the delivered release ref |
 | Release stabilization and completion | IMPLEMENTED | constrained stabilization, promotion intent, dispatch, delivery-gated conditional backmerge, cleanup, and support-tag provenance are present |
 
 ## Testing and quality
@@ -133,7 +137,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Reproducible release configuration | VERIFIED | GoReleaser v2.16.0 installed locally and validated `.goreleaser.yaml` |
 | Controlled Go execution | IMPLEMENTED | CI and release set `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, and `GOVCS=*:off`, then verify Go 1.26.5 before running Go commands |
 | Dependency admission review | IMPLEMENTED | immutable `actions/dependency-review-action` gate blocks dependency changes that introduce low-severity-or-higher findings across all dependency scopes |
-| Dependency-review merge enforcement | BLOCKED | the GitHub branch ruleset must mark `Dependency admission review` as a required status check |
+| Dependency-review merge enforcement | VERIFIED | `Dependency admission review` is a required status check for `develop`, `main`, `release/*`, and `support/*`; the repository contract test binds the workflow name and all four ruleset arrays |
 | Periodic dependency re-evaluation | IMPLEMENTED | the CI workflow runs daily in addition to pull-request, push, and manual triggers |
 | Dependency update intake | IMPLEMENTED | Dependabot opens daily reviewable update pull requests for the application module, the tools module, and GitHub Actions |
 | Hosted runner major-version pinning | IMPLEMENTED | GitHub workflows use concrete Ubuntu and Windows runner labels rather than `*-latest` labels |
@@ -141,7 +145,7 @@ does not rely on any external governance repository or unpublished rule set.
 | GitHub release artifacts | IMPLEMENTED | tag/manual-tag validation, checksums, SBOM, Cosign, provenance attestation, and Linux package formats are configured |
 | CI-owned release tag lifecycle | IMPLEMENTED | merged same-repository `release/<semver> -> main` creates an immutable annotated tag and explicitly dispatches the artifact workflow because `GITHUB_TOKEN` tag pushes do not trigger `push` workflows |
 | Live protected-line creation | VERIFIED | `release/1.0.0` was created by the protected workflow from the verified `develop` revision; the release Ruleset applies after creation |
-| Live release delivery and reconciliation | PENDING | promotion to `main`, immutable tag, artifact publication, GitHub Release, and the conditional backmerge decision have not yet occurred |
+| Live release delivery and reconciliation | VERIFIED | PR #30 promoted `release/1.0.1` to `main`; annotated `v1.0.1` targets `f8a54acc4e9f36af869f44737a527a03e5fbf2c5`; the artifact workflow and GitHub Release completed; PR #46 merged the controlled reconciliation to `develop` at `271557e7e66b79e54512e96d4e3a923277a21010` while the delivered release ref remained unchanged |
 | Package-manager manifest templates | IMPLEMENTED | Homebrew, Scoop, and WinGet templates are version/checksum-driven under `packaging/` |
 | Package-manager publication | BLOCKED | maintainer-controlled tap, bucket, WinGet submission, and publisher identities are external prerequisites |
 | Platform-native signing and notarization | BLOCKED | Authenticode and Apple credentials are external publisher prerequisites; checksum Cosign signing remains configured |
@@ -158,11 +162,13 @@ does not rely on any external governance repository or unpublished rule set.
 | Release lifecycle | add stabilization, release-to-main intent, controlled propagation, and cleanup | IMPLEMENTED |
 | Protected-line lifecycle | dispatch protected release/support creation through a least-privileged provider, wait for completion, and verify the remote reference | IMPLEMENTED |
 | Release reconciliation | require promotion/tag/delivery evidence, create a develop PR only for effective delta, and record `not-required` otherwise | IMPLEMENTED |
+| Strict-base reconciliation alignment | retain the delivered release ref, merge Develop only into a ticket-bound preparation branch, then review a merge-commit PR to Develop | IMPLEMENTED |
 | Tag-to-artifact trigger | explicitly dispatch the artifact workflow after a `GITHUB_TOKEN`-created immutable tag | IMPLEMENTED |
 | Direct scratch selection | require/select an official ticket-branch base before creation | IMPLEMENTED |
 | Application-level scratch base guard | reject remote-tracking scratch bases even for programmatic callers | IMPLEMENTED |
 | Regular ticket exclusivity | reject a second official regular branch for one ticket after fetch | IMPLEMENTED |
 | Project-agnostic quality gates | explicit repository-local command-array configuration; absent config reports `unconfigured` instead of pass | IMPLEMENTED |
+| Final local publish quality | full suite runs after final synchronization; short-lived local Git metadata is reused only for an exact fresh candidate and otherwise falls back | IMPLEMENTED |
 
 ## Explicit non-goals in v1
 

@@ -21,8 +21,10 @@ following before a user runs the CLI:
 
 1. Install the App only for approved repositories.
 2. Grant the least privilege needed for this feature: `Pull requests: Read and
-   write`. Do not add Contents, Administration, Actions, Workflows, or broad
-   repository access merely for pull-request creation.
+   write` plus `Contents: Read and write` on the selected head repository.
+   GitHub requires GitHub Apps that create pull requests to have write access
+   to that head repository. Do not add Administration, Actions, Workflows, or
+   broad repository access merely for pull-request creation.
 3. Enable GitHub App Device Flow.
 4. Keep expiring user-to-server tokens enabled. GitHub currently issues an
    eight-hour access token and a six-month refresh token in that mode.
@@ -79,15 +81,18 @@ Configure the registration in this order:
    - Do not configure a webhook URL or webhook secret.
 
 4. **Minimal permissions**
-   - Under **Repository permissions**, set only **Pull requests** to
-     **Read and write**.
+   - Under **Repository permissions**, set **Pull requests** and **Contents**
+     to **Read and write**.
+   - GitHub requires Contents write for a GitHub App that calls the pull
+     request creation API against the head repository. The CLI does not use
+     its App access token for Git transport.
    - Set every other repository, organization, and account permission to
      **No access**.
    - GitHub may show **Metadata: Read-only** automatically. It is an implicit
      baseline permission, not an additional business capability, and cannot
      normally be removed.
-   - Do not enable Contents, Administration, Actions, Workflows, Issues,
-     Commit statuses, Members, or any other permission for this use case.
+   - Do not enable Administration, Actions, Workflows, Issues, Commit
+     statuses, Members, or any other permission for this use case.
 
 5. **Installation boundary**
    - Under **Where can this GitHub App be installed?**, choose **Only on this
@@ -104,9 +109,9 @@ Configure the registration in this order:
      developer workstation. The local Device Flow deliberately does not need
      either value.
 
-The App permission controls only GitHub pull-request API access. It does not
-grant Git push access: keep SSH or Git Credential Manager configured
-separately for the developer's Git transport identity.
+The CLI uses the App access token only for GitHub pull-request API calls.
+Keep SSH or Git Credential Manager configured separately for the developer's
+Git transport identity; the CLI never passes its App access token to Git.
 
 ## Local login, step by step
 
@@ -188,6 +193,31 @@ The non-interactive publish path uses an existing session. It fails with an
 actionable configuration error when no session exists; it never starts Device
 Flow, opens a browser, or prompts.
 
+## Safe GitHub API failure diagnostics
+
+GitHub can return a structured `422 Unprocessable Entity` validation response
+when a pull request cannot be created. The publisher maps only stable,
+actionable categories and never prints raw GitHub response messages, response
+bodies, access tokens, or Authorization headers.
+
+The reported categories distinguish:
+
+- App authorization or repository access;
+- source-branch visibility;
+- target-branch validity;
+- pull-request title validity;
+- an equivalent pull request already existing; and
+- another GitHub validation failure that requires intent or repository-state
+  review.
+
+For App authentication failures, confirm that the App is installed only on the
+selected repository and has both **Pull requests: Read and write** and
+**Contents: Read and write**. GitHub documents the head-repository Contents
+requirement for Apps that create pull requests in its
+[Pull requests REST API](https://docs.github.com/en/rest/pulls/pulls) and
+documents structured validation errors in its
+[REST API troubleshooting guide](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api).
+
 ## Managed CI and GitHub Enterprise
 
 Managed workloads use a central credential broker instead of a local user
@@ -244,6 +274,26 @@ GitHub permissions required by those exact API calls, including Actions
 workflow dispatch and read access plus the limited Contents/Pull requests
 access required by the controlled workflow. Do not grant ordinary developer
 sessions a Ruleset bypass or reuse a broad administrator credential.
+
+### Hotfix propagation publication
+
+Main-hotfix propagation uses a third, separate broker-backed GitHub App
+identity. The Hotfix-Propagation-Publisher App is installed only for the
+approved repository and receives only:
+
+```text
+Contents: Read and write
+Pull requests: Read and write
+Metadata: Read-only
+```
+
+It receives no Actions, Workflows, Administration, Secrets, or Ruleset-bypass
+permission. The protected `hotfix-propagation` environment supplies its own
+OIDC/WIF invocation path to a dedicated Cloud Run broker. The controller
+temporarily configures masked in-memory Git transport credentials only for the
+provenance-validated `fix/*` candidate and removes them before the job exits.
+The local Device-Flow App, the release-automation App, and the reconciliation
+publisher App are not substitutes for this boundary.
 
 When broker configuration is present, it is used for non-interactive
 publication. The publisher derives `https://<host>/api/v3` for a GitHub

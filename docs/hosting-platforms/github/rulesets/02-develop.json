@@ -46,6 +46,9 @@
           },
           {
             "context": "Quality gates (windows-amd64)"
+          },
+          {
+            "context": "Dependency admission review"
           }
         ]
       }

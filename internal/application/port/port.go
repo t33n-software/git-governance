@@ -4,9 +4,11 @@ package port
 
 import (
 	"context"
+	"time"
 
 	"github.com/CyberT33N/git-governance/internal/domain/branch"
 	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
+	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
 	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 )
@@ -89,6 +91,12 @@ type CherryPickContinuator interface {
 // contract for workflows that never continue merge state.
 type MergeContinuator interface {
 	ContinueMerge(ctx context.Context, repository RepositoryIdentity) error
+}
+
+// ActiveMergeTargetInspector verifies that an in-progress merge still targets
+// the fetched remote-tracking base that the workflow is allowed to integrate.
+type ActiveMergeTargetInspector interface {
+	ActiveMergeTargetMatches(ctx context.Context, repository RepositoryIdentity, target branch.TargetBase) (bool, error)
 }
 
 // ReconciliationMergeInspector verifies that the checked-out resolution
@@ -247,6 +255,116 @@ type QualityRunner interface {
 	Run(ctx context.Context, repository RepositoryIdentity, request QualityRequest) (QualityResult, error)
 }
 
+// QualityFingerprint binds a successful quality run to the configuration and
+// toolchain that selected its gates. It contains no process output or secrets.
+type QualityFingerprint struct {
+	ConfigurationDigest string
+	Gates               []string
+	Toolchain           string
+}
+
+// QualityEvidenceRunner executes configured quality gates and returns the
+// matching fingerprint from the same configuration snapshot.
+type QualityEvidenceRunner interface {
+	QualityRunner
+	RunWithFingerprint(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		request QualityRequest,
+	) (QualityResult, QualityFingerprint, error)
+	Fingerprint(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		request QualityRequest,
+	) (QualityFingerprint, error)
+}
+
+// FinalQualityEvidenceUpdate identifies one exact branch update covered by a
+// local final-quality result. BaseRevision is empty only when no target base
+// applies, such as a private scratch branch.
+type FinalQualityEvidenceUpdate struct {
+	LocalRef      string
+	LocalObjectID string
+	RemoteRef     string
+	Branch        string
+	Base          string
+	BaseRevision  string
+}
+
+// FinalQualityEvidence is local Git metadata used only to deduplicate an
+// identical quality run for an outgoing publish candidate. It is never a
+// server-side approval or authorization artifact.
+type FinalQualityEvidence struct {
+	SchemaVersion       int
+	Remote              string
+	ConfigurationDigest string
+	Gates               []string
+	Toolchain           string
+	WorktreeClean       bool
+	CreatedAt           time.Time
+	Updates             []FinalQualityEvidenceUpdate
+}
+
+// FinalQualityEvidenceStore persists a short-lived final-quality record in
+// repository-local Git metadata rather than in the working tree.
+type FinalQualityEvidenceStore interface {
+	LoadFinalQualityEvidence(
+		ctx context.Context,
+		repository RepositoryIdentity,
+	) (FinalQualityEvidence, bool, error)
+	StoreFinalQualityEvidence(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		evidence FinalQualityEvidence,
+	) error
+}
+
+// RevisionResolver resolves a ref to the exact commit object used for
+// revision-bound local quality evidence.
+type RevisionResolver interface {
+	ResolveRevision(ctx context.Context, repository RepositoryIdentity, revision string) (string, error)
+}
+
+// HotfixReleaseRecordStore loads a reviewed hotfix release record from the
+// repository without allowing callers to escape its controlled record area.
+type HotfixReleaseRecordStore interface {
+	LoadHotfixReleaseRecord(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		id ticket.ID,
+		location string,
+	) (hotfix.ReleaseRecord, error)
+}
+
+// HotfixManifestProgress records one in-progress ordered propagation in
+// repository-local Git metadata. It is not a reviewed release record and
+// never grants publication authority.
+type HotfixManifestProgress struct {
+	Branch   branch.BranchName
+	Source   branch.BranchName
+	Target   branch.BranchName
+	Manifest []string
+	Next     int
+}
+
+// HotfixManifestProgressStore persists the local state needed to continue an
+// explicitly user-resolved ordered cherry-pick without guessing its position.
+type HotfixManifestProgressStore interface {
+	LoadHotfixManifestProgress(
+		ctx context.Context,
+		repository RepositoryIdentity,
+	) (HotfixManifestProgress, bool, error)
+	StoreHotfixManifestProgress(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		progress HotfixManifestProgress,
+	) error
+	ClearHotfixManifestProgress(
+		ctx context.Context,
+		repository RepositoryIdentity,
+	) error
+}
+
 // PullRequest describes a provider-neutral pull request intent.
 type PullRequest struct {
 	Source branch.BranchName
@@ -325,4 +443,36 @@ type ReleaseReconciliationEvidence struct {
 type ReleaseLifecycleProvider interface {
 	DispatchSharedLine(ctx context.Context, request SharedLineDispatchRequest) (SharedLineDispatchResult, error)
 	VerifyReleaseReconciliation(ctx context.Context, request ReleaseReconciliationRequest) (ReleaseReconciliationEvidence, error)
+}
+
+// MainHotfixDeliveryRequest binds a reviewed record to its repository before a
+// production hotfix controller can create or verify a patch delivery.
+type MainHotfixDeliveryRequest struct {
+	Repository RepositoryIdentity
+	RemoteURL  string
+	Record     hotfix.ReleaseRecord
+}
+
+// MainHotfixMergeEvidence proves the exact same-repository hotfix pull
+// request and merge that a delivery controller may tag.
+type MainHotfixMergeEvidence struct {
+	PullRequestURL string
+	MergeCommit    string
+	Tag            string
+}
+
+// MainHotfixDeliveryEvidence adds the published release and successful
+// artifact workflow that bind the patch delivery evidence to the merge.
+type MainHotfixDeliveryEvidence struct {
+	MainHotfixMergeEvidence
+	ReleaseURL     string
+	WorkflowRunURL string
+}
+
+// MainHotfixLifecycleProvider verifies provider-owned facts for a main hotfix
+// before immutable tagging and after artifact delivery. It is intentionally a
+// read-only contract; the trusted workflow owns tag creation and dispatch.
+type MainHotfixLifecycleProvider interface {
+	VerifyMainHotfixMerge(ctx context.Context, request MainHotfixDeliveryRequest) (MainHotfixMergeEvidence, error)
+	VerifyMainHotfixDelivery(ctx context.Context, request MainHotfixDeliveryRequest) (MainHotfixDeliveryEvidence, error)
 }

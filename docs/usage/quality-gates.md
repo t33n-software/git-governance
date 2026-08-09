@@ -59,6 +59,19 @@ scope. A gate without `includeFamilies` or `excludeFamilies` inherits
 multi-ref push runs every eligible gate once after its per-ref governance
 checks pass.
 
+For a governed publication, the full local suite runs after the final allowed
+base synchronization. A successful run records a short-lived proof in
+repository-local Git metadata, not in a tracked file. The proof binds the
+outgoing ref and commit, target-base revision, remote, quality-configuration
+digest, selected gates, toolchain, clean worktree, and creation time.
+
+`validate pre-push` always performs structural validation for every update. It
+can reuse the proof only when every binding remains exact and fresh. A missing,
+expired, or mismatched proof triggers one full-suite fallback for the batch; a
+corrupted or incomplete proof fails closed. This local optimization never
+replaces remote CI, required checks, review, or branch protection, and it does
+not permit `--no-verify` or hook disabling.
+
 The recommended default includes every official working family:
 `feature`, `fix`, `docs`, `refactor`, `chore`, `test`, `perf`, and `hotfix`.
 `scratch` is absent from that default because it is private exploration. It is

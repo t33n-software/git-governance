@@ -74,6 +74,60 @@ func TestRunExecutesConfiguredArgumentArrays(t *testing.T) {
 	}
 }
 
+func TestRunWithFingerprintBindsTheExecutedConfiguration(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	contents := `{
+  "schemaVersion": 2,
+  "gates": [
+    {"name":"baseline","command":"baseline"},
+    {"name":"documentation","command":"docs","includeFamilies":["docs"]}
+  ]
+}`
+	writeConfig(t, filepath.Join(root, defaultConfigName), contents)
+	runner := New(Options{
+		Run: func(context.Context, string, string, ...string) error {
+			return nil
+		},
+	})
+	request := qualityRequest(branch.FamilyDocs)
+
+	result, fingerprint, err := runner.RunWithFingerprint(context.Background(), port.RepositoryIdentity{Root: root}, request)
+	if err != nil || result.Status != port.QualityPassed || strings.Join(fingerprint.Gates, ",") != "baseline,documentation" ||
+		len(fingerprint.ConfigurationDigest) != 64 || fingerprint.Toolchain == "" {
+		t.Fatalf("RunWithFingerprint() = (%#v, %#v, %v)", result, fingerprint, err)
+	}
+	current, err := runner.Fingerprint(context.Background(), port.RepositoryIdentity{Root: root}, request)
+	if err != nil ||
+		current.ConfigurationDigest != fingerprint.ConfigurationDigest ||
+		current.Toolchain != fingerprint.Toolchain ||
+		strings.Join(current.Gates, ",") != strings.Join(fingerprint.Gates, ",") ||
+		!strings.Contains(current.Toolchain, "/") {
+		t.Fatalf("Fingerprint() = (%#v, %v), want %#v", current, err, fingerprint)
+	}
+	current, err = runner.Fingerprint(testNilContext(), port.RepositoryIdentity{Root: root}, request)
+	if err != nil || current.ConfigurationDigest != fingerprint.ConfigurationDigest {
+		t.Fatalf("nil-context Fingerprint() = (%#v, %v)", current, err)
+	}
+
+	unconfigured, err := New(Options{}).Fingerprint(
+		context.Background(),
+		port.RepositoryIdentity{Root: t.TempDir()},
+		qualityRequest(branch.FamilyFeature),
+	)
+	if err != nil || unconfigured.ConfigurationDigest != "" || len(unconfigured.Gates) != 0 || unconfigured.Toolchain == "" {
+		t.Fatalf("unconfigured Fingerprint() = (%#v, %v)", unconfigured, err)
+	}
+
+	_, err = New(Options{
+		ReadFile: func(string) ([]byte, error) {
+			return nil, errors.New("read denied")
+		},
+	}).Fingerprint(context.Background(), port.RepositoryIdentity{Root: root}, request)
+	assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+}
+
 func TestRunScopesGatesByBranchFamily(t *testing.T) {
 	t.Parallel()
 

@@ -62,6 +62,21 @@ the Ruleset for its actual destination:
 This preserves the actual incident lineage and avoids treating every hotfix as
 if it belonged to `main`.
 
+For a same-repository `hotfix/* -> main` pull request, the existing required
+Linux quality job also validates the ticket-bound release record under
+`.git-governance/hotfix-release-records/`. This keeps the pre-merge record
+gate inside an already required main check instead of creating an optional
+hotfix-only status context. The record and manifest remain domain/controller
+responsibilities; Rulesets alone cannot validate their semantic content.
+
+After immutable Main-hotfix delivery, each declared multi-commit propagation
+candidate is published only by the protected `hotfix-propagation` controller.
+Its dedicated Publisher App may push the provenance-validated `fix/*`
+candidate and create a PR for the declared target line, but it has no Ruleset
+bypass, Actions, Workflows, Administration, Secrets, or direct Shared-Line
+permission. Rulesets continue to enforce the target-line review and Required
+Checks; the controller never merges a propagation PR.
+
 ### Scratch
 
 `scratch/*` is private, short-lived exploration. It is neither an official
@@ -87,6 +102,7 @@ The shared-line Rulesets `02-develop.json`, `03-main.json`,
 
 | Gate | Configured threshold | Why it applies |
 |---|---|---|
+| Dependency admission review | fail dependency additions at `low` severity or above across `runtime`, `development`, and `unknown` scopes | Every dependency change reaches a shared-line PR through the immutable `actions/dependency-review-action` gate. |
 | CodeQL code scanning | `alerts_threshold: all`; `security_alerts_threshold: all` | Every unresolved CodeQL alert, including the lowest reported severity, blocks a pull request. |
 | GitHub Code Quality | `severity: all` | Every unresolved Code Quality result blocks a pull request. |
 | GitHub Code Quality coverage | `minimum_coverage: 100`; `max_coverage_drop: 0` | Any aggregate coverage below 100% or any coverage decrease blocks a pull request. |
@@ -203,12 +219,18 @@ provide these separate controls:
 4. Release cleanup occurs only after delivery and either the backmerge merge or
    the recorded `not-required` reconciliation result.
 
-When Develop requires a current PR head, the protected Main release-control
-workflow builds a trusted binary before it creates the release-derived
-preparation branch. It uses a short-lived, masked broker installation token
-only in the ephemeral runner Git transport, clears that configuration on exit,
-and opens the reviewed merge-commit PR to Develop without updating the
-delivered release ref.
+When the Develop Ruleset requires a current pull-request head, GitHub's
+**Update branch** action must not update the delivered `release/<semver>` ref.
+The governed reconciliation path instead uses a ticket-bound `chore/*`
+preparation branch created from the release line, merges current Develop only
+into that working branch, validates it, and opens a merge-commit PR from the
+working branch to Develop.
+
+The protected Main release-control workflow builds a trusted binary before it
+creates the release-derived preparation branch. It uses a short-lived, masked
+broker installation token only in the ephemeral runner Git transport, clears
+that configuration on exit, and opens the reviewed merge-commit PR to Develop
+without updating the delivered release ref.
 
 If the controlled Develop merge conflicts, Rulesets cannot resolve the content
 or prove an arbitrary submitted branch is safe. The controller fails closed,
@@ -371,9 +393,18 @@ Shared-line rulesets require the CI job names from `.github/workflows/ci.yml`:
 - `Quality gates (linux-amd64)`
 - `Quality gates (macos-arm64)`
 - `Quality gates (windows-amd64)`
+- `Dependency admission review`
 
-If those check names change, update the `required_status_checks` arrays before
-import, or adjust them in the GitHub UI after import.
+The dependency-admission workflow emits its required check for pull requests
+targeting `develop`, `main`, `release/**`, and `support/**`. It has no path
+filter because a skipped required workflow leaves its check pending and blocks
+the pull request.
+
+If any of those check names or target branches change, update the
+`required_status_checks` arrays before import, or adjust them in the GitHub UI
+after import. Enable a required check on a live shared-line Ruleset only after
+the corresponding workflow can report that check for pull requests to the
+target line.
 
 For `04-release.json` and `05-support.json`, retain
 `do_not_enforce_on_create: true` while updating those arrays. It is required

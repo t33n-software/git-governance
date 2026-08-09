@@ -8,6 +8,7 @@ import (
 	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
 	"github.com/CyberT33N/git-governance/internal/application/port"
 	"github.com/CyberT33N/git-governance/internal/domain/branch"
+	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
 	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 )
@@ -15,12 +16,15 @@ import (
 // ReleaseService owns the bounded hotfix, release, support, and release
 // backmerge workflows.
 type ReleaseService struct {
-	branches  *branchapp.Service
-	git       port.GitRepository
-	publisher port.PullRequestPublisher
-	lifecycle port.ReleaseLifecycleProvider
-	tickets   *TicketService
-	quality   port.QualityRunner
+	branches            *branchapp.Service
+	git                 port.GitRepository
+	publisher           port.PullRequestPublisher
+	lifecycle           port.ReleaseLifecycleProvider
+	hotfix              port.MainHotfixLifecycleProvider
+	tickets             *TicketService
+	quality             port.QualityRunner
+	records             port.HotfixReleaseRecordStore
+	manifestPublication bool
 }
 
 var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
@@ -66,10 +70,31 @@ func (service *ReleaseService) WithQualityRunner(quality port.QualityRunner) *Re
 	return service
 }
 
+// WithHotfixManifestPublication enables publication only for the dedicated
+// server-side hotfix propagation publisher boundary.
+func (service *ReleaseService) WithHotfixManifestPublication(enabled bool) *ReleaseService {
+	service.manifestPublication = enabled
+	return service
+}
+
+// WithHotfixReleaseRecordStore wires the repository-local, reviewed release
+// record reader into main hotfix publication validation.
+func (service *ReleaseService) WithHotfixReleaseRecordStore(records port.HotfixReleaseRecordStore) *ReleaseService {
+	service.records = records
+	return service
+}
+
 // WithReleaseLifecycleProvider wires provider-owned protected-line dispatch
 // and release-delivery verification into release workflows.
 func (service *ReleaseService) WithReleaseLifecycleProvider(provider port.ReleaseLifecycleProvider) *ReleaseService {
 	service.lifecycle = provider
+	return service
+}
+
+// WithMainHotfixLifecycleProvider wires read-only provider evidence checks
+// into the production main-hotfix delivery workflow.
+func (service *ReleaseService) WithMainHotfixLifecycleProvider(provider port.MainHotfixLifecycleProvider) *ReleaseService {
+	service.hotfix = provider
 	return service
 }
 
@@ -132,6 +157,186 @@ func (service *ReleaseService) StartHotfix(ctx context.Context, request StartHot
 		}
 	}
 	return result, nil
+}
+
+// ValidateMainHotfixRecordRequest identifies the hotfix branch and optional
+// repository-relative record location to validate before a main hotfix can be
+// published for review.
+type ValidateMainHotfixRecordRequest struct {
+	Repository port.RepositoryIdentity
+	Branch     branch.BranchName
+	Location   string
+}
+
+// ValidateMainHotfixRecordResult exposes only the non-secret facts a caller
+// needs to bind a main hotfix publication to its reviewed release record.
+type ValidateMainHotfixRecordResult struct {
+	Record hotfix.ReleaseRecord
+}
+
+// ValidateMainHotfixRecord verifies that a reviewed record belongs to the
+// selected hotfix branch and satisfies main patch-delivery invariants.
+func (service *ReleaseService) ValidateMainHotfixRecord(
+	ctx context.Context,
+	request ValidateMainHotfixRecordRequest,
+) (ValidateMainHotfixRecordResult, error) {
+	if service.records == nil {
+		return ValidateMainHotfixRecordResult{}, internalDependencyError("hotfix release record store")
+	}
+	if request.Branch.Family() != branch.FamilyHotfix {
+		return ValidateMainHotfixRecordResult{}, invalidWorkflowInput(
+			"main hotfix record validation requires a hotfix/<ticket>-<slug> branch",
+			"select the ticket-bound hotfix branch reviewed for main delivery",
+		)
+	}
+	id, _ := request.Branch.Ticket()
+	repository, err := normalizeWorkflowRepository(request.Repository)
+	if err != nil {
+		return ValidateMainHotfixRecordResult{}, err
+	}
+	record, err := service.records.LoadHotfixReleaseRecord(ctx, repository, id, request.Location)
+	if err != nil {
+		return ValidateMainHotfixRecordResult{}, err
+	}
+	if record.Ticket().String() != id.String() || record.ExpectedSource().String() != request.Branch.String() {
+		return ValidateMainHotfixRecordResult{}, invalidWorkflowInput(
+			"the hotfix release record must bind the selected ticket and source branch",
+			"update the reviewed record to match the exact hotfix branch before publishing",
+		)
+	}
+	if err := record.ValidateMainPatchDelivery(); err != nil {
+		return ValidateMainHotfixRecordResult{}, err
+	}
+	return ValidateMainHotfixRecordResult{Record: record}, nil
+}
+
+// VerifyMainHotfixMergeRequest identifies the reviewed record and hotfix
+// branch that a trusted controller wants to validate before immutable tagging.
+type VerifyMainHotfixMergeRequest struct {
+	Repository port.RepositoryIdentity
+	Branch     branch.BranchName
+	Location   string
+}
+
+// VerifyMainHotfixMergeResult binds the validated record to provider evidence
+// for the exact merged main hotfix.
+type VerifyMainHotfixMergeResult struct {
+	Record   hotfix.ReleaseRecord
+	Evidence port.MainHotfixMergeEvidence
+}
+
+// VerifyMainHotfixMerge independently proves the reviewed same-repository PR,
+// its exact merge commit, and the ordered manifest before a controller tags it.
+func (service *ReleaseService) VerifyMainHotfixMerge(
+	ctx context.Context,
+	request VerifyMainHotfixMergeRequest,
+) (VerifyMainHotfixMergeResult, error) {
+	if service.git == nil {
+		return VerifyMainHotfixMergeResult{}, internalDependencyError("Git repository")
+	}
+	if service.hotfix == nil {
+		return VerifyMainHotfixMergeResult{}, internalDependencyError("main hotfix lifecycle provider")
+	}
+	record, repository, err := service.validatedMainHotfixRecord(ctx, request.Repository, request.Branch, request.Location)
+	if err != nil {
+		return VerifyMainHotfixMergeResult{}, err
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, repository)
+	if err != nil {
+		return VerifyMainHotfixMergeResult{}, err
+	}
+	evidence, err := service.hotfix.VerifyMainHotfixMerge(ctx, port.MainHotfixDeliveryRequest{
+		Repository: repository,
+		RemoteURL:  remoteURL,
+		Record:     record,
+	})
+	if err != nil {
+		return VerifyMainHotfixMergeResult{}, err
+	}
+	if evidence.Tag != "v"+record.TargetVersion().String() || evidence.MergeCommit == "" || evidence.PullRequestURL == "" {
+		return VerifyMainHotfixMergeResult{}, invalidWorkflowInput(
+			"main hotfix merge evidence must bind the expected patch tag, merge commit, and pull request",
+			"repair the record or provider evidence before creating an immutable tag",
+		)
+	}
+	return VerifyMainHotfixMergeResult{Record: record, Evidence: evidence}, nil
+}
+
+// VerifyMainHotfixDeliveryRequest identifies a main hotfix whose tag and
+// artifact delivery must be independently verified after release automation.
+type VerifyMainHotfixDeliveryRequest struct {
+	Repository port.RepositoryIdentity
+	Branch     branch.BranchName
+	Location   string
+}
+
+// VerifyMainHotfixDeliveryResult captures the record and complete provider
+// evidence required before the hotfix can be considered delivered.
+type VerifyMainHotfixDeliveryResult struct {
+	Record   hotfix.ReleaseRecord
+	Evidence port.MainHotfixDeliveryEvidence
+}
+
+// VerifyMainHotfixDelivery proves that the immutable patch tag, published
+// release, and successful artifact workflow all bind to the reviewed merge.
+func (service *ReleaseService) VerifyMainHotfixDelivery(
+	ctx context.Context,
+	request VerifyMainHotfixDeliveryRequest,
+) (VerifyMainHotfixDeliveryResult, error) {
+	if service.git == nil {
+		return VerifyMainHotfixDeliveryResult{}, internalDependencyError("Git repository")
+	}
+	if service.hotfix == nil {
+		return VerifyMainHotfixDeliveryResult{}, internalDependencyError("main hotfix lifecycle provider")
+	}
+	record, repository, err := service.validatedMainHotfixRecord(ctx, request.Repository, request.Branch, request.Location)
+	if err != nil {
+		return VerifyMainHotfixDeliveryResult{}, err
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, repository)
+	if err != nil {
+		return VerifyMainHotfixDeliveryResult{}, err
+	}
+	evidence, err := service.hotfix.VerifyMainHotfixDelivery(ctx, port.MainHotfixDeliveryRequest{
+		Repository: repository,
+		RemoteURL:  remoteURL,
+		Record:     record,
+	})
+	if err != nil {
+		return VerifyMainHotfixDeliveryResult{}, err
+	}
+	if evidence.Tag != "v"+record.TargetVersion().String() ||
+		evidence.MergeCommit == "" ||
+		evidence.PullRequestURL == "" ||
+		evidence.ReleaseURL == "" ||
+		evidence.WorkflowRunURL == "" {
+		return VerifyMainHotfixDeliveryResult{}, invalidWorkflowInput(
+			"main hotfix delivery evidence must bind the patch tag, merge, release, and artifact workflow",
+			"wait for the immutable patch delivery to complete before marking the hotfix delivered",
+		)
+	}
+	return VerifyMainHotfixDeliveryResult{Record: record, Evidence: evidence}, nil
+}
+
+func (service *ReleaseService) validatedMainHotfixRecord(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	name branch.BranchName,
+	location string,
+) (hotfix.ReleaseRecord, port.RepositoryIdentity, error) {
+	normalized, err := normalizeWorkflowRepository(repository)
+	if err != nil {
+		return hotfix.ReleaseRecord{}, port.RepositoryIdentity{}, err
+	}
+	result, err := service.ValidateMainHotfixRecord(ctx, ValidateMainHotfixRecordRequest{
+		Repository: normalized,
+		Branch:     name,
+		Location:   location,
+	})
+	if err != nil {
+		return hotfix.ReleaseRecord{}, port.RepositoryIdentity{}, err
+	}
+	return result.Record, normalized, nil
 }
 
 // CutReleaseRequest describes an intentional release cut from develop.
@@ -695,6 +900,352 @@ func (service *ReleaseService) PropagateHotfix(ctx context.Context, request Prop
 	}
 	result.Publication = publication
 	return result, nil
+}
+
+// PropagateHotfixManifestRequest describes the local preparation of one
+// ordered, reviewed multi-commit propagation candidate. Publication remains
+// owned by the separate server-side hotfix publisher boundary.
+type PropagateHotfixManifestRequest struct {
+	Repository port.RepositoryIdentity
+	Source     branch.BranchName
+	TargetLine branch.BranchName
+	Location   string
+	Slug       branch.Slug
+	Publish    bool
+	DryRun     bool
+}
+
+// PropagateHotfixManifestResult records a declared propagation candidate. Local
+// callers prepare without publication; the dedicated server-side publisher can
+// additionally publish the validated candidate.
+type PropagateHotfixManifestResult struct {
+	Branch          branchapp.CreateResult
+	Record          hotfix.ReleaseRecord
+	CherryPickCount int
+	Quality         *port.QualityResult
+	Publication     *PublishTicketResult
+	DryRun          bool
+}
+
+// PropagateHotfixManifest creates a target-derived fix branch and applies the
+// exact ordered full-SHA manifest under a resumable local cursor. Publication
+// is available only when the service was composed for the dedicated hotfix
+// propagation publisher boundary.
+func (service *ReleaseService) PropagateHotfixManifest(
+	ctx context.Context,
+	request PropagateHotfixManifestRequest,
+) (PropagateHotfixManifestResult, error) {
+	if service.branches == nil || service.git == nil || service.quality == nil {
+		return PropagateHotfixManifestResult{}, internalDependencyError("hotfix manifest propagation services")
+	}
+	if request.Publish && !service.manifestPublication {
+		return PropagateHotfixManifestResult{}, hotfixManifestPublicationUnavailable()
+	}
+	if request.Publish && service.tickets == nil {
+		return PropagateHotfixManifestResult{}, internalDependencyError("hotfix manifest publication service")
+	}
+	progressStore, ok := service.git.(port.HotfixManifestProgressStore)
+	if !ok {
+		return PropagateHotfixManifestResult{}, internalDependencyError("hotfix manifest propagation progress store")
+	}
+	record, repository, err := service.validatedMainHotfixRecord(ctx, request.Repository, request.Source, request.Location)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if err := validateManifestTarget(record, request.TargetLine); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	slug := resolveManifestPropagationSlug(request.Slug, request.TargetLine)
+	base, _ := branch.NewTargetBase(repository.Remote, request.TargetLine)
+	sourceTicket, _ := request.Source.Ticket()
+	switchToBranch := true
+	created, err := service.branches.Create(ctx, branchapp.CreateRequest{
+		Repository:      repository,
+		Family:          branch.FamilyFix,
+		Ticket:          sourceTicket,
+		Slug:            slug,
+		Base:            &base,
+		Switch:          &switchToBranch,
+		DryRun:          request.DryRun,
+		WorkflowManaged: true,
+	})
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	result := PropagateHotfixManifestResult{
+		Branch: created,
+		Record: record,
+		DryRun: request.DryRun,
+	}
+	if request.DryRun {
+		return result, nil
+	}
+	if err := service.git.StoreWorkflowBase(ctx, repository, created.Name, base); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	progress := port.HotfixManifestProgress{
+		Branch:   created.Name,
+		Source:   request.Source,
+		Target:   request.TargetLine,
+		Manifest: record.Manifest(),
+	}
+	if err := progressStore.StoreHotfixManifestProgress(ctx, repository, progress); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	result, err = service.applyHotfixManifest(ctx, repository, record, progress, progressStore, result, !request.Publish)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if request.Publish {
+		publication, err := service.publishHotfixManifestCandidate(ctx, repository, result.Branch.Name, request.TargetLine)
+		if err != nil {
+			return PropagateHotfixManifestResult{}, err
+		}
+		result.Publication = &publication
+		result.Quality = &publication.Quality
+	}
+	return result, nil
+}
+
+// ResumeHotfixManifestPropagationRequest identifies an existing local
+// candidate with a user-resolved active cherry-pick.
+type ResumeHotfixManifestPropagationRequest struct {
+	Repository port.RepositoryIdentity
+	Source     branch.BranchName
+	TargetLine branch.BranchName
+	Branch     branch.BranchName
+	Location   string
+	Publish    bool
+}
+
+// ResumeHotfixManifestPropagation continues exactly the paused manifest item,
+// then applies the remaining ordered commits and re-runs quality gates. Only
+// the dedicated server-side publisher may publish the resumed candidate.
+func (service *ReleaseService) ResumeHotfixManifestPropagation(
+	ctx context.Context,
+	request ResumeHotfixManifestPropagationRequest,
+) (PropagateHotfixManifestResult, error) {
+	if service.branches == nil || service.git == nil || service.quality == nil {
+		return PropagateHotfixManifestResult{}, internalDependencyError("hotfix manifest propagation services")
+	}
+	if request.Publish && !service.manifestPublication {
+		return PropagateHotfixManifestResult{}, hotfixManifestPublicationUnavailable()
+	}
+	if request.Publish && service.tickets == nil {
+		return PropagateHotfixManifestResult{}, internalDependencyError("hotfix manifest publication service")
+	}
+	progressStore, ok := service.git.(port.HotfixManifestProgressStore)
+	if !ok {
+		return PropagateHotfixManifestResult{}, internalDependencyError("hotfix manifest propagation progress store")
+	}
+	record, repository, err := service.validatedMainHotfixRecord(ctx, request.Repository, request.Source, request.Location)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if err := validateManifestTarget(record, request.TargetLine); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if request.Branch.Family() != branch.FamilyFix {
+		return PropagateHotfixManifestResult{}, invalidWorkflowInput(
+			"hotfix manifest propagation resumption requires a generated fix branch",
+			"provide the exact target-derived fix branch created by workflow hotfix propagate-manifest",
+		)
+	}
+	current, err := service.git.CurrentBranch(ctx, repository)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if current.String() != request.Branch.String() {
+		return PropagateHotfixManifestResult{}, invalidWorkflowInput(
+			"hotfix manifest propagation may resume only on the checked-out candidate branch",
+			"switch to the generated fix branch before resuming the resolved cherry-pick",
+		)
+	}
+	progress, found, err := progressStore.LoadHotfixManifestProgress(ctx, repository)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if !found || !matchesManifestProgress(progress, request, record.Manifest()) {
+		return PropagateHotfixManifestResult{}, invalidWorkflowInput(
+			"hotfix manifest propagation resumption requires matching local progress metadata",
+			"resume the original candidate with its exact source, target, branch, and reviewed manifest",
+		)
+	}
+	operation, active, err := service.git.ActiveOperation(ctx, repository)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if !active || operation != "cherry-pick" {
+		return PropagateHotfixManifestResult{}, invalidWorkflowInput(
+			"hotfix manifest propagation can resume only an in-progress resolved cherry-pick",
+			"resolve and stage the current conflict without changing the manifest, then resume immediately",
+		)
+	}
+	continuator, ok := service.git.(port.CherryPickContinuator)
+	if !ok {
+		return PropagateHotfixManifestResult{}, internalDependencyError("cherry-pick continuator")
+	}
+	if err := continuator.ContinueCherryPick(ctx, repository); err != nil {
+		return PropagateHotfixManifestResult{}, service.classifyCherryPickFailure(ctx, repository, err)
+	}
+	progress.Next++
+	if err := progressStore.StoreHotfixManifestProgress(ctx, repository, progress); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	base, _ := branch.NewTargetBase(repository.Remote, request.TargetLine)
+	result := PropagateHotfixManifestResult{
+		Branch: branchapp.CreateResult{
+			Name: request.Branch,
+			Base: base,
+		},
+		Record:          record,
+		CherryPickCount: progress.Next,
+	}
+	result, err = service.applyHotfixManifest(ctx, repository, record, progress, progressStore, result, !request.Publish)
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if request.Publish {
+		publication, err := service.publishHotfixManifestCandidate(ctx, repository, result.Branch.Name, request.TargetLine)
+		if err != nil {
+			return PropagateHotfixManifestResult{}, err
+		}
+		result.Publication = &publication
+		result.Quality = &publication.Quality
+	}
+	return result, nil
+}
+
+func (service *ReleaseService) applyHotfixManifest(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	record hotfix.ReleaseRecord,
+	progress port.HotfixManifestProgress,
+	progressStore port.HotfixManifestProgressStore,
+	result PropagateHotfixManifestResult,
+	runQuality bool,
+) (PropagateHotfixManifestResult, error) {
+	for index := progress.Next; index < len(progress.Manifest); index++ {
+		if err := service.git.CherryPick(ctx, repository, progress.Manifest[index]); err != nil {
+			return PropagateHotfixManifestResult{}, service.classifyCherryPickFailure(ctx, repository, err)
+		}
+		progress.Next = index + 1
+		if err := progressStore.StoreHotfixManifestProgress(ctx, repository, progress); err != nil {
+			return PropagateHotfixManifestResult{}, err
+		}
+		result.CherryPickCount = progress.Next
+	}
+	if err := progressStore.ClearHotfixManifestProgress(ctx, repository); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if _, err := service.branches.Validate(ctx, branchapp.ValidateRequest{
+		Repository: repository,
+		Name:       result.Branch.Name,
+	}); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	if !runQuality {
+		result.Record = record
+		return result, nil
+	}
+	quality, err := service.quality.Run(ctx, repository, port.QualityRequest{
+		Families: []branch.Family{result.Branch.Name.Family()},
+	})
+	if err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
+	result.Quality = &quality
+	result.Record = record
+	return result, nil
+}
+
+func (service *ReleaseService) publishHotfixManifestCandidate(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	candidate branch.BranchName,
+	target branch.BranchName,
+) (PublishTicketResult, error) {
+	if !service.manifestPublication {
+		return PublishTicketResult{}, hotfixManifestPublicationUnavailable()
+	}
+	if service.tickets == nil {
+		return PublishTicketResult{}, internalDependencyError("hotfix manifest publication service")
+	}
+	if !service.tickets.HasPullRequestPublisher() {
+		return PublishTicketResult{}, pullRequestPublisherUnavailable()
+	}
+	base, err := branch.NewTargetBase(repository.Remote, target)
+	if err != nil {
+		return PublishTicketResult{}, err
+	}
+	pullRequest := newTicketPullRequest(candidate, target, false)
+	if err := service.tickets.PreflightPullRequest(ctx, repository, pullRequest); err != nil {
+		return PublishTicketResult{}, err
+	}
+	return service.tickets.PublishTicket(ctx, PublishTicketRequest{
+		Repository:        repository,
+		Branch:            candidate,
+		Base:              &base,
+		Target:            &target,
+		WorkflowManaged:   true,
+		Push:              true,
+		CreatePullRequest: true,
+	})
+}
+
+func hotfixManifestPublicationUnavailable() error {
+	return invalidWorkflowInput(
+		"hotfix manifest candidate publication requires the dedicated server-side hotfix propagation publisher",
+		"run the protected hotfix propagation controller; local manifest preparation remains non-publishing",
+	)
+}
+
+func validateManifestTarget(record hotfix.ReleaseRecord, target branch.BranchName) error {
+	switch target.Family() {
+	case branch.FamilyDevelop, branch.FamilyRelease, branch.FamilySupport:
+	default:
+		return invalidWorkflowInput(
+			"hotfix manifest propagation targets develop, release/<semver>, or support/<major.minor>",
+			"select a declared additional active line instead of main or a working branch",
+		)
+	}
+	for _, declared := range record.PropagationTargets() {
+		if declared.String() == target.String() {
+			return nil
+		}
+	}
+	return invalidWorkflowInput(
+		"hotfix manifest propagation target must be declared in the reviewed release record",
+		"add the active target line to the reviewed record before preparing its propagation candidate",
+	)
+}
+
+func resolveManifestPropagationSlug(value branch.Slug, target branch.BranchName) branch.Slug {
+	if value.String() != "" {
+		return value
+	}
+	normalized := strings.NewReplacer("/", "-", ".", "-").Replace(target.String())
+	slug, _ := branch.ParseSlug("propagate-to-" + normalized)
+	return slug
+}
+
+func matchesManifestProgress(
+	progress port.HotfixManifestProgress,
+	request ResumeHotfixManifestPropagationRequest,
+	manifest []string,
+) bool {
+	if progress.Branch.String() != request.Branch.String() ||
+		progress.Source.String() != request.Source.String() ||
+		progress.Target.String() != request.TargetLine.String() ||
+		len(progress.Manifest) != len(manifest) {
+		return false
+	}
+	for index := range manifest {
+		if progress.Manifest[index] != manifest[index] {
+			return false
+		}
+	}
+	return progress.Next >= 0 && progress.Next < len(manifest)
 }
 
 // ResumeHotfixPropagation continues a manually resolved cherry-pick and then

@@ -24,9 +24,11 @@ import (
 )
 
 const (
-	defaultTimeout         = 30 * time.Second
-	workflowBasesConfigKey = "git-governance.workflow-bases"
-	maxDiagnosticBytes     = 4096
+	defaultTimeout                  = 30 * time.Second
+	workflowBasesConfigKey          = "git-governance.workflow-bases"
+	finalQualityEvidenceConfigKey   = "git-governance.final-quality-evidence"
+	hotfixManifestProgressConfigKey = "git-governance.hotfix-manifest-progress"
+	maxDiagnosticBytes              = 4096
 )
 
 var noPromptGitEnvironment = []string{
@@ -38,6 +40,7 @@ var noPromptGitEnvironment = []string{
 var (
 	urlCredentialsPattern   = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]+@`)
 	secretAssignmentPattern = regexp.MustCompile(`(?i)\b(token|password|secret|authorization)=\S+`)
+	commitObjectIDPattern   = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 )
 
 // Options configures the Git process adapter.
@@ -509,6 +512,239 @@ func (repository *Repository) WorkflowBase(ctx context.Context, identity port.Re
 	return base, true, nil
 }
 
+// ResolveRevision resolves a ref to the exact commit object used by local
+// quality evidence. It never reads a revision from untrusted metadata.
+func (repository *Repository) ResolveRevision(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	revision string,
+) (string, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "rev-parse", "--verify", "--quiet", revision+"^{commit}")
+	if result.err != nil {
+		return "", repository.commandProblem(problem.CodeGitCommandFailed, identity, "resolve a commit revision", result)
+	}
+	resolved := strings.ToLower(strings.TrimSpace(result.stdout))
+	if !commitObjectIDPattern.MatchString(resolved) {
+		return "", problem.New(problem.Details{
+			Code:        problem.CodeGitCommandFailed,
+			Category:    problem.CategoryGit,
+			Field:       "Git revision",
+			Actual:      resolved,
+			Expected:    "a complete hexadecimal commit object ID",
+			Rule:        "revision-bound quality evidence uses an exact commit object",
+			Remediation: "repair the repository metadata and retry the publish validation",
+		})
+	}
+	return resolved, nil
+}
+
+// LoadFinalQualityEvidence reads the single short-lived quality record from
+// repository-local Git metadata. An absent record is a normal cache miss.
+func (repository *Repository) LoadFinalQualityEvidence(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+) (port.FinalQualityEvidence, bool, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "config", "--local", "--get", finalQualityEvidenceConfigKey)
+	switch {
+	case result.err == nil:
+		var evidence port.FinalQualityEvidence
+		if err := json.Unmarshal([]byte(strings.TrimSpace(result.stdout)), &evidence); err != nil {
+			return port.FinalQualityEvidence{}, false, problem.Wrap(problem.Details{
+				Code:        problem.CodeConfigurationInvalid,
+				Category:    problem.CategoryConfig,
+				Field:       "final quality evidence",
+				Expected:    "a valid repository-local final-quality JSON record",
+				Rule:        "local publish quality evidence must remain machine-readable and fail closed when corrupted",
+				Remediation: "run the final local quality suite again to replace the local evidence record",
+			}, err)
+		}
+		return evidence, true, nil
+	case result.exitCode == 1:
+		return port.FinalQualityEvidence{}, false, nil
+	default:
+		return port.FinalQualityEvidence{}, false, repository.commandProblem(
+			problem.CodeGitCommandFailed,
+			identity,
+			"read final quality evidence",
+			result,
+		)
+	}
+}
+
+// StoreFinalQualityEvidence writes one JSON value through Git's local config
+// lockfile path, keeping the optimization outside versioned worktree files.
+func (repository *Repository) StoreFinalQualityEvidence(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	evidence port.FinalQualityEvidence,
+) error {
+	// FinalQualityEvidence contains only JSON-serializable scalar, slice, and
+	// time values. Keeping this invariant in the port avoids an unreachable
+	// error path at the Git metadata boundary.
+	encoded, _ := json.Marshal(evidence)
+	result := repository.invoke(
+		ctx,
+		identity.Root,
+		nil,
+		"config",
+		"--local",
+		finalQualityEvidenceConfigKey,
+		string(encoded),
+	)
+	if result.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "store final quality evidence", result)
+	}
+	return nil
+}
+
+// LoadHotfixManifestProgress reads the one active ordered propagation state.
+// An absent value is a normal no-progress result; malformed state fails
+// closed instead of guessing which commit to cherry-pick next.
+func (repository *Repository) LoadHotfixManifestProgress(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+) (port.HotfixManifestProgress, bool, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "config", "--local", "--get", hotfixManifestProgressConfigKey)
+	switch {
+	case result.err == nil:
+		var document hotfixManifestProgressDocument
+		if err := json.Unmarshal([]byte(strings.TrimSpace(result.stdout)), &document); err != nil {
+			return port.HotfixManifestProgress{}, false, invalidHotfixManifestProgress(err)
+		}
+		progress, err := document.progress()
+		if err != nil {
+			return port.HotfixManifestProgress{}, false, err
+		}
+		return progress, true, nil
+	case result.exitCode == 1:
+		return port.HotfixManifestProgress{}, false, nil
+	default:
+		return port.HotfixManifestProgress{}, false, repository.commandProblem(
+			problem.CodeGitCommandFailed,
+			identity,
+			"read hotfix manifest propagation progress",
+			result,
+		)
+	}
+}
+
+// StoreHotfixManifestProgress writes one bounded propagation cursor through
+// Git's local config lockfile path.
+func (repository *Repository) StoreHotfixManifestProgress(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	progress port.HotfixManifestProgress,
+) error {
+	document, err := newHotfixManifestProgressDocument(progress)
+	if err != nil {
+		return err
+	}
+	encoded, _ := json.Marshal(document)
+	result := repository.invoke(
+		ctx,
+		identity.Root,
+		nil,
+		"config",
+		"--local",
+		hotfixManifestProgressConfigKey,
+		string(encoded),
+	)
+	if result.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "store hotfix manifest propagation progress", result)
+	}
+	return nil
+}
+
+// ClearHotfixManifestProgress removes the completed or abandoned local cursor.
+func (repository *Repository) ClearHotfixManifestProgress(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+) error {
+	result := repository.invoke(ctx, identity.Root, nil, "config", "--local", "--unset-all", hotfixManifestProgressConfigKey)
+	switch {
+	case result.err == nil, result.exitCode == 1:
+		return nil
+	default:
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "clear hotfix manifest propagation progress", result)
+	}
+}
+
+type hotfixManifestProgressDocument struct {
+	Branch   string   `json:"branch"`
+	Source   string   `json:"source"`
+	Target   string   `json:"target"`
+	Manifest []string `json:"manifest"`
+	Next     int      `json:"next"`
+}
+
+func newHotfixManifestProgressDocument(progress port.HotfixManifestProgress) (hotfixManifestProgressDocument, error) {
+	document := hotfixManifestProgressDocument{
+		Branch:   progress.Branch.String(),
+		Source:   progress.Source.String(),
+		Target:   progress.Target.String(),
+		Manifest: append([]string(nil), progress.Manifest...),
+		Next:     progress.Next,
+	}
+	if _, err := document.progress(); err != nil {
+		return hotfixManifestProgressDocument{}, err
+	}
+	return document, nil
+}
+
+func (document hotfixManifestProgressDocument) progress() (port.HotfixManifestProgress, error) {
+	branchName, err := branch.ParseName(document.Branch)
+	if err != nil {
+		return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(err)
+	}
+	source, err := branch.ParseName(document.Source)
+	if err != nil {
+		return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(err)
+	}
+	target, err := branch.ParseName(document.Target)
+	if err != nil {
+		return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(err)
+	}
+	if branchName.Family() != branch.FamilyFix || source.Family() != branch.FamilyHotfix {
+		return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(nil)
+	}
+	switch target.Family() {
+	case branch.FamilyDevelop, branch.FamilyRelease, branch.FamilySupport:
+	default:
+		return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(nil)
+	}
+	if len(document.Manifest) == 0 || document.Next < 0 || document.Next > len(document.Manifest) {
+		return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(nil)
+	}
+	seen := make(map[string]struct{}, len(document.Manifest))
+	for _, commit := range document.Manifest {
+		if !commitObjectIDPattern.MatchString(commit) {
+			return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(nil)
+		}
+		if _, found := seen[commit]; found {
+			return port.HotfixManifestProgress{}, invalidHotfixManifestProgress(nil)
+		}
+		seen[commit] = struct{}{}
+	}
+	return port.HotfixManifestProgress{
+		Branch:   branchName,
+		Source:   source,
+		Target:   target,
+		Manifest: append([]string(nil), document.Manifest...),
+		Next:     document.Next,
+	}, nil
+}
+
+func invalidHotfixManifestProgress(cause error) error {
+	return problem.Wrap(problem.Details{
+		Code:        problem.CodeConfigurationInvalid,
+		Category:    problem.CategoryConfig,
+		Field:       "hotfix manifest propagation progress",
+		Expected:    "a valid repository-local ordered hotfix propagation record",
+		Rule:        "multi-commit hotfix propagation resumes only from exact local metadata",
+		Remediation: "recreate the controlled propagation branch instead of guessing the next cherry-pick",
+	}, cause)
+}
+
 // encodeWorkflowBases cannot fail because the workflow metadata is restricted
 // to a map with string keys and string values. Keeping this invariant local
 // avoids an unreachable runtime error path while preserving JSON encoding.
@@ -596,6 +832,15 @@ func (repository *Repository) ContinueRebase(ctx context.Context, identity port.
 	return nil
 }
 
+// Merge merges the target base with an explicit governed merge message.
+func (repository *Repository) Merge(ctx context.Context, identity port.RepositoryIdentity, base branch.TargetBase, message commitmsg.Message) error {
+	result := repository.invoke(ctx, identity.Root, nil, "merge", "--no-ff", "--no-edit", "-m", message.String(), base.String())
+	if result.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "merge the target base", result)
+	}
+	return nil
+}
+
 // ContinueMerge advances an already started merge after the resolver stages
 // every conflicted path. A non-interactive editor preserves the governed merge
 // message recorded when the merge began.
@@ -607,13 +852,22 @@ func (repository *Repository) ContinueMerge(ctx context.Context, identity port.R
 	return nil
 }
 
-// Merge merges the target base with an explicit governed merge message.
-func (repository *Repository) Merge(ctx context.Context, identity port.RepositoryIdentity, base branch.TargetBase, message commitmsg.Message) error {
-	result := repository.invoke(ctx, identity.Root, nil, "merge", "--no-ff", "--no-edit", "-m", message.String(), base.String())
-	if result.err != nil {
-		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "merge the target base", result)
+// ActiveMergeTargetMatches verifies that the in-progress merge still targets
+// the selected fetched remote-tracking base before it is continued.
+func (repository *Repository) ActiveMergeTargetMatches(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	target branch.TargetBase,
+) (bool, error) {
+	mergeHead, err := repository.resolveRevision(ctx, identity, "MERGE_HEAD", "resolve the active merge target")
+	if err != nil {
+		return false, err
 	}
-	return nil
+	targetRevision, err := repository.resolveCommit(ctx, identity, target, "resolve the selected merge target")
+	if err != nil {
+		return false, err
+	}
+	return mergeHead == targetRevision, nil
 }
 
 // HeadIsMergeOf proves that HEAD is an exact two-parent merge with the
@@ -657,13 +911,24 @@ func (repository *Repository) ResolveReconciliationBases(
 	return releaseRevision, developRevision, nil
 }
 
+// resolveCommit preserves the GOV-25 commit-resolution contract for any
+// remote-tracking target base that participates in governed merge recovery.
 func (repository *Repository) resolveCommit(
 	ctx context.Context,
 	identity port.RepositoryIdentity,
 	base branch.TargetBase,
 	operation string,
 ) (string, error) {
-	result := repository.invoke(ctx, identity.Root, nil, "rev-parse", "--verify", base.String()+"^{commit}")
+	return repository.resolveRevision(ctx, identity, base.String(), operation)
+}
+
+func (repository *Repository) resolveRevision(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	reference string,
+	operation string,
+) (string, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "rev-parse", "--verify", reference+"^{commit}")
 	if result.err != nil {
 		return "", repository.commandProblem(problem.CodeGitCommandFailed, identity, operation, result)
 	}
@@ -674,8 +939,8 @@ func (repository *Repository) resolveCommit(
 			Category:    problem.CategoryGit,
 			Field:       "Git revision",
 			Expected:    "a non-empty commit revision",
-			Rule:        "reconciliation recovery requires immutable release and develop commit identities",
-			Remediation: "fetch the selected remote and verify the reconciliation input refs before retrying",
+			Rule:        "governed merge recovery requires immutable target commit identities",
+			Remediation: "fetch the selected remote and verify the recovery input refs before retrying",
 		})
 	}
 	return revision, nil
@@ -1093,5 +1358,7 @@ func parseWorkflowBase(remote, raw string) (branch.TargetBase, error) {
 
 var _ port.GitRepository = (*Repository)(nil)
 var _ port.GitTransportAuthenticator = (*Repository)(nil)
+var _ port.RevisionResolver = (*Repository)(nil)
+var _ port.FinalQualityEvidenceStore = (*Repository)(nil)
 var _ port.MergeContinuator = (*Repository)(nil)
-var _ port.ReconciliationMergeInspector = (*Repository)(nil)
+var _ port.ActiveMergeTargetInspector = (*Repository)(nil)

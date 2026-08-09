@@ -69,6 +69,24 @@ jobs:
       - name: Run full build gate
         run: go run -mod=readonly ./cmd/build
 
+      - name: Validate reviewed main hotfix release record
+        if: >-
+          matrix.name == 'linux-amd64' &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.event.pull_request.head.ref, 'hotfix/')
+        shell: bash
+        env:
+          HOTFIX_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          go run -mod=readonly ./cmd/git-governance \
+            --interactive never \
+            --output json \
+            workflow hotfix validate-record \
+            --branch "$HOTFIX_BRANCH"
+
       - name: Report coverage breakdown on failure
         if: failure()
         shell: bash

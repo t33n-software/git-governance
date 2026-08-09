@@ -15,12 +15,13 @@ import (
 
 // TicketService owns the bounded ticket start and publish workflows.
 type TicketService struct {
-	branches  *branchapp.Service
-	sync      *branchapp.Synchronizer
-	scratch   *branchapp.ScratchMerger
-	git       port.GitRepository
-	quality   port.QualityRunner
-	publisher port.PullRequestPublisher
+	branches     *branchapp.Service
+	sync         *branchapp.Synchronizer
+	scratch      *branchapp.ScratchMerger
+	git          port.GitRepository
+	quality      port.QualityRunner
+	finalQuality *branchapp.FinalQualityGate
+	publisher    port.PullRequestPublisher
 }
 
 // NewTicketService creates the ticket workflow service.
@@ -44,6 +45,13 @@ func NewTicketService(
 // publication without changing the regular ticket workflow composition.
 func (service *TicketService) WithScratchMerger(merger *branchapp.ScratchMerger) *TicketService {
 	service.scratch = merger
+	return service
+}
+
+// WithFinalQualityGate ensures final publication quality is bound to the
+// post-synchronization candidate before pre-push validation can reuse it.
+func (service *TicketService) WithFinalQualityGate(gate *branchapp.FinalQualityGate) *TicketService {
+	service.finalQuality = gate
 	return service
 }
 
@@ -273,40 +281,31 @@ func (service *TicketService) PublishTicket(ctx context.Context, request Publish
 	if err := service.validateCommitSeries(ctx, repository, validation.Name, base); err != nil {
 		return PublishTicketResult{}, err
 	}
-	quality := port.QualityResult{
-		Status: port.QualitySkipped,
-		Detail: "quality gates are not executed during dry-run",
-	}
-	if !request.DryRun {
-		if service.quality == nil {
-			quality = port.QualityResult{
-				Status: port.QualityUnconfigured,
-				Detail: "no quality runner is configured",
-			}
-		} else {
-			quality, err = service.quality.Run(ctx, repository, port.QualityRequest{
-				Families: []branch.Family{validation.Name.Family()},
-			})
-			if err != nil {
-				return PublishTicketResult{}, err
-			}
-		}
-	}
-
 	syncResult, err := service.sync.Sync(ctx, branchapp.SyncRequest{
-		Repository:      repository,
-		Name:            validation.Name,
-		Base:            &base,
-		Strategy:        branchapp.SyncAuto,
-		DryRun:          request.DryRun,
-		SkipFetch:       true,
-		WorkflowManaged: request.WorkflowManaged,
+		Repository:               repository,
+		Name:                     validation.Name,
+		Base:                     &base,
+		Strategy:                 branchapp.SyncAuto,
+		DryRun:                   request.DryRun,
+		SkipFetch:                true,
+		WorkflowManaged:          request.WorkflowManaged,
+		DeferPostMutationQuality: true,
 	})
 	if err != nil {
 		return PublishTicketResult{}, err
 	}
 	if syncResult.Mutated {
 		if err := service.validateCommitSeries(ctx, repository, validation.Name, base); err != nil {
+			return PublishTicketResult{}, err
+		}
+	}
+	quality := port.QualityResult{
+		Status: port.QualitySkipped,
+		Detail: "quality gates are not executed during dry-run",
+	}
+	if !request.DryRun {
+		quality, err = service.runFinalQuality(ctx, repository, validation.Name, base)
+		if err != nil {
 			return PublishTicketResult{}, err
 		}
 	}
@@ -319,14 +318,14 @@ func (service *TicketService) PublishTicket(ctx context.Context, request Publish
 		ScratchMerge: scratchMerge,
 		Quality:      quality,
 	}
-	if syncResult.Quality != nil {
-		result.PostMutationQuality = syncResult.Quality
+	if syncResult.Mutated {
+		result.PostMutationQuality = &quality
 	}
 	if request.DryRun {
 		return result, nil
 	}
 	if request.Push {
-		if err := service.git.Push(ctx, repository, validation.Name, syncResult.Publication == branch.PublicationUnpublished); err != nil {
+		if err := service.PushPreparedTicket(ctx, repository, validation.Name, &syncResult.Base, request.WorkflowManaged); err != nil {
 			return PublishTicketResult{}, err
 		}
 		result.Pushed = true
@@ -399,10 +398,11 @@ func (service *TicketService) ResumeTicketPublish(ctx context.Context, request R
 		return PublishTicketResult{}, err
 	}
 	syncResult, err := service.sync.ResumeRebase(ctx, branchapp.ResumeRebaseRequest{
-		Repository:      repository,
-		Name:            validation.Name,
-		Base:            &base,
-		WorkflowManaged: request.WorkflowManaged,
+		Repository:               repository,
+		Name:                     validation.Name,
+		Base:                     &base,
+		WorkflowManaged:          request.WorkflowManaged,
+		DeferPostMutationQuality: true,
 	})
 	if err != nil {
 		return PublishTicketResult{}, err
@@ -410,14 +410,16 @@ func (service *TicketService) ResumeTicketPublish(ctx context.Context, request R
 	if err := service.validateCommitSeries(ctx, repository, validation.Name, base); err != nil {
 		return PublishTicketResult{}, err
 	}
-	result := PublishTicketResult{
-		Branch:      validation.Name,
-		Sync:        syncResult,
-		PullRequest: newTicketPullRequest(validation.Name, target, request.Draft),
+	quality, err := service.runFinalQuality(ctx, repository, validation.Name, base)
+	if err != nil {
+		return PublishTicketResult{}, err
 	}
-	if syncResult.Quality != nil {
-		result.PostMutationQuality = syncResult.Quality
-		result.Quality = *syncResult.Quality
+	result := PublishTicketResult{
+		Branch:              validation.Name,
+		Sync:                syncResult,
+		PullRequest:         newTicketPullRequest(validation.Name, target, request.Draft),
+		Quality:             quality,
+		PostMutationQuality: &quality,
 	}
 	return result, nil
 }
@@ -560,6 +562,26 @@ func (service *TicketService) validateCommitSeries(ctx context.Context, reposito
 		return err
 	}
 	return branchapp.ValidateCommitSeries(name, messages)
+}
+
+func (service *TicketService) runFinalQuality(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	name branch.BranchName,
+	base branch.TargetBase,
+) (port.QualityResult, error) {
+	if service.finalQuality != nil {
+		return service.finalQuality.RunAndRecord(ctx, repository, name, base)
+	}
+	if service.quality == nil {
+		return port.QualityResult{
+			Status: port.QualityUnconfigured,
+			Detail: "no quality runner is configured",
+		}, nil
+	}
+	return service.quality.Run(ctx, repository, port.QualityRequest{
+		Families: []branch.Family{name.Family()},
+	})
 }
 
 func resolveTicketBase(

@@ -139,6 +139,14 @@ erfolgreicher Ref-Policy-Prüfung aus. Damit bleibt das Tool projekt- und
 sprachenagnostisch: Es kennt keine vorgegebenen Build- oder Lint-Kommandos,
 setzt aber einen vorhandenen expliziten Repository-Vertrag zuverlässig durch.
 
+Im Governed-Publish-Pfad läuft die Vollsuite auf dem finalen Kandidaten nach
+einer möglichen Synchronisation. Ihr kurzer lokaler Git-Metadatennachweis
+bindet Revision, Zielbasis, Remote, Konfigurationsdigest, Gate-Auswahl,
+Toolchain und sauberen Arbeitsbaum. Pre-Push prüft die Policy trotzdem immer
+und akzeptiert den Nachweis nur bei exakter, frischer Übereinstimmung. Ohne
+passenden Nachweis ist die Vollsuite der Raw-Push-Fallback; beschädigte
+Nachweise blockieren fail-closed.
+
 Quelle: [Go `os.UserConfigDir`](https://pkg.go.dev/os#UserConfigDir)
 
 ## 7. Lefthook-Installation

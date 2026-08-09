@@ -294,6 +294,9 @@ func (synchronizer *Synchronizer) runQualityForUpdates(
 	repository port.RepositoryIdentity,
 	results []PrePushUpdateResult,
 ) (port.QualityResult, error) {
+	if synchronizer.finalQuality != nil {
+		return synchronizer.finalQuality.ValidateOrRunForUpdates(ctx, repository, results)
+	}
 	families := make([]branch.Family, 0, len(results))
 	for _, result := range results {
 		if !result.Update.GovernedBranch || result.Update.Action == PushActionDelete {

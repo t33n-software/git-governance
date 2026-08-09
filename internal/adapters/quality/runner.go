@@ -4,6 +4,8 @@ package quality
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -100,55 +103,40 @@ func (runner *Runner) Run(
 	repository port.RepositoryIdentity,
 	request port.QualityRequest,
 ) (port.QualityResult, error) {
-	if repository.Root == "" {
-		return port.QualityResult{}, problem.New(problem.Details{
-			Code:        problem.CodeRepositoryNotFound,
-			Category:    problem.CategoryRepository,
-			Field:       "repository",
-			Expected:    "a discovered repository root for quality configuration",
-			Rule:        "quality gates run only inside an explicit repository",
-			Remediation: "run from a Git repository or pass --repo",
-		})
-	}
+	result, _, err := runner.RunWithFingerprint(ctx, repository, request)
+	return result, err
+}
+
+// RunWithFingerprint executes one quality configuration snapshot and returns
+// the fingerprint of that exact snapshot for revision-bound publish evidence.
+func (runner *Runner) RunWithFingerprint(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	request port.QualityRequest,
+) (port.QualityResult, port.QualityFingerprint, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := ctx.Err(); err != nil {
-		return port.QualityResult{}, cancelled(err)
-	}
-	requestedFamilies, err := normalizeRequestedFamilies(request.Families)
+	configuration, contents, requestedFamilies, configured, err := runner.selectedConfiguration(ctx, repository, request)
 	if err != nil {
-		return port.QualityResult{}, err
+		return port.QualityResult{}, port.QualityFingerprint{}, err
 	}
-
-	path := runner.configPath(repository.Root)
-	contents, err := runner.readFile(path)
-	if errors.Is(err, os.ErrNotExist) {
+	if !configured {
 		return port.QualityResult{
-			Status: port.QualityUnconfigured,
-			Detail: "no repository-local quality configuration is present",
-		}, nil
+				Status: port.QualityUnconfigured,
+				Detail: "no repository-local quality configuration is present",
+			},
+			port.QualityFingerprint{Toolchain: qualityToolchainIdentity()},
+			nil
 	}
-	if err != nil {
-		return port.QualityResult{}, unavailable(path, "read quality configuration", err)
-	}
-	if len(contents) > maxConfigBytes {
-		return port.QualityResult{}, invalid(path, "quality configuration must not exceed 1 MiB", nil)
-	}
-
-	config, err := decode(path, contents)
-	if err != nil {
-		return port.QualityResult{}, err
-	}
+	selected := selectedGates(configuration, requestedFamilies)
+	fingerprint := fingerprintFor(contents, selected)
 	result := port.QualityResult{
 		Status: port.QualityPassed,
 		Detail: "all applicable repository-local quality gates passed",
-		Gates:  make([]port.QualityGateResult, 0, len(config.Gates)),
+		Gates:  make([]port.QualityGateResult, 0, len(selected)),
 	}
-	for _, gate := range config.Gates {
-		if !gateApplies(config.Defaults, gate, requestedFamilies) {
-			continue
-		}
+	for _, gate := range selected {
 		// decode has already validated both values. Re-evaluating the same
 		// deterministic helpers for the actual repository root cannot fail.
 		directory, _ := resolveWorkingDirectory(repository.Root, gate.WorkingDirectory)
@@ -157,7 +145,7 @@ func (runner *Runner) Run(
 		err = runner.run(gateContext, directory, gate.Command, gate.Args...)
 		cancel()
 		if err != nil {
-			return port.QualityResult{}, problem.Wrap(problem.Details{
+			return port.QualityResult{}, port.QualityFingerprint{}, problem.Wrap(problem.Details{
 				Code:        problem.CodeExternalCommandFailed,
 				Category:    problem.CategoryExternal,
 				Field:       "quality gate",
@@ -172,11 +160,102 @@ func (runner *Runner) Run(
 	}
 	if len(result.Gates) == 0 {
 		return port.QualityResult{
-			Status: port.QualitySkipped,
-			Detail: "no configured quality gates apply to the selected branch families",
-		}, nil
+				Status: port.QualitySkipped,
+				Detail: "no configured quality gates apply to the selected branch families",
+			},
+			fingerprint,
+			nil
 	}
-	return result, nil
+	return result, fingerprint, nil
+}
+
+// Fingerprint reads the current selected quality configuration without running
+// commands so a pre-push check can reject stale local evidence.
+func (runner *Runner) Fingerprint(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	request port.QualityRequest,
+) (port.QualityFingerprint, error) {
+	configuration, contents, requestedFamilies, configured, err := runner.selectedConfiguration(ctx, repository, request)
+	if err != nil {
+		return port.QualityFingerprint{}, err
+	}
+	if !configured {
+		return port.QualityFingerprint{Toolchain: qualityToolchainIdentity()}, nil
+	}
+	return fingerprintFor(contents, selectedGates(configuration, requestedFamilies)), nil
+}
+
+func (runner *Runner) selectedConfiguration(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	request port.QualityRequest,
+) (config, []byte, []branch.Family, bool, error) {
+	if repository.Root == "" {
+		return config{}, nil, nil, false, problem.New(problem.Details{
+			Code:        problem.CodeRepositoryNotFound,
+			Category:    problem.CategoryRepository,
+			Field:       "repository",
+			Expected:    "a discovered repository root for quality configuration",
+			Rule:        "quality gates run only inside an explicit repository",
+			Remediation: "run from a Git repository or pass --repo",
+		})
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return config{}, nil, nil, false, cancelled(err)
+	}
+	requestedFamilies, err := normalizeRequestedFamilies(request.Families)
+	if err != nil {
+		return config{}, nil, nil, false, err
+	}
+
+	path := runner.configPath(repository.Root)
+	contents, err := runner.readFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return config{}, nil, requestedFamilies, false, nil
+	}
+	if err != nil {
+		return config{}, nil, nil, false, unavailable(path, "read quality configuration", err)
+	}
+	if len(contents) > maxConfigBytes {
+		return config{}, nil, nil, false, invalid(path, "quality configuration must not exceed 1 MiB", nil)
+	}
+
+	configuration, err := decode(path, contents)
+	if err != nil {
+		return config{}, nil, nil, false, err
+	}
+	return configuration, contents, requestedFamilies, true, nil
+}
+
+func selectedGates(configuration config, requestedFamilies []branch.Family) []gate {
+	selected := make([]gate, 0, len(configuration.Gates))
+	for _, gate := range configuration.Gates {
+		if gateApplies(configuration.Defaults, gate, requestedFamilies) {
+			selected = append(selected, gate)
+		}
+	}
+	return selected
+}
+
+func fingerprintFor(contents []byte, selected []gate) port.QualityFingerprint {
+	sum := sha256.Sum256(contents)
+	gates := make([]string, 0, len(selected))
+	for _, gate := range selected {
+		gates = append(gates, gate.Name)
+	}
+	return port.QualityFingerprint{
+		ConfigurationDigest: hex.EncodeToString(sum[:]),
+		Gates:               gates,
+		Toolchain:           qualityToolchainIdentity(),
+	}
+}
+
+func qualityToolchainIdentity() string {
+	return runtime.Version() + "/" + runtime.GOOS + "/" + runtime.GOARCH
 }
 
 func (runner *Runner) configPath(root string) string {
@@ -450,3 +529,4 @@ func invalid(path, rule string, cause error) error {
 }
 
 var _ port.QualityRunner = (*Runner)(nil)
+var _ port.QualityEvidenceRunner = (*Runner)(nil)

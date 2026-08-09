@@ -20,13 +20,22 @@ git governance workflow ticket publish `
   --push
 ```
 
-The workflow validates the commit series, runs configured quality gates,
-checks base freshness, conditionally rebases only an unpublished branch, then
-revalidates branch policy, the full commit series, and quality gates before it
-can push. Interactive publication reports whether a rebase happened or why it
-did not. After a push, it asks before creating a pull request only when a
-hosting-provider adapter is configured. Without such an adapter, it reports
-the provider-neutral pull-request intent targeting `develop`.
+The workflow validates the commit series, checks base freshness, and
+conditionally rebases only an unpublished branch. It then runs the configured
+full local quality suite once on the final publish candidate and records a
+short-lived, revision-bound local Git-metadata proof. Pre-push still validates
+the actual ref update, branch policy, base freshness, and fast-forward safety.
+It reuses that proof only when its revision, base, quality configuration,
+toolchain, gate selection, remote, and clean-worktree bindings still match;
+otherwise it runs the full suite as a fallback. Interactive publication reports
+whether a rebase happened or why it did not. After a push, it asks before
+creating a pull request only when a hosting-provider adapter is configured.
+Without such an adapter, it reports the provider-neutral pull-request intent
+targeting `develop`.
+
+The local proof is not committed, contains no credentials, and does not replace
+remote CI, required checks, review, or protected-branch policy. Do not bypass
+the structural hook with `--no-verify` or a hook-disable switch.
 
 ## Non-interactive publication
 
