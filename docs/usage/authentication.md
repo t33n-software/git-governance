@@ -256,11 +256,32 @@ different privilege boundaries. The local Device Flow App remains limited to
 pull-request access. A separate, broker-backed release-automation identity is
 required for:
 
-- dispatching the protected release or support-line workflow;
 - inspecting the promotion merge, immutable tag, GitHub Release, and
   release-to-develop comparison;
 - creating a required backmerge pull request; and
 - controlled release-line cleanup after its lifecycle is complete.
+
+Protected release and support-line creation has three further ephemeral,
+job-scoped boundaries:
+
+```text
+Release Request Controller
+→ Actions: write, Deployments: write, Contents: read
+→ no Contents: write
+
+Protected-Line Executor
+→ Contents: write and Deployments: write only for one bound request
+
+Automatic Finalizer
+→ Actions: read, Contents: read, Deployments: write
+→ no ref-mutation permission
+```
+
+The request and executor jobs use separate protected environments
+`release-request` and `release-execution`. They receive job-scoped
+`GITHUB_TOKEN` values only in the controller process. Those values are
+ephemeral controller credentials, not static repository secrets, and must
+never be logged or copied to Git transport configuration.
 
 Reconciliation candidate publication is a further, separate privilege boundary.
 The protected `release-reconciliation` environment uses a dedicated publisher

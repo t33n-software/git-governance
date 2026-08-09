@@ -209,15 +209,34 @@ func TestProtectedLineWorkflowKeepsSharedLineMutationInCI(t *testing.T) {
 	workflow := readWorkflow(t, "create-protected-line.yml")
 	for _, expected := range []string{
 		"workflow_dispatch:",
-		"run-name: Create ${{ inputs.kind }} line ${{ inputs.version }} (${{ inputs.request_id || 'manual' }})",
+		"run-name: Execute protected-line request ${{ inputs.request_id }}",
 		"request_id:",
-		"environment: release",
-		"source=\"origin/develop\"",
-		"source=\"origin/main\"",
-		`git push origin "${SOURCE}:refs/heads/${TARGET}"`,
+		"environment: release-execution",
+		"name: Execute bound protected-line request",
+		"workflow release execute-request",
+		`git push origin "${SOURCE_SHA}:refs/heads/${TARGET}"`,
+		"name: Finalize bound protected-line request",
+		"workflow release finalize-request",
+		"permissions:",
+		"deployments: write",
+		"actions: read",
+		"GIT_GOVERNANCE_WORKFLOW_TOKEN: server",
 	} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("protected-line workflow does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"inputs.kind",
+		"inputs.version",
+		"default: \"manual\"",
+		"environment: release\n",
+		"workflow release cut",
+		"workflow release promote",
+		"workflow release backmerge",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("protected-line workflow must not contain %q", forbidden)
 		}
 	}
 }
@@ -229,27 +248,33 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 	for _, expected := range []string{
 		"workflow_dispatch:",
 		"broker-smoke",
-		"release-cut",
+		"release-request",
 		"reconciliation-align",
 		"reconciliation-resume",
+		"kind:",
 		"ticket_key:",
 		"ticket:",
 		"slug:",
 		"resolution_branch:",
 		"environment: release",
+		"environment: release-request",
+		"actions: write",
+		"deployments: write",
 		"id-token: write",
 		"google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
 		"token_format: id_token",
 		"id_token_audience: ${{ vars.GCP_BROKER_URL }}",
 		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
 		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
-		`--dispatch`,
 		`"repository":"git-governance"`,
 		`"repository":"not-approved"`,
 		`test "$approved_status" = "200"`,
 		`test "$rejected_status" = "403"`,
 		`rm -f "$response"`,
 		`test "$GITHUB_REF" = "refs/heads/main"`,
+		"GITHUB_TOKEN: ${{ github.token }}",
+		"GIT_GOVERNANCE_WORKFLOW_TOKEN: server",
+		"workflow release request",
 		`go build -mod=readonly -trimpath -o .build/bin/git-governance ./cmd/git-governance`,
 		`workflow release stabilize`,
 		`workflow release align-reconciliation-base`,
@@ -275,9 +300,42 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"echo \"$transport_token\"",
 		"echo \"$transport_header\"",
 		"cat \"$response\"",
+		"workflow release cut \\\n            --version \"$VERSION\" \\\n            --dispatch",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("release-control workflow must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestProtectedLineRecoveryWorkflowIsReadOnlyAndRequestBound(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "recover-protected-line-request.yml")
+	for _, expected := range []string{
+		"workflow_dispatch:",
+		"request_id:",
+		"refs/heads/main",
+		"actions: read",
+		"contents: read",
+		"deployments: write",
+		"GIT_GOVERNANCE_WORKFLOW_TOKEN: server",
+		"workflow release finalize-request",
+		"--recovery",
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("protected-line recovery workflow does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"environment:",
+		"contents: write",
+		"git push",
+		"workflow release execute-request",
+		"workflow release cut",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("protected-line recovery workflow must not contain %q", forbidden)
 		}
 	}
 }

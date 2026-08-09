@@ -21,7 +21,8 @@ func TestDefaultRuntimeConstructsAllAdapters(t *testing.T) {
 	if runtime.GitFactory == nil || runtime.StoreFactory == nil || runtime.KeyPolicy == nil ||
 		runtime.QualityFactory == nil || runtime.GitHubAuthFactory == nil || runtime.Browser == nil ||
 		runtime.GitHubAppClientID == nil || runtime.GitHubCredentialBrokerURL == nil ||
-		runtime.GitHubWorkloadIdentity == nil || runtime.HotfixPropagationPublisherEnabled == nil ||
+		runtime.GitHubWorkloadIdentity == nil || runtime.GitHubWorkflowToken == nil ||
+		runtime.GitHubWorkflowTokenEnabled == nil || runtime.HotfixPropagationPublisherEnabled == nil ||
 		runtime.Tools == nil || runtime.PromptFactory == nil ||
 		runtime.InputIsTerminal == nil || runtime.OutputIsTerminal == nil {
 		t.Fatal("default runtime left a required dependency unset")
@@ -41,6 +42,8 @@ func TestDefaultRuntimeConstructsAllAdapters(t *testing.T) {
 	_ = runtime.GitHubAppClientID()
 	_ = runtime.GitHubCredentialBrokerURL()
 	_ = runtime.GitHubWorkloadIdentity()
+	_ = runtime.GitHubWorkflowToken()
+	_ = runtime.GitHubWorkflowTokenEnabled()
 	_ = runtime.HotfixPropagationPublisherEnabled()
 	if runtime.PromptFactory(true, "never") == nil {
 		t.Fatal("default prompt factory returned nil")
@@ -64,6 +67,26 @@ func TestDefaultRuntimeHotfixPropagationPublisherRequiresManagedBoundary(t *test
 	t.Setenv("GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER", "local")
 	if defaultRuntime().HotfixPropagationPublisherEnabled() {
 		t.Fatal("default runtime enabled the publisher without the server marker")
+	}
+}
+
+func TestDefaultRuntimeWorkflowTokenRequiresExplicitControllerMarker(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_TOKEN", "ephemeral-token")
+	t.Setenv("GIT_GOVERNANCE_WORKFLOW_TOKEN", "server")
+	runtime := defaultRuntime()
+	if !runtime.GitHubWorkflowTokenEnabled() || runtime.GitHubWorkflowToken() != "ephemeral-token" {
+		t.Fatal("default runtime did not enable the explicit protected-line controller token")
+	}
+
+	t.Setenv("GIT_GOVERNANCE_WORKFLOW_TOKEN", "local")
+	if runtime.GitHubWorkflowTokenEnabled() {
+		t.Fatal("default runtime accepted an unmarked workflow token")
+	}
+	t.Setenv("GITHUB_ACTIONS", "false")
+	t.Setenv("GIT_GOVERNANCE_WORKFLOW_TOKEN", "server")
+	if runtime.GitHubWorkflowTokenEnabled() {
+		t.Fatal("default runtime accepted a controller marker outside GitHub Actions")
 	}
 }
 
@@ -122,6 +145,12 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 		GitHubWorkloadIdentity: func() string {
 			return "workload-identity"
 		},
+		GitHubWorkflowToken: func() string {
+			return "ephemeral-token"
+		},
+		GitHubWorkflowTokenEnabled: func() bool {
+			return true
+		},
 		HotfixPropagationPublisherEnabled: func() bool {
 			return true
 		},
@@ -143,6 +172,8 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 		application.runtime.GitHubAppClientID() != "public-client-id" ||
 		application.runtime.GitHubCredentialBrokerURL() != "https://broker.example" ||
 		application.runtime.GitHubWorkloadIdentity() != "workload-identity" ||
+		application.runtime.GitHubWorkflowToken() != "ephemeral-token" ||
+		!application.runtime.GitHubWorkflowTokenEnabled() ||
 		!application.runtime.HotfixPropagationPublisherEnabled() ||
 		application.runtime.Tools != tools ||
 		application.runtime.PromptFactory(false, "auto") != prompt {

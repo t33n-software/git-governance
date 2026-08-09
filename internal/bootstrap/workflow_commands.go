@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"time"
 
 	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
 	"github.com/CyberT33N/git-governance/internal/application/port"
@@ -12,6 +13,7 @@ import (
 	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
 	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
 	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/CyberT33N/git-governance/internal/domain/releaserequest"
 	"github.com/CyberT33N/git-governance/internal/domain/ticket"
 	"github.com/spf13/cobra"
 )
@@ -1264,6 +1266,35 @@ func (application *application) hotfixManifestPublisherEnabled() bool {
 		application.runtime.HotfixPropagationPublisherEnabled()
 }
 
+func (application *application) protectedLineRequestControllerEnabled() bool {
+	return application.runtime.GitHubWorkflowTokenEnabled != nil &&
+		application.runtime.GitHubWorkflowTokenEnabled() &&
+		application.runtime.GitHubWorkflowToken != nil &&
+		strings.TrimSpace(application.runtime.GitHubWorkflowToken()) != ""
+}
+
+func protectedLineRequestControllerUnavailable() error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeConfigurationUnavailable,
+		Category:    problem.CategoryConfig,
+		Field:       "protected-line request controller",
+		Expected:    "the designated GitHub Actions request, execution, or finalizer job with an ephemeral job token",
+		Rule:        "protected-line requests and execution are authorized only by their separate server-side controllers",
+		Remediation: "use the protected release-request, release-execution, or recovery workflow instead of a local CLI invocation",
+	})
+}
+
+func protectedLineDirectDispatchDisabled() error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeConfigurationUnavailable,
+		Category:    problem.CategoryGovernance,
+		Field:       "protected-line executor dispatch",
+		Expected:    "a durable request authorized by the protected release-request controller",
+		Rule:        "normal protected-line execution cannot be dispatched directly from a local CLI invocation",
+		Remediation: "request the release or support line through the protected release-control workflow",
+	})
+}
+
 func hotfixManifestPublisherUnavailable() error {
 	return problem.New(problem.Details{
 		Code:        problem.CodeConfigurationUnavailable,
@@ -1281,6 +1312,9 @@ func newReleaseWorkflowCommand(application *application) *cobra.Command {
 		Short: "Cut and reconcile governed release lines",
 	}
 	command.AddCommand(
+		newReleaseRequestCommand(application),
+		newReleaseExecuteRequestCommand(application),
+		newReleaseFinalizeRequestCommand(application),
 		newReleaseCutCommand(application),
 		newReleaseStabilizeCommand(application),
 		newReleasePublishStabilizationCommand(application),
@@ -1349,6 +1383,270 @@ func addQualityFields(fields map[string]string, result workflow.PublishTicketRes
 	}
 }
 
+func newReleaseRequestCommand(application *application) *cobra.Command {
+	var (
+		kindRaw      string
+		versionRaw   string
+		keyRaw       string
+		numberRaw    string
+		requesterRaw string
+		parentRunRaw string
+	)
+	command := &cobra.Command{
+		Use:   "request",
+		Short: "Authorize and dispatch one bound protected release or support-line request",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			if !application.protectedLineRequestControllerEnabled() {
+				return protectedLineRequestControllerUnavailable()
+			}
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			operation, err := parseProtectedLineOperation(kindRaw)
+			if err != nil {
+				return err
+			}
+			inputs.add("protected-line operation", string(operation))
+			version, err := application.resolveProtectedLineVersion(command.Context(), operation, versionRaw)
+			if err != nil {
+				return err
+			}
+			inputs.add("protected-line version", version)
+			key, err := application.resolveKey(command.Context(), services, keyRaw)
+			if err != nil {
+				return err
+			}
+			number, err := application.resolveNumber(command.Context(), numberRaw)
+			if err != nil {
+				return err
+			}
+			id := ticket.NewID(key, number)
+			inputs.add("ticket", id.String())
+			requester, err := application.requireInput(command.Context(), requesterRaw, "Release request requester", "Enter the GitHub actor authorized by the request environment.")
+			if err != nil {
+				return err
+			}
+			inputs.add("requester", requester)
+			parentRun, err := application.requireInput(command.Context(), parentRunRaw, "Release request controller run", "Enter the current GitHub Actions request-controller run ID.")
+			if err != nil {
+				return err
+			}
+			inputs.add("request controller run", parentRun)
+			if err := application.confirmMutation(
+				command.Context(),
+				"Authorize protected-line request",
+				"Persist and dispatch one protected-line request without directly mutating a shared line?",
+			); err != nil {
+				return err
+			}
+			result, err := services.releases.RequestProtectedLine(command.Context(), workflow.RequestProtectedLineRequest{
+				Repository:  repository,
+				Ticket:      id,
+				Operation:   operation,
+				Version:     version,
+				Requester:   requester,
+				ParentRunID: parentRun,
+				DryRun:      application.options.dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			fields := map[string]string{
+				"operation": result.Intent.Kind,
+				"branch":    result.Intent.Branch.String(),
+				"base":      result.Intent.Source.String(),
+				"dryRun":    boolString(result.DryRun),
+			}
+			if !result.DryRun {
+				fields["requestID"] = result.Request.Request.ID()
+				fields["deploymentID"] = strconv.FormatInt(result.Request.Request.DeploymentID(), 10)
+				fields["state"] = string(result.Request.Request.State())
+				fields["expiresAt"] = result.Request.Request.ExpiresAt().Format(time.RFC3339)
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.release.request",
+				Summary:   "Protected-line request authorized and execution dispatched.",
+				Fields:    fields,
+				Data:      result.Intent,
+			})
+		}),
+	}
+	command.Flags().StringVar(&kindRaw, "kind", "", "protected line operation: release or support")
+	command.Flags().StringVar(&versionRaw, "version", "", "release semantic version or support major.minor version")
+	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
+	command.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")
+	command.Flags().StringVar(&requesterRaw, "requester", "", "request-authority actor")
+	command.Flags().StringVar(&parentRunRaw, "parent-run", "", "request-controller workflow run ID")
+	return command
+}
+
+func newReleaseExecuteRequestCommand(application *application) *cobra.Command {
+	var (
+		requestIDRaw   string
+		executorRunRaw string
+	)
+	command := &cobra.Command{
+		Use:    "execute-request",
+		Short:  "Validate one bound protected-line request before its workflow mutation",
+		Hidden: true,
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			if !application.protectedLineRequestControllerEnabled() {
+				return protectedLineRequestControllerUnavailable()
+			}
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			requestID, err := application.requireInput(command.Context(), requestIDRaw, "Protected-line request ID", "Enter the durable request ID dispatched by the request controller.")
+			if err != nil {
+				return err
+			}
+			executorRun, err := application.requireInput(command.Context(), executorRunRaw, "Protected-line executor run", "Enter the current execution workflow run ID.")
+			if err != nil {
+				return err
+			}
+			inputs.add("request ID", requestID)
+			inputs.add("executor run", executorRun)
+			if err := application.confirmMutation(
+				command.Context(),
+				"Authorize protected-line execution",
+				"Bind this executor run to one authorized protected-line request?",
+			); err != nil {
+				return err
+			}
+			plan, err := services.releases.AuthorizeProtectedLineExecution(command.Context(), repository, requestID, executorRun)
+			if err != nil {
+				return err
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.release.execute-request",
+				Summary:   "Protected-line execution request validated.",
+				Fields: map[string]string{
+					"requestID":     plan.Request.ID(),
+					"source":        plan.Request.Source().String(),
+					"sourceSHA":     plan.Request.SourceSHA(),
+					"target":        plan.Request.Target().String(),
+					"needsMutation": boolString(plan.NeedsMutation),
+					"state":         string(plan.Request.State()),
+				},
+			})
+		}),
+	}
+	command.Flags().StringVar(&requestIDRaw, "request-id", "", "durable protected-line request ID")
+	command.Flags().StringVar(&executorRunRaw, "executor-run", "", "current protected-line executor workflow run ID")
+	return command
+}
+
+func newReleaseFinalizeRequestCommand(application *application) *cobra.Command {
+	var (
+		requestIDRaw   string
+		executorRunRaw string
+		recovery       bool
+	)
+	command := &cobra.Command{
+		Use:    "finalize-request",
+		Short:  "Read-only finalize one protected-line execution request",
+		Hidden: true,
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			if !application.protectedLineRequestControllerEnabled() {
+				return protectedLineRequestControllerUnavailable()
+			}
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			requestID, err := application.requireInput(command.Context(), requestIDRaw, "Protected-line request ID", "Enter the durable request ID to finalize.")
+			if err != nil {
+				return err
+			}
+			executorRun := strings.TrimSpace(executorRunRaw)
+			if !recovery {
+				executorRun, err = application.requireInput(command.Context(), executorRunRaw, "Protected-line executor run", "Enter the correlated execution workflow run ID.")
+				if err != nil {
+					return err
+				}
+			}
+			inputs.add("request ID", requestID)
+			inputs.add("recovery", boolString(recovery))
+			if executorRun != "" {
+				inputs.add("executor run", executorRun)
+			}
+			if err := application.confirmMutation(
+				command.Context(),
+				"Finalize protected-line request",
+				"Write only the independently verified audit state for this protected-line request?",
+			); err != nil {
+				return err
+			}
+			result, err := services.releases.FinalizeProtectedLineRequest(command.Context(), repository, requestID, executorRun, recovery)
+			if err != nil {
+				return err
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.release.finalize-request",
+				Summary:   "Protected-line request finalization completed.",
+				Fields: map[string]string{
+					"requestID":    result.Request.ID(),
+					"state":        string(result.Request.State()),
+					"target":       result.Request.Target().String(),
+					"sourceSHA":    result.Request.SourceSHA(),
+					"executorRun":  result.Request.ExecutorRunID(),
+					"deploymentID": strconv.FormatInt(result.Request.DeploymentID(), 10),
+				},
+			})
+		}),
+	}
+	command.Flags().StringVar(&requestIDRaw, "request-id", "", "durable protected-line request ID")
+	command.Flags().StringVar(&executorRunRaw, "executor-run", "", "correlated protected-line executor workflow run ID")
+	command.Flags().BoolVar(&recovery, "recovery", false, "allow only read-only finalization of a verification-pending request")
+	return command
+}
+
+func parseProtectedLineOperation(raw string) (releaserequest.Operation, error) {
+	switch releaserequest.Operation(raw) {
+	case releaserequest.OperationRelease, releaserequest.OperationSupport:
+		return releaserequest.Operation(raw), nil
+	default:
+		return "", problem.New(problem.Details{
+			Code:        problem.CodeInvalidInput,
+			Category:    problem.CategoryGovernance,
+			Field:       "protected-line operation",
+			Actual:      raw,
+			Expected:    "release or support",
+			Rule:        "request authorization binds one protected release or support-line operation",
+			Remediation: "select release for develop-derived cuts or support for a released main line",
+		})
+	}
+}
+
+func (application *application) resolveProtectedLineVersion(
+	ctx context.Context,
+	operation releaserequest.Operation,
+	raw string,
+) (string, error) {
+	switch operation {
+	case releaserequest.OperationRelease:
+		version, err := application.resolveReleaseVersion(ctx, raw)
+		if err != nil {
+			return "", err
+		}
+		return version.String(), nil
+	case releaserequest.OperationSupport:
+		version, err := application.resolveSupportVersion(ctx, raw)
+		if err != nil {
+			return "", err
+		}
+		return version.String(), nil
+	default:
+		_, err := parseProtectedLineOperation(string(operation))
+		return "", err
+	}
+}
+
 func newReleaseCutCommand(application *application) *cobra.Command {
 	var (
 		versionRaw string
@@ -1368,6 +1666,9 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 				return err
 			}
 			inputs.add("release version", version.String())
+			if dispatch && !application.options.dryRun {
+				return protectedLineDirectDispatchDisabled()
+			}
 			if err := application.confirmMutation(command.Context(), "Cut release", "Create release/"+version.String()+" from origin/develop?"); err != nil {
 				return err
 			}
@@ -1379,24 +1680,10 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var dispatched port.SharedLineDispatchResult
-			if dispatch && !application.options.dryRun {
-				if services.lifecycle == nil {
-					return releaseLifecycleProviderUnavailable()
-				}
-				dispatched, err = services.releases.DispatchSharedLine(command.Context(), repository, result.Intent)
-				if err != nil {
-					return err
-				}
-			}
-			summary := "Protected release-line creation intent prepared."
-			if dispatch && !application.options.dryRun {
-				summary = "Protected release line created and verified."
-			}
 			return application.report(command, port.Report{
 				Operation: "workflow.release.cut",
 				Summary: application.withInteractiveFetchSummary(
-					summary,
+					"Protected release-line creation intent prepared.",
 					repository.Remote,
 					fetchCompleted(result.DryRun, result.Plan),
 				),
@@ -1405,7 +1692,6 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 					"base":              result.Intent.Source.String(),
 					"workflow":          result.Intent.Workflow,
 					"dispatchRequested": boolString(dispatch),
-					"workflowRunURL":    dispatched.WorkflowRunURL,
 					"dryRun":            boolString(result.DryRun),
 				},
 				Data: result.Intent,
@@ -1413,7 +1699,7 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 		}),
 	}
 	command.Flags().StringVar(&versionRaw, "version", "", "release semantic version")
-	command.Flags().BoolVar(&dispatch, "dispatch", false, "dispatch and verify the protected-line workflow through the configured provider")
+	command.Flags().BoolVar(&dispatch, "dispatch", false, "request direct executor dispatch (rejected outside dry-run)")
 	return command
 }
 
@@ -2004,6 +2290,9 @@ func newSupportPrepareCommand(application *application) *cobra.Command {
 				return err
 			}
 			inputs.add("support version", version.String())
+			if dispatch && !application.options.dryRun {
+				return protectedLineDirectDispatchDisabled()
+			}
 			if err := application.confirmMutation(command.Context(), "Create support line", "Create support/"+version.String()+" from origin/main?"); err != nil {
 				return err
 			}
@@ -2015,24 +2304,10 @@ func newSupportPrepareCommand(application *application) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			var dispatched port.SharedLineDispatchResult
-			if dispatch && !application.options.dryRun {
-				if services.lifecycle == nil {
-					return releaseLifecycleProviderUnavailable()
-				}
-				dispatched, err = services.releases.DispatchSharedLine(command.Context(), repository, result.Intent)
-				if err != nil {
-					return err
-				}
-			}
-			summary := "Protected support-line creation intent prepared."
-			if dispatch && !application.options.dryRun {
-				summary = "Protected support line created and verified."
-			}
 			return application.report(command, port.Report{
 				Operation: "workflow.release.support",
 				Summary: application.withInteractiveFetchSummary(
-					summary,
+					"Protected support-line creation intent prepared.",
 					repository.Remote,
 					fetchCompleted(result.DryRun, result.Plan),
 				),
@@ -2041,7 +2316,6 @@ func newSupportPrepareCommand(application *application) *cobra.Command {
 					"base":              result.Intent.Source.String(),
 					"workflow":          result.Intent.Workflow,
 					"dispatchRequested": boolString(dispatch),
-					"workflowRunURL":    dispatched.WorkflowRunURL,
 					"dryRun":            boolString(result.DryRun),
 				},
 				Data: result.Intent,
@@ -2049,6 +2323,6 @@ func newSupportPrepareCommand(application *application) *cobra.Command {
 		}),
 	}
 	command.Flags().StringVar(&versionRaw, "version", "", "support major.minor version")
-	command.Flags().BoolVar(&dispatch, "dispatch", false, "dispatch and verify the protected-line workflow through the configured provider")
+	command.Flags().BoolVar(&dispatch, "dispatch", false, "request direct executor dispatch (rejected outside dry-run)")
 	return command
 }

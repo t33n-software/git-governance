@@ -687,22 +687,47 @@ Kandidaten bleiben nicht veröffentlichend.
 ### 13.1 `workflow release cut`
 
 ```text
-git governance --pull-request-provider github workflow release cut \
-  --version 2.8.0 --dispatch
+git governance workflow release cut \
+  --version 2.8.0
 ```
 
 Das Kommando:
 
 - verlangt eine explizite Governance-Bestätigung
 - prüft die lokale Release-Anfrage und erzeugt einen maschinenlesbaren Intent
-  für `create-protected-line.yml`
+  für den geschützten Release-Request-Controller
 - erstellt, wechselt oder pusht keinen lokalen `release/*`-Branch
-- übergibt mit `--dispatch` die tatsächliche Remote-Erstellung an einen
-  geschützten, autorisierten CI-Workflow, wartet auf dessen korrelierten Erfolg
-  und verifiziert den gefetchten Remote-Branch
+- lehnt einen normalen `--dispatch` außerhalb eines Dry-Runs ab; ein
+  ungebundener lokaler CLI-Aufruf darf den Protected-Line-Executor nicht
+  starten
 - bleibt ohne `--dispatch` absichtlich bei einem Intent; dieser kann keinen
   nachfolgenden Release-Zustand beweisen
 - erklärt die danach erlaubte begrenzte Stabilisierung
+
+### 13.1.1 Controller-interne Release-Request- und Finalizer-Kommandos
+
+Die folgenden Unterkommandos sind keine lokalen Normaloperationen. Sie
+verlangen den expliziten, kurzlebigen GitHub-Actions-Controller-Modus und ein
+job-scoped `GITHUB_TOKEN`:
+
+```text
+workflow release request
+workflow release execute-request
+workflow release finalize-request
+```
+
+`request` bindet Ticket, Operation, Version, Quellref, exakte Quell-SHA,
+Zielref, Requester, Parent-Run, Ablaufzeit und Idempotenz an einen dauerhaften
+Provider-Record. `execute-request` akzeptiert ausschließlich dessen
+`request_id` und den korrelierten Executor-Run. `finalize-request` prüft
+read-only den Executor und die tatsächliche Remote-Ref und schreibt nur den
+Auditstatus. `--recovery` ist ausschließlich für einen bestehenden
+`verification_pending`-Record zulässig; er startet niemals eine neue Mutation.
+
+Der reguläre Ablauf wird durch `release-control.yml` mit
+`operation=release-request` und die getrennten Environments
+`release-request` und `release-execution` ausgelöst. Nur `verified` ist ein
+vollständiger Protected-Line-Cut-Nachweis.
 
 ### 13.2 `workflow release stabilize`
 
@@ -843,10 +868,11 @@ einen Fetch, Merge, Push, Provider-Preflight oder Provider-Publish aus.
 
 `support/<major.minor>` darf nur angefordert werden, wenn die aktuell
 gefetchte `origin/main`-Revision einen passenden
-`v<major.minor.patch>`-Release-Tag trägt. Die CLI erzeugt einen Intent für
-`create-protected-line.yml`; mit `--dispatch` startet sie den geschützten
-CI-Workflow und verifiziert die Remote-Support-Linie von dieser freigegebenen
-Main-Revision.
+`v<major.minor.patch>`-Release-Tag trägt. Die CLI erzeugt einen Intent. Die
+normale Ausführung erfolgt anschließend nur über den geschützten
+Release-Request-Controller mit `kind=support`; der Request bindet die
+freigegebene Main-Revision, bevor der separate Execution-Workflow die
+Remote-Support-Linie erzeugen darf.
 
 ### 13.8 `workflow cleanup`
 

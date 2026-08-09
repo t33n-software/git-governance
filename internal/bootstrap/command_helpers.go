@@ -244,17 +244,6 @@ func pullRequestPublisherUnavailable() error {
 	})
 }
 
-func releaseLifecycleProviderUnavailable() error {
-	return problem.New(problem.Details{
-		Code:        problem.CodeExternalCommandFailed,
-		Category:    problem.CategoryExternal,
-		Field:       "release lifecycle provider",
-		Expected:    "a configured GitHub lifecycle adapter",
-		Rule:        "protected-line dispatch and release reconciliation require an explicit hosting provider",
-		Remediation: "set --pull-request-provider github and configure an authorized GitHub App session or managed credential broker",
-	})
-}
-
 func pullRequestConfirmationRequired() error {
 	return problem.New(problem.Details{
 		Code:        problem.CodeInvalidInput,

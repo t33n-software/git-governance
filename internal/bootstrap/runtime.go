@@ -54,6 +54,8 @@ type Runtime struct {
 	GitHubAppClientID                 func() string
 	GitHubCredentialBrokerURL         func() string
 	GitHubWorkloadIdentity            func() string
+	GitHubWorkflowToken               func() string
+	GitHubWorkflowTokenEnabled        func() bool
 	HotfixPropagationPublisherEnabled func() bool
 	Tools                             port.ToolInspector
 	PromptFactory                     func(accessible bool, color string) port.Prompt
@@ -111,6 +113,13 @@ func defaultRuntime() Runtime {
 		GitHubWorkloadIdentity: func() string {
 			return os.Getenv("GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN")
 		},
+		GitHubWorkflowToken: func() string {
+			return os.Getenv("GITHUB_TOKEN")
+		},
+		GitHubWorkflowTokenEnabled: func() bool {
+			return os.Getenv("GITHUB_ACTIONS") == "true" &&
+				strings.TrimSpace(os.Getenv("GIT_GOVERNANCE_WORKFLOW_TOKEN")) == "server"
+		},
 		HotfixPropagationPublisherEnabled: func() bool {
 			return strings.TrimSpace(os.Getenv("GIT_GOVERNANCE_HOTFIX_PROPAGATION_PUBLISHER")) == "server" &&
 				strings.TrimSpace(os.Getenv("GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL")) != "" &&
@@ -156,6 +165,12 @@ func newApplication(runtime Runtime, options *appOptions) *application {
 	if runtime.GitHubWorkloadIdentity == nil {
 		runtime.GitHubWorkloadIdentity = defaultRuntime().GitHubWorkloadIdentity
 	}
+	if runtime.GitHubWorkflowToken == nil {
+		runtime.GitHubWorkflowToken = defaultRuntime().GitHubWorkflowToken
+	}
+	if runtime.GitHubWorkflowTokenEnabled == nil {
+		runtime.GitHubWorkflowTokenEnabled = defaultRuntime().GitHubWorkflowTokenEnabled
+	}
 	if runtime.HotfixPropagationPublisherEnabled == nil {
 		runtime.HotfixPropagationPublisherEnabled = defaultRuntime().HotfixPropagationPublisherEnabled
 	}
@@ -183,7 +198,9 @@ func (application *application) services() services {
 	}
 	githubAuth := application.runtime.GitHubAuthFactory(application.options.timeout)
 	credentialResolver := github.CredentialResolver(githubAuth)
-	if brokerURL := strings.TrimSpace(application.runtime.GitHubCredentialBrokerURL()); brokerURL != "" {
+	if application.runtime.GitHubWorkflowTokenEnabled() {
+		credentialResolver = github.NewWorkflowTokenResolver(application.runtime.GitHubWorkflowToken())
+	} else if brokerURL := strings.TrimSpace(application.runtime.GitHubCredentialBrokerURL()); brokerURL != "" {
 		credentialResolver = github.NewBrokerResolver(github.BrokerOptions{
 			Endpoint:         brokerURL,
 			WorkloadIdentity: application.runtime.GitHubWorkloadIdentity,
@@ -209,6 +226,7 @@ func (application *application) services() services {
 		tickets.WithFinalQualityGate(finalQuality)
 	}
 	lifecycle, _ := publisher.(port.ReleaseLifecycleProvider)
+	protectedRequests, _ := publisher.(port.ProtectedLineRequestProvider)
 	hotfixLifecycle, _ := publisher.(port.MainHotfixLifecycleProvider)
 	releases := workflow.NewReleaseService(branches, git, publisher).
 		WithTicketService(tickets).
@@ -216,7 +234,8 @@ func (application *application) services() services {
 		WithHotfixReleaseRecordStore(application.runtime.HotfixRecords).
 		WithHotfixManifestPublication(application.runtime.HotfixPropagationPublisherEnabled()).
 		WithMainHotfixLifecycleProvider(hotfixLifecycle).
-		WithReleaseLifecycleProvider(lifecycle)
+		WithReleaseLifecycleProvider(lifecycle).
+		WithProtectedLineRequestProvider(protectedRequests)
 	policyInspector, _ := application.runtime.KeyPolicy.(port.PolicyInspector)
 	return services{
 		git:         git,
