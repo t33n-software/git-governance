@@ -414,13 +414,60 @@ Ein offener Promotion-PR, ein bloßer Tagname oder eine fehlende
 Artefakt-Delivery sind keine zulässigen Backmerge-Voraussetzungen.
 
 Erzwingt das Develop-Ziel einen aktuellen PR-Head, darf die veröffentlichte
-`release/<semver>`-Ref nicht aktualisiert werden. In diesem Fall erstellt eine
-ticketgebundene, release-abgeleitete `chore/*`-Preparation-Branch den geprüften
-Kombinationsstand: Sie merged `origin/develop`, durchläuft Quality-Gates und
-erzeugt einen Merge-Commit-PR nach `develop`. Der Workflow verlangt die
-gespeicherte Release-Basis, einen effektiven Delta und vollständige
-Delivery-Evidenz. Ein Rebase, Force Push, Plattform-Update der Release-Ref oder
-ein `develop -> release/<semver>`-PR verletzt den Vertrag.
+`release/<semver>`-Ref nicht aktualisiert werden. In diesem Fall erstellt die
+geschützte Main-Control-Plane eine ticketgebundene, release-abgeleitete
+`chore/*`-Preparation-Branch. Sie baut den vertrauenswürdigen CLI-Binary vor
+dem Preparation-Branch-Wechsel, erhält kurzlebige Broker-Identität und lässt
+ausschließlich diese Branch den aktuellen Develop-Stand mergen. Der Workflow
+verlangt die gespeicherte Release-Basis, einen effektiven Delta und vollständige
+Delivery-Evidenz. Weder die ausgelieferte Release-Ref noch ein lokaler Dry-Run
+dürfen einen Provider-Publish oder eine Pull-Request-Erstellung auslösen. Ein
+Rebase, Force Push, Plattform-Update der Release-Ref oder ein
+`develop -> release/<semver>`-PR verletzt den Vertrag.
+
+Nach bestätigter Delivery ist die Controller-Bewertung im Zielpfad
+programmatisch und idempotent. Sie erstellt bei effektivem Delta den
+reviewbaren PR oder dokumentiert `not-required`. Ein manueller
+`workflow_dispatch`-Aufruf ist ausschließlich Incident-, Retry- oder
+Recovery-Fallback und durchläuft dieselben Delivery-, Ticket-, Audit- und
+Quality-Prüfungen.
+
+### 6.7.1 Reconciliation-Konflikt-Recovery
+
+Konflikte beim kontrollierten Merge von `origin/develop` in eine
+release-abgeleitete Preparation-Branch sind fail-closed. Die Controller-Ausgabe
+ist der Konfliktnachweis; sie enthält Release, Develop, Ticket, Branch und
+konfliktbezogene Git-Diagnostik, aber keine Credentials oder vertraulichen
+Transportdaten.
+
+Nicht zulässig sind:
+
+- `release/*` aktualisieren, rebasen oder per Plattform-Button synchronisieren;
+- `develop` direkt mergen oder einen leeren Backmerge-PR erzeugen;
+- eine globale `ours`/`theirs`-Strategie;
+- einen frei gewählten Branch als privilegierten CI-Recovery-Eingang behandeln.
+
+Eine autorisierte Resolution entsteht nur in einer nicht-shared,
+ticketgebundenen `chore/*`-Preparation-Branch. Nach manueller Resolution und
+exaktem Staging setzt `align-reconciliation-base --resume` den vorhandenen
+Merge fort und kann ausschließlich die Kandidatenbranch pushen. Der
+privilegierte `reconciliation-resume`-Pfad akzeptiert die Branch nur, wenn:
+
+1. Branch, Ticket und Slug übereinstimmen;
+2. HEAD ein exakter Zwei-Parent-Merge aus unverändertem Release-Ref und
+   aktuellem Develop-Ref ist;
+3. Develop seit der Resolution nicht weitergelaufen ist;
+4. Delivery, Delta, Quality, Security und Review erneut bestanden sind.
+
+Erst der geschützte Controller publiziert den PR nach `develop`. Er merged
+niemals selbst nach `develop`.
+
+Die Controller-Publikation verwendet eine eigene Reconciliation-Publisher-
+Identität aus dem geschützten `release-reconciliation` Environment. Diese
+Identität erhält ausschließlich die minimalen Contents- und Pull-Request-
+Rechte für den validierten `chore/*` Kandidatenpfad. Sie besitzt keinen
+Ruleset-Bypass, keine Release-Line-Dispatch- und keine direkte Shared-Line-
+Mutation-Berechtigung.
 
 ## 7. Commit-Typen
 

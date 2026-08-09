@@ -138,6 +138,54 @@ func TestWorkflowCommandsDryRunHappyPaths(t *testing.T) {
 	}
 }
 
+func TestReleaseDryRunsNeverPublishPullRequests(t *testing.T) {
+	testCases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "promotion",
+			args: []string{
+				"workflow", "release", "promote",
+				"--release", "release/2.8.0",
+				"--create-pull-request",
+			},
+		},
+		{
+			name: "backmerge",
+			args: []string{
+				"workflow", "release", "backmerge",
+				"--release", "release/2.8.0",
+				"--create-pull-request",
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			git := newCommandGit(t, "release/2.8.0", nil)
+			runtime := commandRuntime(git)
+			publisher := &workflowRecordingPublisher{
+				result: port.PublishedPullRequest{URL: "https://example.invalid/unexpected"},
+			}
+			runtime.Publisher = publisher
+			command := NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+
+			output, err := executeBootstrapCommand(
+				t,
+				command,
+				append(
+					[]string{"--interactive", "never", "--output", "json", "--yes", "--dry-run", "--pull-request-provider", "github"},
+					testCase.args...,
+				)...,
+			)
+			if err != nil || publisher.calls != 0 || strings.Contains(output, "unexpected") {
+				t.Fatalf("dry-run %s = (%q, %v), publisher=%#v", testCase.name, output, err, publisher)
+			}
+		})
+	}
+}
+
 func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 	t.Run("resumes ticket, hotfix, and stabilization publication without prompts", func(t *testing.T) {
 		testCases := []struct {

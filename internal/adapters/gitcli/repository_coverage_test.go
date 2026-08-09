@@ -399,6 +399,11 @@ func TestRepositoryCoverageMutationFailureBranches(t *testing.T) {
 			arguments: []string{"merge", "--no-ff", "--no-edit", "-m", message.String(), base.String()},
 		},
 		{
+			name:      "continue merge",
+			call:      func(repository *Repository) error { return repository.ContinueMerge(context.Background(), identity) },
+			arguments: []string{"-c", "core.editor=true", "merge", "--continue"},
+		},
+		{
 			name: "cherry-pick",
 			call: func(repository *Repository) error {
 				return repository.CherryPick(context.Background(), identity, commitID)
@@ -462,6 +467,85 @@ func TestRepositoryCoverageMutationFailureBranches(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+
+	t.Run("continue merge succeeds", func(t *testing.T) {
+		repository, _ := coverageRepository(processResult{})
+		if err := repository.ContinueMerge(context.Background(), identity); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestRepositoryHeadIsMergeOf(t *testing.T) {
+	t.Parallel()
+
+	identity := testIdentity()
+	release := coverageBase(t, "origin", "release/1.0.1")
+	develop := coverageBase(t, "origin", "develop")
+
+	t.Run("accepts the exact release and develop merge parents", func(t *testing.T) {
+		repository, runner := coverageRepository(
+			processResult{stdout: "release-sha\n"},
+			processResult{stdout: "develop-sha\n"},
+			processResult{stdout: "release-sha develop-sha\n"},
+		)
+		matches, err := repository.HeadIsMergeOf(context.Background(), identity, release, develop)
+		if err != nil || !matches {
+			t.Fatalf("HeadIsMergeOf() = (%t, %v)", matches, err)
+		}
+		assertCall(t, runner.calls[0], identity.Root, "", "rev-parse", "--verify", release.String()+"^{commit}")
+		assertCall(t, runner.calls[1], identity.Root, "", "rev-parse", "--verify", develop.String()+"^{commit}")
+		assertCall(t, runner.calls[2], identity.Root, "", "show", "-s", "--format=%P", "HEAD")
+	})
+
+	t.Run("rejects a branch with different merge topology", func(t *testing.T) {
+		repository, _ := coverageRepository(
+			processResult{stdout: "release-sha\n"},
+			processResult{stdout: "develop-sha\n"},
+			processResult{stdout: "develop-sha release-sha\n"},
+		)
+		matches, err := repository.HeadIsMergeOf(context.Background(), identity, release, develop)
+		if err != nil || matches {
+			t.Fatalf("HeadIsMergeOf() = (%t, %v)", matches, err)
+		}
+	})
+
+	for _, testCase := range []struct {
+		name    string
+		results []processResult
+	}{
+		{
+			name:    "release lookup failure",
+			results: []processResult{{err: errors.New("release lookup"), exitCode: 128}},
+		},
+		{
+			name: "develop lookup failure",
+			results: []processResult{
+				{stdout: "release-sha\n"},
+				{err: errors.New("develop lookup"), exitCode: 128},
+			},
+		},
+		{
+			name: "merge parent lookup failure",
+			results: []processResult{
+				{stdout: "release-sha\n"},
+				{stdout: "develop-sha\n"},
+				{err: errors.New("parents lookup"), exitCode: 128},
+			},
+		},
+		{
+			name:    "empty resolved revision",
+			results: []processResult{{}},
+		},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			repository, _ := coverageRepository(testCase.results...)
+			if _, err := repository.HeadIsMergeOf(context.Background(), identity, release, develop); err == nil {
+				t.Fatal("invalid merge provenance was accepted")
+			}
+		})
+	}
 }
 
 func TestRepositoryCoverageWorkflowBaseBranches(t *testing.T) {

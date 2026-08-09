@@ -262,6 +262,13 @@ required for:
 - creating a required backmerge pull request; and
 - controlled release-line cleanup after its lifecycle is complete.
 
+Reconciliation candidate publication is a further, separate privilege boundary.
+The protected `release-reconciliation` environment uses a dedicated publisher
+App and broker. That App receives only the repository contents and pull request
+permissions required to publish a provenance-validated `chore/*` candidate and
+its reviewed pull request to `develop`. It receives no Actions write,
+workflow-write, administration, Ruleset bypass, or shared-line mutation role.
+
 Install that identity only for the approved repository and grant the minimum
 GitHub permissions required by those exact API calls, including Actions
 workflow dispatch and read access plus the limited Contents/Pull requests
