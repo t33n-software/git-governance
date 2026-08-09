@@ -458,6 +458,23 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 		}
 	})
 
+	t.Run("never selects provider publication during a dry run", func(t *testing.T) {
+		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
+		application.options.dryRun = true
+		application.options.yes = true
+		application.runtime.Publisher = &workflowRecordingPublisher{}
+
+		published, err := application.resolvePullRequestPublication(
+			context.Background(),
+			application.services(),
+			request,
+			true,
+		)
+		if err != nil || published {
+			t.Fatalf("dry-run publication selection = (%t, %v)", published, err)
+		}
+	})
+
 	t.Run("requires explicit confirmation outside an interactive terminal", func(t *testing.T) {
 		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
 		application.runtime.Publisher = &workflowRecordingPublisher{}

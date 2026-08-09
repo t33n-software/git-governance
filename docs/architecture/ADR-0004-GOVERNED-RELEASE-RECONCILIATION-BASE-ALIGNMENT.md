@@ -54,6 +54,11 @@ wird kein Preparation-Branch-PR erstellt; das Ergebnis lautet `not-required`.
   Ticketbezug.
 - Die aktuelle Develop-Ref wird mit einem nachvollziehbaren Merge-Commit in die
   Preparation-Branch gemergt, nicht rebased.
+- Ein Konflikt bleibt fail-closed, bis nur die konkreten Pfade aufgelöst und
+  gestagt wurden; die Fortsetzung erfolgt über den governeden Resume-Vertrag.
+- Ein serverseitig veröffentlichter Resolution-Kandidat weist exakt die
+  Release-Ref als ersten und die geprüfte Develop-Ref als zweiten Merge-Parent
+  nach.
 - Der resultierende PR zielt auf `develop` und verwendet einen Merge Commit.
 - Eine neue funktionale Änderung nach Delivery erfordert einen neuen
   Patch-Release oder Hotfix auf der tatsächlich betroffenen veröffentlichten

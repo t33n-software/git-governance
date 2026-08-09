@@ -42,10 +42,12 @@ type workflowRunResponse struct {
 }
 
 type releasePullRequestResponse struct {
-	Number         int                              `json:"number"`
-	HTMLURL        string                           `json:"html_url"`
-	MergedAt       *time.Time                       `json:"merged_at"`
-	MergeCommitSHA string                           `json:"merge_commit_sha"`
+	Number   int        `json:"number"`
+	HTMLURL  string     `json:"html_url"`
+	MergedAt *time.Time `json:"merged_at"`
+	// MergeCommitSHA is resolved from GraphQL because current REST pull-request
+	// payloads no longer expose merge_commit_sha.
+	MergeCommitSHA string                           `json:"-"`
 	Base           releasePullRequestBranchResponse `json:"base"`
 	Head           releasePullRequestBranchResponse `json:"head"`
 }
@@ -57,6 +59,49 @@ type releasePullRequestBranchResponse struct {
 
 type releasePullRequestRepositoryResponse struct {
 	FullName string `json:"full_name"`
+}
+
+type graphQLPromotionRequest struct {
+	Query     string                    `json:"query"`
+	Variables graphQLPromotionVariables `json:"variables"`
+}
+
+type graphQLPromotionVariables struct {
+	Owner  string `json:"owner"`
+	Name   string `json:"name"`
+	Number int    `json:"number"`
+}
+
+type graphQLPromotionResponse struct {
+	Data struct {
+		Repository struct {
+			PullRequest *graphQLPromotionPullRequestResponse `json:"pullRequest"`
+		} `json:"repository"`
+	} `json:"data"`
+	Errors []graphQLErrorResponse `json:"errors"`
+}
+
+type graphQLErrorResponse struct {
+	Message string `json:"message"`
+}
+
+type graphQLPromotionPullRequestResponse struct {
+	Number         int                                `json:"number"`
+	HTMLURL        string                             `json:"url"`
+	MergedAt       *time.Time                         `json:"mergedAt"`
+	BaseRefName    string                             `json:"baseRefName"`
+	HeadRefName    string                             `json:"headRefName"`
+	BaseRepository graphQLPromotionRepositoryResponse `json:"baseRepository"`
+	HeadRepository graphQLPromotionRepositoryResponse `json:"headRepository"`
+	MergeCommit    *graphQLPromotionCommitResponse    `json:"mergeCommit"`
+}
+
+type graphQLPromotionRepositoryResponse struct {
+	NameWithOwner string `json:"nameWithOwner"`
+}
+
+type graphQLPromotionCommitResponse struct {
+	OID string `json:"oid"`
 }
 
 type gitReferenceResponse struct {
@@ -319,6 +364,13 @@ func (publisher *Publisher) mergedPromotion(
 		}
 		for _, pullRequest := range pullRequests {
 			if isMergedReleasePromotion(pullRequest, repository, release) {
+				if strings.TrimSpace(pullRequest.MergeCommitSHA) == "" {
+					mergeCommitSHA, err := publisher.promotionMergeCommit(ctx, apiBase, repository, release, pullRequest)
+					if err != nil {
+						return releasePullRequestResponse{}, err
+					}
+					pullRequest.MergeCommitSHA = mergeCommitSHA
+				}
 				return pullRequest, nil
 			}
 		}
@@ -339,9 +391,99 @@ func isMergedReleasePromotion(
 		strings.EqualFold(strings.TrimSpace(pullRequest.Base.Repository.FullName), fullName) &&
 		pullRequest.Head.Ref == release &&
 		strings.EqualFold(strings.TrimSpace(pullRequest.Head.Repository.FullName), fullName) &&
+		pullRequest.Number > 0 &&
 		pullRequest.MergedAt != nil &&
-		strings.TrimSpace(pullRequest.MergeCommitSHA) != "" &&
 		strings.TrimSpace(pullRequest.HTMLURL) != ""
+}
+
+const graphQLPromotionQuery = `query ReleasePromotion($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      number
+      url
+      mergedAt
+      baseRefName
+      headRefName
+      baseRepository {
+        nameWithOwner
+      }
+      headRepository {
+        nameWithOwner
+      }
+      mergeCommit {
+        oid
+      }
+    }
+  }
+}`
+
+func (publisher *Publisher) promotionMergeCommit(
+	ctx context.Context,
+	apiBase *url.URL,
+	repository repositoryRef,
+	release string,
+	pullRequest releasePullRequestResponse,
+) (string, error) {
+	body, _ := json.Marshal(graphQLPromotionRequest{
+		Query: graphQLPromotionQuery,
+		Variables: graphQLPromotionVariables{
+			Owner:  repository.owner,
+			Name:   repository.name,
+			Number: pullRequest.Number,
+		},
+	})
+	response, err := publisher.request(
+		ctx,
+		repository,
+		http.MethodPost,
+		graphQLPromotionEndpoint(apiBase),
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	if response.StatusCode != http.StatusOK {
+		_ = response.Body.Close()
+		return "", lifecycleResponseProblem(response.StatusCode, "resolve the release promotion merge commit")
+	}
+	var graphQLResponse graphQLPromotionResponse
+	decodeErr := decodeResponse(response.Body, &graphQLResponse)
+	_ = response.Body.Close()
+	if decodeErr != nil {
+		return "", decodeErr
+	}
+	if len(graphQLResponse.Errors) != 0 ||
+		!isMergedGraphQLPromotion(graphQLResponse.Data.Repository.PullRequest, repository, release, pullRequest) {
+		return "", lifecyclePromotionNotFoundProblem(release)
+	}
+	return graphQLResponse.Data.Repository.PullRequest.MergeCommit.OID, nil
+}
+
+func isMergedGraphQLPromotion(
+	pullRequest *graphQLPromotionPullRequestResponse,
+	repository repositoryRef,
+	release string,
+	restPullRequest releasePullRequestResponse,
+) bool {
+	if pullRequest == nil || pullRequest.MergeCommit == nil {
+		return false
+	}
+	fullName := repository.owner + "/" + repository.name
+	return pullRequest.Number == restPullRequest.Number &&
+		pullRequest.BaseRefName == "main" &&
+		strings.EqualFold(strings.TrimSpace(pullRequest.BaseRepository.NameWithOwner), fullName) &&
+		pullRequest.HeadRefName == release &&
+		strings.EqualFold(strings.TrimSpace(pullRequest.HeadRepository.NameWithOwner), fullName) &&
+		pullRequest.MergedAt != nil &&
+		strings.TrimSpace(pullRequest.HTMLURL) == strings.TrimSpace(restPullRequest.HTMLURL) &&
+		strings.TrimSpace(pullRequest.MergeCommit.OID) != ""
+}
+
+func graphQLPromotionEndpoint(apiBase *url.URL) *url.URL {
+	endpoint := *apiBase
+	endpoint.Path = strings.TrimSuffix(strings.TrimRight(apiBase.Path, "/"), "/v3") + "/graphql"
+	endpoint.RawQuery = ""
+	return &endpoint
 }
 
 func lifecyclePromotionNotFoundProblem(release string) error {

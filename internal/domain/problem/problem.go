@@ -47,6 +47,7 @@ const (
 	CodeSharedLineMutationForbidden  Code = "SHARED_LINE_MUTATION_FORBIDDEN"
 	CodeRebaseNotRequired            Code = "REBASE_NOT_REQUIRED"
 	CodeRebaseConflict               Code = "REBASE_CONFLICT"
+	CodeMergeConflict                Code = "MERGE_CONFLICT"
 	CodeCherryPickConflict           Code = "CHERRY_PICK_CONFLICT"
 	CodeRebaseAfterPublishForbidden  Code = "REBASE_AFTER_PUBLISH_FORBIDDEN"
 	CodeForcePushForbidden           Code = "FORCE_PUSH_FORBIDDEN"

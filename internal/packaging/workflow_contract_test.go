@@ -230,6 +230,12 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"workflow_dispatch:",
 		"broker-smoke",
 		"release-cut",
+		"reconciliation-align",
+		"reconciliation-resume",
+		"ticket_key:",
+		"ticket:",
+		"slug:",
+		"resolution_branch:",
 		"environment: release",
 		"id-token: write",
 		"google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
@@ -243,6 +249,20 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		`test "$approved_status" = "200"`,
 		`test "$rejected_status" = "403"`,
 		`rm -f "$response"`,
+		`test "$GITHUB_REF" = "refs/heads/main"`,
+		`go build -mod=readonly -trimpath -o .build/bin/git-governance ./cmd/git-governance`,
+		`workflow release stabilize`,
+		`workflow release align-reconciliation-base`,
+		`--prepared`,
+		`git fetch origin "refs/heads/$RESOLUTION_BRANCH:refs/remotes/origin/$RESOLUTION_BRANCH"`,
+		`git switch --create "$RESOLUTION_BRANCH" --track "origin/$RESOLUTION_BRANCH"`,
+		`resolution_branch must match the supplied ticket and slug`,
+		`git config --local http.https://github.com/.extraheader`,
+		`git config --local --unset-all http.https://github.com/.extraheader`,
+		`git config --local user.name "github-actions[bot]"`,
+		`git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"`,
+		`echo "::add-mask::$transport_token"`,
+		`echo "::add-mask::$transport_header"`,
 	} {
 		if !strings.Contains(workflow, expected) {
 			t.Fatalf("release-control workflow does not contain %q", expected)
@@ -252,9 +272,79 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"GITHUB_RELEASE_APP_ID",
 		"GITHUB_RELEASE_APP_INSTALLATION_ID",
 		"echo \"$BROKER_ID_TOKEN\"",
+		"echo \"$transport_token\"",
+		"echo \"$transport_header\"",
 		"cat \"$response\"",
 	} {
 		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("release-control workflow must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestReleaseControlWorkflowUsesDedicatedReconciliationPublisher(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "release-control.yml")
+	jobStart := strings.Index(workflow, "  reconciliation-align:")
+	if jobStart == -1 {
+		t.Fatal("release-control workflow does not contain the reconciliation job")
+	}
+	job := workflow[jobStart:]
+
+	for _, expected := range []string{
+		"environment: release-reconciliation",
+		"PUBLISHER_BROKER_URL: ${{ vars.GCP_RECONCILIATION_PUBLISHER_BROKER_URL }}",
+		"PUBLISHER_WIF_PROVIDER: ${{ vars.GCP_RECONCILIATION_PUBLISHER_WIF_PROVIDER }}",
+		"PUBLISHER_INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_RECONCILIATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT }}",
+		"workload_identity_provider: ${{ vars.GCP_RECONCILIATION_PUBLISHER_WIF_PROVIDER }}",
+		"service_account: ${{ vars.GCP_RECONCILIATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT }}",
+		"id_token_audience: ${{ vars.GCP_RECONCILIATION_PUBLISHER_BROKER_URL }}",
+		"id: publisher_auth",
+		"PUBLISHER_BROKER_ID_TOKEN: ${{ steps.publisher_auth.outputs.id_token }}",
+		`--request POST "$PUBLISHER_BROKER_URL/v1/github/installations/token"`,
+		`--header "Authorization: Bearer $PUBLISHER_BROKER_ID_TOKEN"`,
+		`export GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL="$PUBLISHER_BROKER_URL"`,
+		`export GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN="$PUBLISHER_BROKER_ID_TOKEN"`,
+	} {
+		if !strings.Contains(job, expected) {
+			t.Fatalf("reconciliation job does not contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"${{ vars.GCP_BROKER_URL }}",
+		"${{ vars.GCP_BROKER_WIF_PROVIDER }}",
+		"${{ vars.GCP_BROKER_INVOKER_SERVICE_ACCOUNT }}",
+		"${{ steps.broker_auth.outputs.id_token }}",
+	} {
+		if strings.Contains(job, forbidden) {
+			t.Fatalf("reconciliation job must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestReleaseControlWorkflowConfiguresLocalReconciliationCommitIdentity(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "release-control.yml")
+	stepStart := strings.Index(workflow, "- name: Create, align, or publish governed reconciliation branch")
+	if stepStart == -1 {
+		t.Fatal("release-control workflow does not contain the reconciliation step")
+	}
+	step := workflow[stepStart:]
+	nameIndex := strings.Index(step, `git config --local user.name "github-actions[bot]"`)
+	emailIndex := strings.Index(step, `git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"`)
+	stabilizeIndex := strings.Index(step, `workflow release stabilize`)
+	alignIndex := strings.Index(step, `workflow release align-reconciliation-base`)
+	if nameIndex == -1 || emailIndex == -1 || stabilizeIndex == -1 || alignIndex == -1 ||
+		nameIndex > stabilizeIndex || emailIndex > stabilizeIndex || nameIndex > alignIndex || emailIndex > alignIndex {
+		t.Fatal("release-control workflow must configure the local commit identity before reconciliation commands")
+	}
+	for _, forbidden := range []string{
+		"git config --global user.name",
+		"git config --global user.email",
+	} {
+		if strings.Contains(step, forbidden) {
 			t.Fatalf("release-control workflow must not contain %q", forbidden)
 		}
 	}
