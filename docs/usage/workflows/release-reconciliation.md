@@ -42,30 +42,82 @@ also checks whether an effective content delta remains.
 
 ## Strict Develop base freshness
 
-After Main-promotion and delivery, new regular pull requests may merge into
-`develop`. Those commits belong to the next integration phase and must not be
+New regular pull requests may merge into `develop` between Main-promotion and
+reconciliation. They belong to the next integration phase and must never be
 merged, rebased, or otherwise written back into the delivered
 `release/<semver>` reference.
 
 When the Develop protection policy accepts the release head, the controlled
 direct pull request `release/<semver> -> develop` remains valid. When the
-policy requires a current pull-request head, create a ticket-bound
-release-preparation branch from the unchanged release line and run:
+policy requires a current pull-request head, the protected
+`reconciliation-align` operation in `release-control.yml` builds a trusted
+binary from `main`, creates a ticket-bound release-preparation branch, and
+executes `workflow release align-reconciliation-base` there. The operation
+merges current Develop only into the preparation branch and opens the reviewed
+merge-commit PR to Develop. It never updates the release ref.
 
-```text
-release/<semver>
-  -> chore/<ticket>-<reconciliation-alignment>
-  -> merge origin/develop into the preparation branch
-  -> quality and review gates
-  -> merge-commit pull request to develop
+In the target lifecycle, successful release delivery automatically dispatches
+this controller. It revalidates promotion, tag, published release, artifacts,
+attestations, ticket metadata, and idempotency before it creates a PR. Manual
+dispatch exists only for incident, retry, or recovery and follows the same
+checks.
+
+## Conflict recovery
+
+A conflict while merging the current Develop ref into the ticket-bound
+Preparation-Branch is an expected fail-closed outcome. It does not authorize
+GitHub **Update branch**, a rebase, a direct update of `release/<semver>`, or
+an automatic `ours`/`theirs` decision.
+
+The failed controller run is the conflict manifest. It records the delivered
+release, current Develop context, ticket-bound branch, conflict paths, and
+provider-delivery evidence without exposing credentials. It creates neither a
+reconciliation PR nor a remote unresolved branch.
+
+Resolve semantic conflicts only in a non-shared, ticket-bound resolution
+workspace. Start the Preparation-Branch from the delivered release through the
+governed CLI, let the controlled alignment start the merge, resolve and stage
+only the exact conflicted paths, then resume and push the completed merge:
+
+```powershell
+git governance --interactive never --output json --yes `
+  workflow release stabilize `
+  --release release/2.8.0 `
+  --kind release-prep `
+  --key ABC `
+  --ticket 999 `
+  --slug reconcile-release-2-8-0
+
+git governance --interactive never --output json --yes `
+  workflow release align-reconciliation-base `
+  --release release/2.8.0
+
+# Resolve exact conflicts and stage only those paths.
+
+git governance --interactive never --output json --yes `
+  workflow release align-reconciliation-base `
+  --release release/2.8.0 `
+  --resume `
+  --push
 ```
 
-Use `workflow release align-reconciliation-base` only from that checked-out
-preparation branch. It verifies delivery and an effective release-only delta,
-then merges `develop` only into the preparation branch. It never updates the
-release ref. A rebase, a GitHub **Update branch** action, or a
-`develop -> release/<semver>` pull request is not a valid reconciliation
-substitute.
+The local workspace may prepare and push the non-shared candidate branch, but
+it must not create the Develop PR or receive release-automation credentials.
+Dispatch `reconciliation-resume` from `release-control.yml` on `main` with the
+same release, ticket, slug, and the exact candidate branch. The trusted
+controller accepts the branch only when it proves all of the following:
+
+- its ticket-bound `chore/*` name matches the supplied ticket and slug;
+- its merge commit has the immutable release ref as first parent and the
+  current Develop ref as second parent;
+- no Develop commit advanced after that merge;
+- delivery, delta, quality, security, and review gates succeed again.
+
+Only then does CI use the `release-reconciliation` environment and its
+dedicated publisher broker to publish the reviewed merge-commit candidate and
+PR to `develop`. The publisher App has only repository contents and pull
+request permissions required for this path; it has no Ruleset bypass or
+shared-line mutation role.
 
 ## Conflict recovery and privileged publication
 
