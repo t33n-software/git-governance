@@ -830,6 +830,12 @@ Ein beliebiger Branch-Name genügt nie als Recovery-Nachweis. Der geschützte
 Merge-Provenance, Delivery und Quality erneut, bevor er einen PR nach
 `develop` erstellt.
 
+Die serverseitige Veröffentlichung verwendet eine dedizierte
+Reconciliation-Publisher-Identität aus dem `release-reconciliation`
+Environment. Der lokale Resolution-Workspace erhält diese Identität nicht. Die
+Publisher-Identität ist auf den validierten `chore/*` Kandidaten und dessen PR
+beschränkt; sie besitzt keinen Ruleset-Bypass und keine direkte Shared-Line-
+Mutation-Berechtigung.
 `release/<semver>` bleibt unverändert. Im Dry-Run führt kein CLI-Workflow
 einen Fetch, Merge, Push, Provider-Preflight oder Provider-Publish aus.
 

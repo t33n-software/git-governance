@@ -224,8 +224,34 @@ When the Develop Ruleset requires a current pull-request head, GitHub's
 The governed reconciliation path instead uses a ticket-bound `chore/*`
 preparation branch created from the release line, merges current Develop only
 into that working branch, validates it, and opens a merge-commit PR from the
-working branch to Develop. Rulesets protect the shared release ref, but the
-source-aware provenance and delivery checks remain workflow responsibilities.
+working branch to Develop.
+
+The protected Main release-control workflow builds a trusted binary before it
+creates the release-derived preparation branch. It uses a short-lived, masked
+broker installation token only in the ephemeral runner Git transport, clears
+that configuration on exit, and opens the reviewed merge-commit PR to Develop
+without updating the delivered release ref.
+
+If the controlled Develop merge conflicts, Rulesets cannot resolve the content
+or prove an arbitrary submitted branch is safe. The controller fails closed,
+does not push an unresolved candidate, and records the release/develop/ticket
+context through the workflow run. A `reconciliation-resume` recovery run
+accepts only a ticket-bound `chore/*` candidate whose merge parents prove the
+immutable release ref and the current Develop ref; it then reruns delivery,
+quality, review, and publication gates. Neither GitHub **Update branch** nor a
+Ruleset bypass is a replacement for that source-aware provenance check.
+
+The reconciliation publisher is a dedicated GitHub App and broker identity,
+separate from release-line automation. It may publish only the
+provenance-validated ticket-bound `chore/*` candidate and its reviewed PR to
+`develop`. It has no Ruleset bypass, release-line dispatch, workflow-write, or
+direct shared-line mutation role.
+
+The normal target path dispatches this controller automatically after verified
+release delivery. It remains idempotent, revalidates all delivery evidence,
+and creates a PR only for effective delta. Manual dispatch is retained only
+for incident, retry, and recovery; it cannot bypass Ruleset, review, quality,
+or audit gates.
 
 ### Initial protected-line creation
 
