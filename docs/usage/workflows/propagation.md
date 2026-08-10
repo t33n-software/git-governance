@@ -73,6 +73,7 @@ broker-backed workload identity:
 
 ```text
 hotfix-propagation.yml on main
+→ hotfix-delivery environment verifies the immutable source delivery
 → hotfix-propagation environment
 → OIDC and Workload Identity Federation
 → dedicated Hotfix-Propagation-Publisher broker and GitHub App

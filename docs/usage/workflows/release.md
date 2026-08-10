@@ -22,25 +22,34 @@ then dispatches the bound executor. It finishes at
 `awaiting_execution_approval`; it does not poll the executor and does not
 claim that a release line exists.
 
-## Managed broker release control
+## Functional release-control lanes
 
-The repository-local `release-control.yml` workflow remains the managed
-entrypoint for broker smoke tests and reconciliation. Its
-`release-request` job is separate: it uses a job-scoped GitHub Actions token
-with `actions: write`, `deployments: write`, and `contents: read`, but no
-`contents: write` capability.
+The repository does not use one generic `release` environment as a shared
+approval or credential container. Each active controller belongs to one
+functional lane:
 
-Configure these GitHub repository variables:
+| Lane | Controller responsibility | Human approval / credential boundary |
+| --- | --- | --- |
+| `release-request` | Authorize ticket, version, source SHA, target ref, expiry, and idempotency. | Request Authority; no external broker variables. |
+| `release-execution` | Approve and perform at most one request-bound protected ref mutation. | Execution Authority; no external broker variables. |
+| `release-credential-verification` | Prove the private release credential issuer accepts the approved repository and rejects an unapproved one. | Dedicated OIDC/WIF invocation of the release credential issuer. |
+| `release-delivery` | Create the immutable regular-release tag and build, sign, attest, and publish its artifacts. | Delivery approval for controlled `main` source and the immutable tag namespace. |
+| `release-reconciliation` | Publish only a provenance-validated `chore/*` reconciliation candidate and its PR. | Dedicated reconciliation-publisher App and broker. |
+| `hotfix-delivery` | Create and verify a delivered main or support patch tag before artifact dispatch. | Dedicated OIDC/WIF invocation of the hotfix-delivery credential issuer. |
+| `hotfix-propagation` | Publish only a provenance-validated `fix/*` propagation candidate and its PR. | Dedicated hotfix-propagation-publisher App and broker. |
+
+`release-control.yml` uses `release-credential-verification` only for
+`broker-smoke`. Configure only this lane's variables there:
 
 ```text
-GCP_BROKER_URL
-GCP_BROKER_WIF_PROVIDER
-GCP_BROKER_INVOKER_SERVICE_ACCOUNT
+GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL
+GCP_RELEASE_CREDENTIAL_VERIFICATION_WIF_PROVIDER
+GCP_RELEASE_CREDENTIAL_VERIFICATION_INVOKER_SERVICE_ACCOUNT
 ```
 
-These variables remain scoped to the protected `release` environment and the
-existing release-automation identity used by broker smoke and later release
-lifecycle operations.
+The request controller does not receive those variables. It uses only its
+job-scoped GitHub Actions token with `actions: write`, `deployments: write`,
+and `contents: read`; it has no `contents: write` capability.
 
 Reconciliation publication uses the separately protected
 `release-reconciliation` environment and its dedicated publisher identity:
@@ -55,6 +64,20 @@ The reconciliation publisher App is limited to repository contents and pull
 request publication for a provenance-validated `chore/*` candidate. It has no
 Ruleset bypass, release-line dispatch, workflow-write, administration, or
 shared-line mutation role.
+
+The regular tag controller and `release.yml` run in `release-delivery`.
+`hotfix-delivery.yml` and the verification job of `hotfix-propagation.yml`
+run in `hotfix-delivery` and consume only:
+
+```text
+GCP_HOTFIX_DELIVERY_BROKER_URL
+GCP_HOTFIX_DELIVERY_WIF_PROVIDER
+GCP_HOTFIX_DELIVERY_INVOKER_SERVICE_ACCOUNT
+```
+
+The propagation-publish job remains in `hotfix-propagation` and consumes only
+its dedicated `GCP_HOTFIX_PROPAGATION_PUBLISHER_*` variables. Do not copy
+broker variables, tokens, PEM values, or authorization headers between lanes.
 
 First dispatch `broker-smoke`. It proves that the broker accepts the approved
 `CyberT33N/git-governance` repository request and rejects an unapproved request
@@ -75,19 +98,38 @@ ref, promote a release, tag, publish artifacts, or reconcile branches.
 
 ### Required GitHub environments
 
-Before the request path is used in production, configure two distinct protected
-GitHub environments:
+Before production use, configure the functional lanes named above. Each lane
+must have an explicit branch or tag policy, the required reviewer role,
+administrator bypass disabled, and only its own non-secret variables. At
+minimum:
 
 ```text
 release-request
+→ main
 → Release Request Authority
-→ approves the ticket, version, source SHA, target ref, scope and expiry
-→ no shared-line write role
 
 release-execution
+→ main
 → Release Execution Authority
-→ approves exactly one already-authorized request_id mutation
-→ no promotion, tag, delivery or reconciliation role
+
+release-credential-verification
+→ main
+→ non-mutating release credential verification
+
+release-delivery
+→ main and the controlled immutable tag namespace
+
+hotfix-delivery
+→ main
+→ main or support patch tag and delivery
+
+hotfix-propagation
+→ main
+→ provenance-validated fix/* candidate publication
+
+release-reconciliation
+→ main
+→ provenance-validated chore/* candidate publication
 ```
 
 The normal finalizer intentionally has no reviewer environment because it is

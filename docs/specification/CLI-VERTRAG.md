@@ -729,6 +729,14 @@ Der reguläre Ablauf wird durch `release-control.yml` mit
 `release-request` und `release-execution` ausgelöst. Nur `verified` ist ein
 vollständiger Protected-Line-Cut-Nachweis.
 
+Die CLI modelliert keine generische `release`-Sammellane. Der geschützte
+Workflow bindet Request, Execution, Credential-Verifikation, reguläre
+Delivery, Reconciliation, Hotfix-Delivery und Hotfix-Propagation jeweils an
+eine eigene funktionale Lane. Nur die Workflow-Lane mit dem konkreten
+Credential-Issuer-Bedarf erhält deren lane-spezifische OIDC/WIF- und
+Invocation-Variablen; die lokalen Controller-Kommandos akzeptieren keine
+solchen Credentials als Eingaben.
+
 ### 13.2 `workflow release stabilize`
 
 ```text

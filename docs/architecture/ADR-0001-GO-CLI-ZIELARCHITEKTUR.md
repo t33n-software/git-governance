@@ -408,6 +408,12 @@ Tag-, Delivery- oder Reconciliation-Autorität. ADR-0006 beschreibt die
 vollständige Request-/Execution-/Finalizer-Grenze und den read-only
 Recovery-Pfad.
 
+Alle aktiven Release- und Hotfix-Controller gehören zusätzlich genau einer
+funktionalen Lane. Request, Execution, Credential-Verifikation, reguläre
+Delivery, Reconciliation, Hotfix-Delivery und Hotfix-Propagation teilen weder
+ein generisches Approval-Environment noch Broker-Variablen. ADR-0007
+beschreibt diese Lane-, Credential- und Decommissioning-Grenze.
+
 Ein Backmerge ist eine verpflichtende Reconciliation, kein pauschaler PR:
 erst nach gemergter Main-Promotion, exakt zugehörigem Tag und erfolgreicher
 Release-Delivery prüft der Hosting-Adapter den effektiven

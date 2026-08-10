@@ -73,6 +73,11 @@ reconcile the line.
 record already in `verification_pending`. It cannot dispatch another executor
 or mutate a ref. It is not the normal human verification step.
 
+The request and execution jobs are separate from the non-mutating
+`release-credential-verification` lane. Broker smoke consumes only the
+verification lane's OIDC/WIF variables; request and execution do not receive
+external credential-issuer variables.
+
 Backmerge must run only after the main promotion, exact immutable tag, and
 release artifact delivery are complete. It returns `not-required` instead of
 creating an empty PR when no effective release-only delta remains. Automation
@@ -84,21 +89,21 @@ identity; it never starts a browser login. See
 
 `hotfix-delivery.yml` is a separate main-bound controller for a merged
 same-repository `hotfix/* -> main` pull request. It validates the reviewed
-ticket record and ordered manifest through the managed release broker before
+ticket record and ordered manifest through the `hotfix-delivery` lane before
 creating an immutable patch tag. It then dispatches `release.yml` for that tag
 and waits for the artifact workflow and published evidence.
 
-The controller may use the release-automation boundary only for tag and
-artifact delivery. It does not publish a propagation candidate, mutate
-`develop`, or grant local credentials any release authority.
+The lane consumes only its own OIDC/WIF invocation variables. It does not
+publish a propagation candidate, mutate `develop`, or grant local credentials
+any release authority.
 
 ## Main-hotfix propagation
 
 `hotfix-propagation.yml` is a separate, main-bound controller for one declared
 additional target of a delivered main hotfix. It uses the protected
-`hotfix-propagation` environment, its own OIDC/WIF path, and a separate
-least-privilege Publisher broker. The controller independently rechecks the
-delivery record before invoking:
+`hotfix-delivery` lane to recheck delivery, then the protected
+`hotfix-propagation` lane, its own OIDC/WIF path, and a separate
+least-privilege Publisher broker to publish the candidate:
 
 ```text
 workflow hotfix propagate-manifest --publish

@@ -118,10 +118,21 @@ convention.
 After a same-repository hotfix PR is merged into `main`, the protected
 [`hotfix-delivery.yml`](../../../.github/workflows/hotfix-delivery.yml)
 controller independently verifies the record, merged pull request, ordered
-manifest, and tag idempotency with the release broker identity. It then creates
-the immutable patch tag, dispatches the existing artifact workflow, and waits
-for the non-draft GitHub Release, checksums, payload, SBOM, Sigstore bundle,
-and successful artifact workflow.
+manifest, and tag idempotency through the dedicated `hotfix-delivery` lane. It
+then creates the immutable patch tag, dispatches the existing artifact
+workflow, and waits for the non-draft GitHub Release, checksums, payload, SBOM,
+Sigstore bundle, and successful artifact workflow.
+
+The lane consumes only:
+
+```text
+GCP_HOTFIX_DELIVERY_BROKER_URL
+GCP_HOTFIX_DELIVERY_WIF_PROVIDER
+GCP_HOTFIX_DELIVERY_INVOKER_SERVICE_ACCOUNT
+```
+
+It does not reuse a generic release environment or receive propagation-publisher
+credentials.
 
 The read-only verification commands are available to the trusted controller and
 for diagnosis:
@@ -144,8 +155,10 @@ protected controller.
 
 After the immutable main patch delivery is verified, each propagation target
 declared in the reviewed record is handled by the separate
-`hotfix-propagation.yml` controller. It builds trusted `main` source, verifies
-the delivery again, creates the target-derived candidate with
+`hotfix-propagation.yml` controller. Its verification job runs in
+`hotfix-delivery`; its publication job runs in `hotfix-propagation`. The
+controller builds trusted `main` source, verifies the delivery again, creates
+the target-derived candidate with
 `workflow hotfix propagate-manifest --publish`, and publishes only through the
 dedicated Hotfix-Propagation-Publisher identity.
 

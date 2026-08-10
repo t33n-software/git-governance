@@ -24,6 +24,7 @@ jobs:
       startsWith(github.event.pull_request.head.ref, 'release/') &&
       github.event.pull_request.merge_commit_sha != ''
     runs-on: ubuntu-24.04
+    environment: release-delivery
     permissions:
       actions: write
       contents: write
