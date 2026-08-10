@@ -99,7 +99,7 @@ func TestPublisherVerifyMainHotfixDelivery(t *testing.T) {
 					{Name: "git-governance_1.0.2_linux_amd64.sbom.json"},
 				},
 			})
-		case "/repos/acme/governance/actions/workflows/release.yml/runs":
+		case "/repos/acme/governance/actions/workflows/publish-release-artifacts.yml/runs":
 			if request.URL.Query().Get("event") != "workflow_dispatch" {
 				t.Fatalf("workflow query = %q", request.URL.RawQuery)
 			}
@@ -471,7 +471,7 @@ func TestPublisherMainHotfixDeliveryTopLevelFailures(t *testing.T) {
 							{Name: "archive.sbom.json"},
 						},
 					})
-				case "/repos/acme/governance/actions/workflows/release.yml/runs":
+				case "/repos/acme/governance/actions/workflows/publish-release-artifacts.yml/runs":
 					if stage == "workflow" {
 						writer.WriteHeader(http.StatusInternalServerError)
 						return

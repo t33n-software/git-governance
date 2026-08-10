@@ -26,7 +26,7 @@ func TestNewValidatesImmutableRequestBinding(t *testing.T) {
 			release.Source().String() != "develop" ||
 			release.SourceSHA() != strings.Repeat("a", 40) ||
 			release.Requester() != "release-requester" ||
-			release.ExpectedExecutor() != "create-protected-line.yml" ||
+			release.ExpectedExecutor() != "execute-protected-line-request.yml" ||
 			release.ParentRunID() != "123" ||
 			release.ExecutorRunID() != "" ||
 			release.IdempotencyKey() != strings.Repeat("b", 64) ||
@@ -232,7 +232,7 @@ func validInput(t *testing.T, now time.Time) Input {
 		Source:           mustBranch(t, "develop"),
 		SourceSHA:        strings.Repeat("a", 40),
 		Requester:        "release-requester",
-		ExpectedExecutor: "create-protected-line.yml",
+		ExpectedExecutor: "execute-protected-line-request.yml",
 		ParentRunID:      "123",
 		ExpiresAt:        now.Add(time.Hour),
 		IdempotencyKey:   strings.Repeat("b", 64),

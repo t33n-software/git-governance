@@ -868,7 +868,7 @@ func TestReleaseWorkflows(t *testing.T) {
 		if err != nil || result.Intent.Branch.String() != "release/2.8.0" || result.Intent.Source.String() != "origin/develop" {
 			t.Fatalf("CutRelease() = (%#v, %v)", result, err)
 		}
-		if result.Intent.Workflow != "create-protected-line.yml" || result.Intent.Kind != "release" {
+		if result.Intent.Workflow != "execute-protected-line-request.yml" || result.Intent.Kind != "release" {
 			t.Fatalf("release intent = %#v", result.Intent)
 		}
 		if strings.Contains(strings.Join(git.calls, ","), "create-branch") {
@@ -887,7 +887,7 @@ func TestReleaseWorkflows(t *testing.T) {
 		if err != nil || result.Intent.Branch.String() != "support/2.8" || result.Intent.Source.String() != "origin/main" {
 			t.Fatalf("PrepareSupport() = (%#v, %v)", result, err)
 		}
-		if result.Intent.Workflow != "create-protected-line.yml" || result.Intent.Kind != "support" {
+		if result.Intent.Workflow != "execute-protected-line-request.yml" || result.Intent.Kind != "support" {
 			t.Fatalf("support intent = %#v", result.Intent)
 		}
 	})

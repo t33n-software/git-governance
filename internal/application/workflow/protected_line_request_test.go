@@ -305,7 +305,7 @@ func protectedLineWorkflowRecord(t *testing.T, state releaserequest.State, execu
 		Source:           mustBranch("develop"),
 		SourceSHA:        strings.Repeat("a", 40),
 		Requester:        "release-requester",
-		ExpectedExecutor: "create-protected-line.yml",
+		ExpectedExecutor: "execute-protected-line-request.yml",
 		ParentRunID:      "123",
 		ExecutorRunID:    executorRun,
 		ExpiresAt:        time.Now().Add(time.Hour),

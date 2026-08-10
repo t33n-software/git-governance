@@ -1,4 +1,4 @@
-name: Release Artifacts
+name: Publish Release Artifacts
 run-name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 on:

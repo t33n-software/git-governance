@@ -1395,7 +1395,7 @@ func TestReleaseWhiteboxCutReleaseCreatesOnlyCIIntent(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !result.DryRun || result.Intent.Workflow != "create-protected-line.yml" ||
+		if !result.DryRun || result.Intent.Workflow != "execute-protected-line-request.yml" ||
 			result.Intent.Kind != "release" || result.Intent.Branch.String() != "release/2.8.0" ||
 			result.Intent.Source.String() != "origin/develop" || result.Intent.Inputs["version"] != "2.8.0" ||
 			len(result.Plan) != 2 {
@@ -1485,7 +1485,7 @@ func TestReleaseWhiteboxDispatchAndAssessReleaseLifecycle(t *testing.T) {
 			t.Fatalf("DispatchSharedLine() = (%#v, %v), dispatches=%#v", result, err, lifecycle.dispatches)
 		}
 		request := lifecycle.dispatches[0]
-		if request.Workflow != "create-protected-line.yml" || request.Ref != "main" ||
+		if request.Workflow != "execute-protected-line-request.yml" || request.Ref != "main" ||
 			request.Inputs["kind"] != "release" || request.Inputs["version"] != "2.8.0" ||
 			request.Branch != release || request.RemoteURL == "" {
 			t.Fatalf("dispatch request = %#v", request)
@@ -1497,7 +1497,7 @@ func TestReleaseWhiteboxDispatchAndAssessReleaseLifecycle(t *testing.T) {
 
 	t.Run("rejects incomplete dispatch dependencies, intents, provider failures, and mismatched lines", func(t *testing.T) {
 		intent := SharedLineIntent{
-			Workflow: "create-protected-line.yml",
+			Workflow: "execute-protected-line-request.yml",
 			Kind:     "release",
 			Branch:   release,
 			Inputs:   map[string]string{"kind": "release", "version": "2.8.0"},
@@ -1527,7 +1527,7 @@ func TestReleaseWhiteboxDispatchAndAssessReleaseLifecycle(t *testing.T) {
 
 	t.Run("covers dispatch repository, remote, fetch, target, and zero-value result paths", func(t *testing.T) {
 		intent := SharedLineIntent{
-			Workflow: "create-protected-line.yml",
+			Workflow: "execute-protected-line-request.yml",
 			Kind:     "release",
 			Branch:   release,
 			Inputs:   map[string]string{"kind": "release", "version": "2.8.0"},
