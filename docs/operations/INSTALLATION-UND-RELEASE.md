@@ -267,10 +267,11 @@ bestehenden SemVer-Tag gebaut.
 Der normale automatisierte Pfad lautet:
 
 ```text
-git-governance --pull-request-provider github workflow release cut --dispatch
--> maschinenlesbarer Intent für create-protected-line.yml
--> autorisierter CI-Workflow erzeugt release/<semver> aus origin/develop
--> CLI wartet auf den korrelierten Workflow und verifiziert origin/release/<semver>
+git-governance workflow release cut --version <semver>
+-> maschinenlesbarer Intent für execute-protected-line-request.yml
+-> autorisierter release-request Controller bindet Ticket, Quell-SHA und Zielref
+-> separat autorisierte Execution erzeugt release/<semver> aus origin/develop
+-> automatischer Read-only-Finalizer verifiziert origin/release/<semver>
 -> kontrollierte Stabilisierung und PR nach main
 release/<semver> -> geschützter Merge nach main
 -> CI prüft den Merge-Commit
@@ -282,14 +283,14 @@ release/<semver> -> geschützter Merge nach main
 -> ohne Delta: auditierbares not-required, kein leerer PR
 ```
 
-`create-protected-line.yml` wird für vollständige nicht-interaktive Abläufe
-über den GitHub-Lifecycle-Adapter dispatcht. Der Adapter benötigt eine
-least-privileged Release-Automation-Identität, wartet auf den korrelierten
-Workflow und verifiziert die erzeugte Remote-Linie. Es prüft Version,
-Quelllinie, Release-Tag bei Support-Linien und die Nichtexistenz der
-Zielbranche. Eine GitHub-Ruleset- oder Branch-Protection-Regel muss den
-Workflow als erlaubten Erzeuger von `release/*` und `support/*` festlegen; die
-lokale CLI erhält dafür keine Push-Berechtigung.
+`execute-protected-line-request.yml` wird ausschließlich vom gebundenen
+`release-request` Controller mit einer `request_id` dispatcht. Der Executor
+prüft Version, Quelllinie, Release-Tag bei Support-Linien, die Nichtexistenz
+der Zielbranch und den dauerhaften Request-Record. Sein automatischer
+Read-only-Finalizer verifiziert die erzeugte Remote-Linie. Eine GitHub-Ruleset-
+oder Branch-Protection-Regel muss den Workflow als erlaubten Erzeuger von
+`release/*` und `support/*` festlegen; die lokale CLI erhält dafür keine
+Push-Berechtigung.
 
 Wenn das `release/*`- oder `support/*`-Ruleset Required Status Checks
 erzwingt, muss dessen Status-Check-Regel

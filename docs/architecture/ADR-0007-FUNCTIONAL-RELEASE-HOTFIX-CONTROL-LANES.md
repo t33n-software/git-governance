@@ -60,6 +60,38 @@ federation/invocation bindings are not a compatibility layer. They must be
 removed after every active workflow uses its assigned lane and the required
 end-to-end evidence is complete.
 
+## Naming convention
+
+GitHub Environment names are the canonical human authorization-lane names:
+
+```text
+release-credential-verification
+release-delivery
+hotfix-delivery
+hotfix-propagation
+```
+
+Google Cloud resources must share the same functional lane root, but must not
+reuse the Environment name as an undifferentiated resource name. Their names
+identify the resource role and platform scope:
+
+```text
+release-credential-verification
+  -> GitHub Environment
+release-credential-verification-broker
+  -> private Cloud Run credential issuer
+release-credential-verification-invoker
+  -> invocation service account
+github-release-credential-verification
+  -> workload identity provider
+```
+
+This is semantic equivalence, not literal equality. The Environment expresses
+an approval and governance boundary; Cloud resource names must additionally
+express their executable resource type, identity role, and collision domain.
+Variables use the same lane root in uppercase, for example
+`GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL`.
+
 ## Consequences
 
 - Approval decisions are attributable to one concrete controller purpose.

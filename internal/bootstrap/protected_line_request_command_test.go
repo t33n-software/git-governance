@@ -335,7 +335,7 @@ func protectedLineCommandRecord() releaserequest.Request {
 		Source:           source,
 		SourceSHA:        strings.Repeat("a", 40),
 		Requester:        "requester",
-		ExpectedExecutor: "create-protected-line.yml",
+		ExpectedExecutor: "execute-protected-line-request.yml",
 		ParentRunID:      "123",
 		ExecutorRunID:    "456",
 		ExpiresAt:        time.Now().Add(time.Hour),

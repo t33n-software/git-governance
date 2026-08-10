@@ -65,7 +65,8 @@ request publication for a provenance-validated `chore/*` candidate. It has no
 Ruleset bypass, release-line dispatch, workflow-write, administration, or
 shared-line mutation role.
 
-The regular tag controller and `release.yml` run in `release-delivery`.
+The regular tag controller and `publish-release-artifacts.yml` run in
+`release-delivery`.
 `hotfix-delivery.yml` and the verification job of `hotfix-propagation.yml`
 run in `hotfix-delivery` and consume only:
 
@@ -85,7 +86,7 @@ without printing the returned installation token. A release owner then
 authorizes a bound `release-request`; the separately approved
 `release-execution` job performs at most one protected ref mutation.
 
-`create-protected-line.yml` receives only `request_id`. It loads and validates
+`execute-protected-line-request.yml` receives only `request_id`. It loads and validates
 the durable record, including ticket, operation, source SHA, target ref,
 expiry, idempotency key, and expected executor. Its automatic, non-human
 finalizer independently checks the executor job and the real remote ref, then

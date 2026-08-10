@@ -24,7 +24,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		runs := 0
 		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			switch request.URL.Path {
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 				if request.Method != http.MethodPost {
 					t.Fatalf("dispatch method = %s", request.Method)
 				}
@@ -40,7 +40,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 					t.Fatal("dispatch did not provide a request ID")
 				}
 				writer.WriteHeader(http.StatusNoContent)
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/runs":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/runs":
 				runs++
 				if request.URL.Query().Get("event") != "workflow_dispatch" || request.URL.Query().Get("per_page") != "100" {
 					t.Fatalf("workflow query = %q", request.URL.RawQuery)
@@ -72,7 +72,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		result, err := publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			Repository: port.RepositoryIdentity{Root: "C:/repository", Remote: "origin"},
 			RemoteURL:  "https://" + server.URL[len("https://"):] + "/acme/governance.git",
-			Workflow:   "create-protected-line.yml",
+			Workflow:   "execute-protected-line-request.yml",
 			Ref:        "main",
 			Inputs:     map[string]string{"kind": "release", "version": "2.8.0"},
 			Branch:     release,
@@ -86,14 +86,14 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		var requestID string
 		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			switch request.URL.Path {
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 				var payload workflowDispatchRequest
 				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
 					t.Fatal(err)
 				}
 				requestID = payload.Inputs["request_id"]
 				writer.WriteHeader(http.StatusOK)
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/runs":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/runs":
 				_ = json.NewEncoder(writer).Encode(workflowRunsResponse{
 					WorkflowRuns: []workflowRunResponse{{
 						Status:       "completed",
@@ -112,7 +112,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
 		result, err := publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
-			Workflow:  "create-protected-line.yml",
+			Workflow:  "execute-protected-line-request.yml",
 			Ref:       "main",
 			Branch:    release,
 		})
@@ -156,7 +156,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
 		_, err := publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
-			Workflow:  "create-protected-line.yml",
+			Workflow:  "execute-protected-line-request.yml",
 			Ref:       "main",
 			Branch:    release,
 		})
@@ -181,7 +181,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		t.Cleanup(func() { releaseRequestIDGenerator = original })
 		_, err = publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			RemoteURL: "https://github.com/acme/governance.git",
-			Workflow:  "create-protected-line.yml",
+			Workflow:  "execute-protected-line-request.yml",
 			Ref:       "main",
 			Branch:    release,
 		})
@@ -195,7 +195,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		publisher = New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
 		_, err = publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
-			Workflow:  "create-protected-line.yml",
+			Workflow:  "execute-protected-line-request.yml",
 			Ref:       "main",
 			Branch:    release,
 		})
@@ -225,7 +225,7 @@ func TestPublisherDispatchSharedLine(t *testing.T) {
 		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
 		_, err := publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			RemoteURL: "https://" + server.URL[len("https://"):] + "/acme/governance.git",
-			Workflow:  "create-protected-line.yml",
+			Workflow:  "execute-protected-line-request.yml",
 			Ref:       "main",
 			Branch:    release,
 		})
@@ -527,8 +527,8 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 		if _, _, err := publisher.lifecycleTarget("https://gitlab.example/acme/governance.git"); err == nil {
 			t.Fatal("mismatched lifecycle host was accepted")
 		}
-		if !validWorkflowFile("release.yml") || validWorkflowFile("") || validWorkflowFile("release.yaml") ||
-			validWorkflowFile("../release.yml") || validWorkflowFile("release.yml\n") {
+		if !validWorkflowFile("publish-release-artifacts.yml") || validWorkflowFile("") || validWorkflowFile("publish-release-artifacts.yaml") ||
+			validWorkflowFile("../publish-release-artifacts.yml") || validWorkflowFile("publish-release-artifacts.yml\n") {
 			t.Fatal("workflow file validation is incorrect")
 		}
 		for _, testCase := range []struct {
@@ -650,7 +650,7 @@ func TestReleaseLifecycleTransportAndResponseFailurePaths(t *testing.T) {
 			t.Fatal("invalid lifecycle API URL was accepted")
 		}
 		_, err := publisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
-			Workflow: "create-protected-line.yml",
+			Workflow: "execute-protected-line-request.yml",
 			Ref:      "main",
 			Branch:   release,
 		})
@@ -666,7 +666,7 @@ func TestReleaseLifecycleTransportAndResponseFailurePaths(t *testing.T) {
 		})
 		_, err := transportPublisher.DispatchSharedLine(context.Background(), port.SharedLineDispatchRequest{
 			RemoteURL: "https://github.com/acme/governance.git",
-			Workflow:  "create-protected-line.yml",
+			Workflow:  "execute-protected-line-request.yml",
 			Ref:       "main",
 			Branch:    release,
 		})
@@ -695,7 +695,7 @@ func TestReleaseLifecycleTransportAndResponseFailurePaths(t *testing.T) {
 				defer server.Close()
 				base, _ := url.Parse(server.URL)
 				publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
-				_, err := publisher.waitForWorkflowRun(context.Background(), base, repository, "create-protected-line.yml", "request")
+				_, err := publisher.waitForWorkflowRun(context.Background(), base, repository, "execute-protected-line-request.yml", "request")
 				assertProblem(t, err, problem.CodeExternalCommandFailed)
 			})
 		}
@@ -711,7 +711,7 @@ func TestReleaseLifecycleTransportAndResponseFailurePaths(t *testing.T) {
 			})},
 		})
 		statusBase, _ := url.Parse(defaultAPIBaseURL)
-		_, err = statusPublisher.waitForWorkflowRun(context.Background(), statusBase, repository, "create-protected-line.yml", "request")
+		_, err = statusPublisher.waitForWorkflowRun(context.Background(), statusBase, repository, "execute-protected-line-request.yml", "request")
 		assertProblem(t, err, problem.CodeExternalCommandFailed)
 
 		cancelContext, cancel := context.WithCancel(context.Background())
@@ -728,7 +728,7 @@ func TestReleaseLifecycleTransportAndResponseFailurePaths(t *testing.T) {
 				}, nil
 			}), Timeout: time.Millisecond},
 		})
-		_, err = cancelPublisher.waitForWorkflowRun(cancelContext, statusBase, repository, "create-protected-line.yml", "request")
+		_, err = cancelPublisher.waitForWorkflowRun(cancelContext, statusBase, repository, "execute-protected-line-request.yml", "request")
 		assertProblem(t, err, problem.CodeExternalCommandFailed)
 	})
 
@@ -958,7 +958,7 @@ func TestReleaseLifecycleVerificationFailurePropagation(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			switch request.URL.Path {
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/runs":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/runs":
 				_ = json.NewEncoder(writer).Encode(workflowRunsResponse{
 					WorkflowRuns: []workflowRunResponse{{DisplayTitle: "unrelated", Status: "completed", Conclusion: "success"}},
 				})
@@ -976,7 +976,7 @@ func TestReleaseLifecycleVerificationFailurePropagation(t *testing.T) {
 		defer server.Close()
 		base, _ := url.Parse(server.URL)
 		publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
-		if _, err := publisher.waitForWorkflowRun(ctx, base, repositoryRef{host: "github.com", owner: "acme", name: "governance"}, "create-protected-line.yml", "request"); err == nil {
+		if _, err := publisher.waitForWorkflowRun(ctx, base, repositoryRef{host: "github.com", owner: "acme", name: "governance"}, "execute-protected-line-request.yml", "request"); err == nil {
 			t.Fatal("unmatched cancelled workflow was accepted")
 		}
 		if _, err := publisher.tagCommit(context.Background(), base, repositoryRef{host: "github.com", owner: "acme", name: "governance"}, "v2.8.0"); err == nil {

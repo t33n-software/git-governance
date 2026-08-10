@@ -1685,7 +1685,7 @@ func (service *ReleaseService) prepareSharedLine(
 	}
 	result := SharedLineIntentResult{
 		Intent: SharedLineIntent{
-			Workflow: "create-protected-line.yml",
+			Workflow: "execute-protected-line-request.yml",
 			Kind:     lineKind,
 			Branch:   name,
 			Source:   base,

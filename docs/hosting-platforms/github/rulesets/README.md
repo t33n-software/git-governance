@@ -205,13 +205,14 @@ Rulesets protect the release boundary but cannot execute or prove the complete
 release lifecycle. The GitHub lifecycle adapter and Actions workflows must
 provide these separate controls:
 
-1. `workflow release cut --dispatch` dispatches `create-protected-line.yml`
-   through a least-privileged release-automation identity. The CLI waits for
-   the correlated workflow result, fetches, and verifies the resulting
+1. `workflow release cut` emits only a local intent. The protected
+   `release-request` controller binds the ticket, source SHA, and target ref,
+   then dispatches `execute-protected-line-request.yml` with its durable
+   `request_id`. The executor and automatic finalizer prove the resulting
    `origin/release/<semver>` reference. The CLI never pushes a shared line.
 2. The merged `release/<semver> -> main` PR triggers the tag workflow. Because
    a tag pushed with `GITHUB_TOKEN` cannot trigger another `push` workflow,
-   that workflow explicitly dispatches `release.yml` with the immutable tag.
+   that workflow explicitly dispatches `publish-release-artifacts.yml` with the immutable tag.
 3. `workflow release backmerge` verifies the merged promotion, exact tag, and
    published release before comparing `release/<semver>` with `develop`. It
    opens a PR only for an effective delta; `not-required` is the auditable

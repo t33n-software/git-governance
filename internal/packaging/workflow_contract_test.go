@@ -7,21 +7,22 @@ import (
 	"testing"
 )
 
-func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
+func TestTagPromotionExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 	t.Parallel()
 
-	tagWorkflow := readWorkflow(t, "tag-approved-release.yml")
+	tagWorkflow := readWorkflow(t, "tag-promoted-release.yml")
 	for _, expected := range []string{
 		"pull_request:",
 		"branches:",
 		"- main",
 		"types:",
 		"- closed",
+		"name: Tag Promoted Release",
 		"startsWith(github.event.pull_request.head.ref, 'release/')",
 		"environment: release-delivery",
 		`git push origin "refs/tags/${TAG}"`,
 		"actions: write",
-		"actions/workflows/release.yml/dispatches",
+		"actions/workflows/publish-release-artifacts.yml/dispatches",
 		`\"inputs\":{\"tag\":\"${TAG}\"}`,
 	} {
 		if !strings.Contains(tagWorkflow, expected) {
@@ -36,8 +37,9 @@ func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 		}
 	}
 
-	releaseWorkflow := readWorkflow(t, "release.yml")
+	releaseWorkflow := readWorkflow(t, "publish-release-artifacts.yml")
 	for _, expected := range []string{
+		"name: Publish Release Artifacts",
 		"run-name: Release ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}",
 		"push:",
 		"tags:",
@@ -75,7 +77,7 @@ func TestMainHotfixDeliveryWorkflowUsesTrustedHotfixDeliveryBoundary(t *testing.
 		`git tag --annotate "$tag" "$merge_commit"`,
 		`git push origin "refs/tags/$tag"`,
 		"GITHUB_TOKEN: ${{ github.token }}",
-		"actions/workflows/release.yml/dispatches",
+		"actions/workflows/publish-release-artifacts.yml/dispatches",
 		`\"inputs\":{\"tag\":\"${tag}\"}`,
 		`rm -f "$response"`,
 	} {
@@ -147,10 +149,10 @@ func TestHotfixPropagationWorkflowUsesDedicatedPublisherBoundary(t *testing.T) {
 	}
 }
 
-func TestTagApprovalArtifactDispatchUsesJobToken(t *testing.T) {
+func TestTagPromotionArtifactDispatchUsesJobToken(t *testing.T) {
 	t.Parallel()
 
-	workflow := readWorkflow(t, "tag-approved-release.yml")
+	workflow := readWorkflow(t, "tag-promoted-release.yml")
 	dispatchStart := strings.Index(workflow, "- name: Dispatch artifact workflow for immutable tag")
 	if dispatchStart == -1 {
 		t.Fatal("tag workflow does not contain the artifact dispatch step")
@@ -217,9 +219,10 @@ func TestCIWorkflowValidatesMainHotfixRecordInsideRequiredQualityGate(t *testing
 func TestProtectedLineWorkflowKeepsSharedLineMutationInCI(t *testing.T) {
 	t.Parallel()
 
-	workflow := readWorkflow(t, "create-protected-line.yml")
+	workflow := readWorkflow(t, "execute-protected-line-request.yml")
 	for _, expected := range []string{
 		"workflow_dispatch:",
+		"name: Execute Protected-Line Request",
 		"run-name: Execute protected-line request ${{ inputs.request_id }}",
 		"request_id:",
 		"environment: release-execution",
@@ -326,15 +329,40 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 	}
 }
 
+func TestWorkflowFilesUseBoundedLifecycleNames(t *testing.T) {
+	t.Parallel()
+
+	for name, expected := range map[string]string{
+		"execute-protected-line-request.yml": "name: Execute Protected-Line Request",
+		"tag-promoted-release.yml":           "name: Tag Promoted Release",
+		"publish-release-artifacts.yml":      "name: Publish Release Artifacts",
+	} {
+		if !strings.Contains(readWorkflow(t, name), expected) {
+			t.Fatalf("%s does not contain %q", name, expected)
+		}
+	}
+
+	for _, legacyName := range []string{
+		"create-protected-line.yml",
+		"tag-approved-release.yml",
+		"release.yml",
+	} {
+		path := filepath.Join(repositoryRoot(t), ".github", "workflows", legacyName)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("legacy workflow path %s must be absent, err=%v", legacyName, err)
+		}
+	}
+}
+
 func TestFunctionalControlLanesDoNotUseGenericReleaseEnvironment(t *testing.T) {
 	t.Parallel()
 
 	workflows := []string{
 		"release-control.yml",
-		"create-protected-line.yml",
+		"execute-protected-line-request.yml",
 		"recover-protected-line-request.yml",
-		"tag-approved-release.yml",
-		"release.yml",
+		"tag-promoted-release.yml",
+		"publish-release-artifacts.yml",
 		"hotfix-delivery.yml",
 		"hotfix-propagation.yml",
 	}

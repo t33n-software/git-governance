@@ -62,7 +62,7 @@ func TestProtectedLineRequestAuthorization(t *testing.T) {
 				decodeJSON(t, request, &status)
 				statuses = append(statuses, status)
 				writer.WriteHeader(http.StatusCreated)
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 				var body workflowDispatchRequest
 				decodeJSON(t, request, &body)
 				if body.Ref != "main" || body.Inputs["request_id"] != "request-50" || len(body.Inputs) != 1 {
@@ -757,7 +757,7 @@ func TestProtectedLineRequestProviderHTTPFailurePaths(t *testing.T) {
 		}{
 			{name: "deployment", path: "/repos/acme/governance/deployments", code: http.StatusInternalServerError},
 			{name: "request state", path: "/repos/acme/governance/deployments/71/statuses", code: http.StatusInternalServerError},
-			{name: "executor dispatch", path: "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches", code: http.StatusForbidden},
+			{name: "executor dispatch", path: "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches", code: http.StatusForbidden},
 		} {
 			t.Run(failure.name, func(t *testing.T) {
 				server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -779,7 +779,7 @@ func TestProtectedLineRequestProviderHTTPFailurePaths(t *testing.T) {
 						writer.WriteHeader(http.StatusNotFound)
 					case "/repos/acme/governance/actions/runs/123":
 						writeProtectedLineJSON(t, writer, protectedLineWorkflowRun(protectedLineRequestWorkflow, "release-requester"))
-					case "/repos/acme/governance/deployments/71/statuses", "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+					case "/repos/acme/governance/deployments/71/statuses", "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 						if failure.path == request.URL.Path {
 							writer.WriteHeader(failure.code)
 							return
@@ -904,7 +904,7 @@ func TestProtectedLineRequestProviderHTTPFailurePaths(t *testing.T) {
 					return
 				}
 				writer.WriteHeader(http.StatusCreated)
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 				writer.WriteHeader(http.StatusNoContent)
 			default:
 				t.Fatalf("unexpected path %s", request.URL.Path)
@@ -1037,7 +1037,7 @@ func TestProtectedLineRequestLowLevelProviderBoundaries(t *testing.T) {
 	t.Run("rejects executor dispatch and audit writes outside their exact success response", func(t *testing.T) {
 		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			switch request.URL.Path {
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 				writer.WriteHeader(http.StatusForbidden)
 			case "/repos/acme/governance/deployments/71/statuses":
 				writer.WriteHeader(http.StatusForbidden)
@@ -1180,7 +1180,7 @@ func TestProtectedLineRequestInternalFailureSeams(t *testing.T) {
 				writeProtectedLineJSON(t, writer, protectedLineWorkflowRun(protectedLineRequestWorkflow, "release-requester"))
 			case "/repos/acme/governance/deployments/71/statuses":
 				writer.WriteHeader(http.StatusCreated)
-			case "/repos/acme/governance/actions/workflows/create-protected-line.yml/dispatches":
+			case "/repos/acme/governance/actions/workflows/execute-protected-line-request.yml/dispatches":
 				writer.WriteHeader(dispatchStatus)
 			default:
 				t.Fatalf("unexpected request %s", request.URL.Path)
@@ -1410,10 +1410,10 @@ func TestProtectedLineWorkflowRunProvenanceValidation(t *testing.T) {
 		{name: "status", status: http.StatusForbidden},
 		{name: "json", status: http.StatusOK, body: "{"},
 		{name: "path", status: http.StatusOK, body: string(mustProtectedLineJSON(t, protectedLineWorkflowRun("other.yml", "requester")))},
-		{name: "event", status: http.StatusOK, body: `{"path":".github/workflows/create-protected-line.yml","event":"push","head_branch":"main","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`},
-		{name: "branch", status: http.StatusOK, body: `{"path":".github/workflows/create-protected-line.yml","event":"workflow_dispatch","head_branch":"develop","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`},
-		{name: "sha", status: http.StatusOK, body: `{"path":".github/workflows/create-protected-line.yml","event":"workflow_dispatch","head_branch":"main","head_sha":"bad"}`},
-		{name: "actor", status: http.StatusOK, body: `{"path":".github/workflows/create-protected-line.yml","event":"workflow_dispatch","head_branch":"main","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","actor":{"login":"other"}}`, requester: "requester"},
+		{name: "event", status: http.StatusOK, body: `{"path":".github/workflows/execute-protected-line-request.yml","event":"push","head_branch":"main","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`},
+		{name: "branch", status: http.StatusOK, body: `{"path":".github/workflows/execute-protected-line-request.yml","event":"workflow_dispatch","head_branch":"develop","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`},
+		{name: "sha", status: http.StatusOK, body: `{"path":".github/workflows/execute-protected-line-request.yml","event":"workflow_dispatch","head_branch":"main","head_sha":"bad"}`},
+		{name: "actor", status: http.StatusOK, body: `{"path":".github/workflows/execute-protected-line-request.yml","event":"workflow_dispatch","head_branch":"main","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","actor":{"login":"other"}}`, requester: "requester"},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {

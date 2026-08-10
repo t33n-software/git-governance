@@ -8,7 +8,7 @@
 ## Context
 
 The prior protected-line workflow correlated a caller with
-`create-protected-line.yml`, then waited for the child workflow to finish.
+`execute-protected-line-request.yml`, then waited for the child workflow to finish.
 That design fails when the child waits for an environment approval longer than
 the caller's bounded provider wait: the parent can report failure while the
 child later creates the protected line successfully.

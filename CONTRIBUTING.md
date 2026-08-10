@@ -201,7 +201,7 @@ rule files or unpublished documentation.
 ## Release handoff
 
 The local CLI prepares release promotion only. After a protected
-`release/<semver> -> main` merge, the `Tag Approved Release` workflow creates
+`release/<semver> -> main` merge, the `Tag Promoted Release` workflow creates
 the annotated immutable `v<semver>` tag at the merge commit and dispatches the
 artifact workflow. Do not create release tags from a developer workstation.
 

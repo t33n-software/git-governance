@@ -25,7 +25,7 @@ const (
 	protectedLineRequestTask        = "git-governance-protected-line-request"
 	protectedLineRequestEnvironment = "release-request"
 	protectedLineRequestWorkflow    = "release-control.yml"
-	protectedLineExecutorWorkflow   = "create-protected-line.yml"
+	protectedLineExecutorWorkflow   = "execute-protected-line-request.yml"
 	protectedLineRequestTTL         = 4 * time.Hour
 	protectedLineDeploymentPageSize = 100
 	protectedLineDeploymentMaxPages = 10

@@ -51,7 +51,7 @@ The normal server-side path is:
 release-control.yml / release-request
 → release-request environment approval
 → immutable GitHub Deployment request record
-→ request_id dispatch to create-protected-line.yml
+→ request_id dispatch to execute-protected-line-request.yml
 → release-execution environment approval
 → exactly one bound ref mutation
 → automatic read-only finalizer
@@ -90,7 +90,8 @@ identity; it never starts a browser login. See
 `hotfix-delivery.yml` is a separate main-bound controller for a merged
 same-repository `hotfix/* -> main` pull request. It validates the reviewed
 ticket record and ordered manifest through the `hotfix-delivery` lane before
-creating an immutable patch tag. It then dispatches `release.yml` for that tag
+creating an immutable patch tag. It then dispatches
+`publish-release-artifacts.yml` for that tag
 and waits for the artifact workflow and published evidence.
 
 The lane consumes only its own OIDC/WIF invocation variables. It does not

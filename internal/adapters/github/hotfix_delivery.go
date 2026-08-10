@@ -480,7 +480,7 @@ func (publisher *Publisher) waitForHotfixArtifactWorkflow(
 	defer cancel()
 
 	for {
-		endpoint := workflowEndpoint(apiBase, repository, "release.yml", "/runs", url.Values{
+		endpoint := workflowEndpoint(apiBase, repository, "publish-release-artifacts.yml", "/runs", url.Values{
 			"event":    {"workflow_dispatch"},
 			"per_page": {"100"},
 		})
