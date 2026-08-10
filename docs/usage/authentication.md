@@ -283,6 +283,38 @@ The request and executor jobs use separate protected environments
 ephemeral controller credentials, not static repository secrets, and must
 never be logged or copied to Git transport configuration.
 
+### Functional release and hotfix lanes
+
+No generic `release` environment is an authorization or credential container.
+Each controller is bound to exactly one functional lane:
+
+```text
+release-request
+→ request scope approval
+→ no external credential issuer
+
+release-execution
+→ one request-bound protected ref mutation
+→ no external credential issuer
+
+release-credential-verification
+→ read-only OIDC/WIF invocation of the release credential issuer
+
+release-delivery
+→ immutable regular-release tag and artifact publication
+
+hotfix-delivery
+→ immutable main or support patch tag and delivery verification
+
+hotfix-propagation
+→ provenance-validated fix/* candidate publication
+```
+
+`release-credential-verification` and `hotfix-delivery` each use only their
+own lane-scoped broker URL, WIF provider, and invoker service-account
+variables. A lane must not receive another lane's broker variables, private
+key, installation token, or transport header.
+
 Reconciliation candidate publication is a further, separate privilege boundary.
 The protected `release-reconciliation` environment uses a dedicated publisher
 App and broker. That App receives only the repository contents and pull request

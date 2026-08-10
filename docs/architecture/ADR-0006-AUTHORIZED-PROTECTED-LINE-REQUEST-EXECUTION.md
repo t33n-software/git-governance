@@ -78,6 +78,9 @@ or modifies a branch.
 - GitHub must provision separate `release-request` and `release-execution`
   environments with the intended authorities before the new controller can be
   used in production.
-- The current broker remains a separate credential boundary for broker smoke,
-  release delivery, reconciliation, and other already-defined identities; the
-  request, executor, and finalizer job tokens are scoped to their own jobs.
+- Request, execution, credential verification, regular delivery,
+  reconciliation, hotfix delivery, and hotfix propagation are separate
+  functional lanes. The request and executor job tokens remain scoped to their
+  own jobs and do not receive external credential-issuer variables.
+- ADR-0007 defines the lane-specific environment, credential, and
+  decommissioning boundary for all active release and hotfix controllers.

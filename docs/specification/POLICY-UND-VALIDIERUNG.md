@@ -273,6 +273,28 @@ Quell-SHA. Nur `verified` ist ein vollständiger Cut-Nachweis. Ein
 `verification_pending`-Recovery prüft read-only denselben Request und darf
 keinen neuen Executor dispatchen.
 
+### 6.0.1 Funktionale Release- und Hotfix-Control-Lanes
+
+Ein aktiver Controller gehört genau einer funktionalen Lane an. Das generische
+Environment `release` darf weder Request, Execution, Credential-Verifikation,
+reguläre Delivery noch Hotfix-Delivery oder -Propagation gemeinsam
+autorisieren oder credentialisieren.
+
+| Lane | Zulässige Aufgabe | Unzulässig |
+| --- | --- | --- |
+| `release-request` | Scope-, Version-, SHA- und Zielref-Autorisierung | Ref-Mutation oder externe Broker-Credentials |
+| `release-execution` | Genau eine gebundene Protected-Line-Mutation | Promotion, Tag, Delivery oder Reconciliation |
+| `release-credential-verification` | Read-only-Prüfung des privaten Release-Credential-Issuers | Ref-, Tag-, Release- oder Kandidatenmutation |
+| `release-delivery` | Reguläre immutable Tag- und Artefakt-Delivery | Request-, Execution- oder Kandidatenpublikation |
+| `release-reconciliation` | Provenance-validierte `chore/*`-Kandidatenpublikation | Direkte Shared-Line-Mutation |
+| `hotfix-delivery` | Main- oder Support-Patch-Tag und Delivery-Verifikation | Kandidatenpublikation |
+| `hotfix-propagation` | Provenance-validierte `fix/*`-Kandidatenpublikation | Tag-, Delivery- oder Shared-Line-Mutation |
+
+Eine Lane mit Credential-Issuer-Bedarf erhält nur ihre eigene OIDC/WIF-,
+Invocation-, Runtime- und Secret-Grenze. Request und Execution erhalten keine
+externe Credential-Issuer-Berechtigung, wenn ihre job-scoped
+Plattformidentitäten die Aufgabe mit Minimalrechten ausführen können.
+
 ### 6.1 Release-Stabilisierung
 
 Nach einem Release-Cut sind nur drei stabilisierende Branch-Kategorien

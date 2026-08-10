@@ -18,6 +18,7 @@ func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 		"types:",
 		"- closed",
 		"startsWith(github.event.pull_request.head.ref, 'release/')",
+		"environment: release-delivery",
 		`git push origin "refs/tags/${TAG}"`,
 		"actions: write",
 		"actions/workflows/release.yml/dispatches",
@@ -43,6 +44,7 @@ func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 		`- "v*"`,
 		"workflow_dispatch:",
 		`ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}`,
+		"environment: release-delivery",
 	} {
 		if !strings.Contains(releaseWorkflow, expected) {
 			t.Fatalf("release workflow does not contain %q", expected)
@@ -50,7 +52,7 @@ func TestTagApprovalExplicitlyDispatchesReleaseArtifacts(t *testing.T) {
 	}
 }
 
-func TestMainHotfixDeliveryWorkflowUsesTrustedReleaseBoundary(t *testing.T) {
+func TestMainHotfixDeliveryWorkflowUsesTrustedHotfixDeliveryBoundary(t *testing.T) {
 	t.Parallel()
 
 	workflow := readWorkflow(t, "hotfix-delivery.yml")
@@ -60,9 +62,12 @@ func TestMainHotfixDeliveryWorkflowUsesTrustedReleaseBoundary(t *testing.T) {
 		"- closed",
 		"workflow_dispatch:",
 		"startsWith(github.event.pull_request.head.ref, 'hotfix/')",
-		"environment: release",
+		"environment: hotfix-delivery",
 		"id-token: write",
 		"google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
+		"GCP_HOTFIX_DELIVERY_BROKER_URL",
+		"GCP_HOTFIX_DELIVERY_WIF_PROVIDER",
+		"GCP_HOTFIX_DELIVERY_INVOKER_SERVICE_ACCOUNT",
 		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
 		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
 		"workflow hotfix verify-merge",
@@ -83,6 +88,9 @@ func TestMainHotfixDeliveryWorkflowUsesTrustedReleaseBoundary(t *testing.T) {
 		"git cherry-pick",
 		"--no-verify",
 		"GIT_GOVERNANCE_GITHUB_TOKEN",
+		"GCP_BROKER_URL",
+		"GCP_BROKER_WIF_PROVIDER",
+		"GCP_BROKER_INVOKER_SERVICE_ACCOUNT",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("main hotfix delivery workflow must not contain %q", forbidden)
@@ -96,14 +104,14 @@ func TestHotfixPropagationWorkflowUsesDedicatedPublisherBoundary(t *testing.T) {
 	workflow := readWorkflow(t, "hotfix-propagation.yml")
 	for _, expected := range []string{
 		"workflow_dispatch:",
-		"environment: release",
+		"environment: hotfix-delivery",
 		"environment: hotfix-propagation",
 		"needs: verify-delivery",
 		"id-token: write",
 		"test \"$GITHUB_REF\" = \"refs/heads/main\"",
-		"GCP_BROKER_URL",
-		"GCP_BROKER_WIF_PROVIDER",
-		"GCP_BROKER_INVOKER_SERVICE_ACCOUNT",
+		"GCP_HOTFIX_DELIVERY_BROKER_URL",
+		"GCP_HOTFIX_DELIVERY_WIF_PROVIDER",
+		"GCP_HOTFIX_DELIVERY_INVOKER_SERVICE_ACCOUNT",
 		"GCP_HOTFIX_PROPAGATION_PUBLISHER_BROKER_URL",
 		"GCP_HOTFIX_PROPAGATION_PUBLISHER_WIF_PROVIDER",
 		"GCP_HOTFIX_PROPAGATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT",
@@ -129,6 +137,9 @@ func TestHotfixPropagationWorkflowUsesDedicatedPublisherBoundary(t *testing.T) {
 		"git cherry-pick",
 		"git push",
 		"--no-verify",
+		"GCP_BROKER_URL",
+		"GCP_BROKER_WIF_PROVIDER",
+		"GCP_BROKER_INVOKER_SERVICE_ACCOUNT",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("hotfix propagation workflow must not contain %q", forbidden)
@@ -256,14 +267,17 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"ticket:",
 		"slug:",
 		"resolution_branch:",
-		"environment: release",
+		"environment: release-credential-verification",
 		"environment: release-request",
 		"actions: write",
 		"deployments: write",
 		"id-token: write",
 		"google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093",
 		"token_format: id_token",
-		"id_token_audience: ${{ vars.GCP_BROKER_URL }}",
+		"GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL",
+		"GCP_RELEASE_CREDENTIAL_VERIFICATION_WIF_PROVIDER",
+		"GCP_RELEASE_CREDENTIAL_VERIFICATION_INVOKER_SERVICE_ACCOUNT",
+		"id_token_audience: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL }}",
 		"GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL",
 		"GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN",
 		`"repository":"git-governance"`,
@@ -301,9 +315,33 @@ func TestReleaseControlWorkflowUsesEphemeralBrokerIdentity(t *testing.T) {
 		"echo \"$transport_header\"",
 		"cat \"$response\"",
 		"workflow release cut \\\n            --version \"$VERSION\" \\\n            --dispatch",
+		"environment: release\n",
+		"GCP_BROKER_URL",
+		"GCP_BROKER_WIF_PROVIDER",
+		"GCP_BROKER_INVOKER_SERVICE_ACCOUNT",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Fatalf("release-control workflow must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestFunctionalControlLanesDoNotUseGenericReleaseEnvironment(t *testing.T) {
+	t.Parallel()
+
+	workflows := []string{
+		"release-control.yml",
+		"create-protected-line.yml",
+		"recover-protected-line-request.yml",
+		"tag-approved-release.yml",
+		"release.yml",
+		"hotfix-delivery.yml",
+		"hotfix-propagation.yml",
+	}
+	for _, name := range workflows {
+		workflow := readWorkflow(t, name)
+		if strings.Contains(workflow, "environment: release\n") {
+			t.Fatalf("%s must not use the generic release environment", name)
 		}
 	}
 }
