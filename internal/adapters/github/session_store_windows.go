@@ -44,7 +44,7 @@ var (
 
 type sessionDocument struct {
 	SchemaVersion int                `json:"schemaVersion"`
-	ActiveByHost  map[string]string  `json:"activeByHost"`
+	ActiveByScope map[string]string  `json:"activeByScope,omitempty"`
 	Sessions      map[string]Session `json:"sessions"`
 }
 
@@ -64,7 +64,7 @@ func newDPAPISessionStore(path string) *dpapiSessionStore {
 	}
 }
 
-func (store *dpapiSessionStore) LoadActive(ctx context.Context, host string) (Session, error) {
+func (store *dpapiSessionStore) LoadActive(ctx context.Context, host, clientID string) (Session, error) {
 	if err := contextFailure(ctx); err != nil {
 		return Session{}, err
 	}
@@ -72,13 +72,21 @@ func (store *dpapiSessionStore) LoadActive(ctx context.Context, host string) (Se
 	if err != nil {
 		return Session{}, err
 	}
-	account, found := document.ActiveByHost[normalizeHost(host)]
+	scope := sessionScopeKey(host, clientID)
+	account, found := document.ActiveByScope[scope]
 	if !found || strings.TrimSpace(account) == "" {
 		return Session{}, errSessionNotFound
 	}
-	session, found := document.Sessions[sessionKey(host, account)]
+	session, found := document.Sessions[sessionKey(host, account, clientID)]
 	if !found {
 		return Session{}, errors.New("protected GitHub App session index is inconsistent")
+	}
+	if err := validateStoredSession(session); err != nil {
+		return Session{}, err
+	}
+	if !strings.EqualFold(strings.TrimSpace(session.Host), strings.TrimSpace(host)) ||
+		strings.TrimSpace(session.ClientID) != strings.TrimSpace(clientID) {
+		return Session{}, errors.New("protected GitHub App session scope is inconsistent")
 	}
 	return session, nil
 }
@@ -94,12 +102,17 @@ func (store *dpapiSessionStore) SaveActive(ctx context.Context, session Session)
 	if err != nil {
 		return err
 	}
-	document.Sessions[sessionKey(session.Host, session.Account)] = session
-	document.ActiveByHost[normalizeHost(session.Host)] = session.Account
+	scope := sessionScopeKey(session.Host, session.ClientID)
+	if previousAccount, found := document.ActiveByScope[scope]; found &&
+		!strings.EqualFold(strings.TrimSpace(previousAccount), strings.TrimSpace(session.Account)) {
+		delete(document.Sessions, sessionKey(session.Host, previousAccount, session.ClientID))
+	}
+	document.Sessions[sessionKey(session.Host, session.Account, session.ClientID)] = session
+	document.ActiveByScope[scope] = session.Account
 	return store.save(document)
 }
 
-func (store *dpapiSessionStore) DeleteActive(ctx context.Context, host string) error {
+func (store *dpapiSessionStore) DeleteActive(ctx context.Context, host, clientID string) error {
 	if err := contextFailure(ctx); err != nil {
 		return err
 	}
@@ -107,13 +120,13 @@ func (store *dpapiSessionStore) DeleteActive(ctx context.Context, host string) e
 	if err != nil {
 		return err
 	}
-	normalizedHost := normalizeHost(host)
-	account, found := document.ActiveByHost[normalizedHost]
+	scope := sessionScopeKey(host, clientID)
+	account, found := document.ActiveByScope[scope]
 	if !found || strings.TrimSpace(account) == "" {
 		return errSessionNotFound
 	}
-	delete(document.ActiveByHost, normalizedHost)
-	delete(document.Sessions, sessionKey(host, account))
+	delete(document.ActiveByScope, scope)
+	delete(document.Sessions, sessionKey(host, account, clientID))
 	return store.save(document)
 }
 
@@ -140,8 +153,11 @@ func (store *dpapiSessionStore) load() (sessionDocument, error) {
 	if document.SchemaVersion != sessionStoreSchemaVersion {
 		return sessionDocument{}, errors.New("protected GitHub App session has an unsupported schema version")
 	}
-	if document.ActiveByHost == nil {
-		document.ActiveByHost = make(map[string]string)
+	if document.ActiveByScope == nil {
+		if len(document.Sessions) != 0 {
+			return sessionDocument{}, errors.New("protected GitHub App session does not use the client-ID-scoped layout")
+		}
+		document.ActiveByScope = make(map[string]string)
 	}
 	if document.Sessions == nil {
 		document.Sessions = make(map[string]Session)
@@ -205,13 +221,9 @@ func defaultDPAPISessionStorePath() (string, error) {
 func emptySessionDocument() sessionDocument {
 	return sessionDocument{
 		SchemaVersion: sessionStoreSchemaVersion,
-		ActiveByHost:  make(map[string]string),
+		ActiveByScope: make(map[string]string),
 		Sessions:      make(map[string]Session),
 	}
-}
-
-func normalizeHost(host string) string {
-	return strings.ToLower(strings.TrimSpace(host))
 }
 
 func contextFailure(ctx context.Context) error {

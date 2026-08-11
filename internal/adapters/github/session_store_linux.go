@@ -35,15 +35,57 @@ func newPlatformSessionStore() SessionStore {
 	return &linuxSecretServiceStore{runner: linuxSecretTool{}}
 }
 
-func (store *linuxSecretServiceStore) LoadActive(ctx context.Context, host string) (Session, error) {
+func (store *linuxSecretServiceStore) LoadActive(ctx context.Context, host, clientID string) (Session, error) {
 	if err := sessionStoreContextError(ctx); err != nil {
 		return Session{}, err
 	}
-	account, err := store.lookup(ctx, host, linuxSecretActiveAccount)
+	return store.loadScoped(ctx, nativeSessionScope(host, clientID), host, clientID)
+}
+
+func (store *linuxSecretServiceStore) SaveActive(ctx context.Context, session Session) error {
+	if err := sessionStoreContextError(ctx); err != nil {
+		return err
+	}
+	if err := validateStoredSession(session); err != nil {
+		return err
+	}
+	scope := nativeSessionScope(session.Host, session.ClientID)
+	if previousAccount, err := store.lookup(ctx, scope, linuxSecretActiveAccount); err == nil &&
+		!strings.EqualFold(strings.TrimSpace(string(previousAccount)), strings.TrimSpace(session.Account)) {
+		if err := store.clear(ctx, scope, strings.TrimSpace(string(previousAccount))); err != nil {
+			return err
+		}
+	} else if err != nil && !errors.Is(err, errSessionNotFound) {
+		return err
+	}
+	encoded, _ := json.Marshal(session)
+	if err := store.store(ctx, scope, session.Account, encoded); err != nil {
+		return err
+	}
+	return store.store(ctx, scope, linuxSecretActiveAccount, []byte(session.Account))
+}
+
+func (store *linuxSecretServiceStore) DeleteActive(ctx context.Context, host, clientID string) error {
+	if err := sessionStoreContextError(ctx); err != nil {
+		return err
+	}
+	scope := nativeSessionScope(host, clientID)
+	account, err := store.lookup(ctx, scope, linuxSecretActiveAccount)
+	if err != nil {
+		return err
+	}
+	if err := store.clear(ctx, scope, strings.TrimSpace(string(account))); err != nil {
+		return err
+	}
+	return store.clear(ctx, scope, linuxSecretActiveAccount)
+}
+
+func (store *linuxSecretServiceStore) loadScoped(ctx context.Context, scope, host, clientID string) (Session, error) {
+	account, err := store.lookup(ctx, scope, linuxSecretActiveAccount)
 	if err != nil {
 		return Session{}, err
 	}
-	encoded, err := store.lookup(ctx, host, strings.TrimSpace(string(account)))
+	encoded, err := store.lookup(ctx, scope, strings.TrimSpace(string(account)))
 	if err != nil {
 		return Session{}, err
 	}
@@ -54,35 +96,11 @@ func (store *linuxSecretServiceStore) LoadActive(ctx context.Context, host strin
 	if err := validateStoredSession(session); err != nil {
 		return Session{}, err
 	}
+	if !strings.EqualFold(strings.TrimSpace(session.Host), strings.TrimSpace(host)) ||
+		strings.TrimSpace(session.ClientID) != strings.TrimSpace(clientID) {
+		return Session{}, errors.New("secret service GitHub App session scope is inconsistent")
+	}
 	return session, nil
-}
-
-func (store *linuxSecretServiceStore) SaveActive(ctx context.Context, session Session) error {
-	if err := sessionStoreContextError(ctx); err != nil {
-		return err
-	}
-	if err := validateStoredSession(session); err != nil {
-		return err
-	}
-	encoded, _ := json.Marshal(session)
-	if err := store.store(ctx, session.Host, session.Account, encoded); err != nil {
-		return err
-	}
-	return store.store(ctx, session.Host, linuxSecretActiveAccount, []byte(session.Account))
-}
-
-func (store *linuxSecretServiceStore) DeleteActive(ctx context.Context, host string) error {
-	if err := sessionStoreContextError(ctx); err != nil {
-		return err
-	}
-	account, err := store.lookup(ctx, host, linuxSecretActiveAccount)
-	if err != nil {
-		return err
-	}
-	if err := store.clear(ctx, host, strings.TrimSpace(string(account))); err != nil {
-		return err
-	}
-	return store.clear(ctx, host, linuxSecretActiveAccount)
 }
 
 func (store *linuxSecretServiceStore) lookup(ctx context.Context, host, account string) ([]byte, error) {

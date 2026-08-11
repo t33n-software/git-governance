@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -45,9 +47,9 @@ type CredentialResolver interface {
 // SessionStore persists only refresh credentials and non-sensitive profile
 // metadata in a native operating-system secret store.
 type SessionStore interface {
-	LoadActive(context.Context, string) (Session, error)
+	LoadActive(context.Context, string, string) (Session, error)
 	SaveActive(context.Context, Session) error
-	DeleteActive(context.Context, string) error
+	DeleteActive(context.Context, string, string) error
 }
 
 // Session is the persistent, protected portion of a GitHub App login. It
@@ -102,6 +104,7 @@ type AuthProvider interface {
 // store; tests provide fake stores, clocks, and HTTP clients.
 type AuthOptions struct {
 	Store        SessionStore
+	ClientID     string
 	Host         string
 	OAuthBaseURL string
 	APIBaseURL   string
@@ -114,6 +117,7 @@ type AuthOptions struct {
 // repository authorization checks, and just-in-time credential resolution.
 type AuthService struct {
 	store        SessionStore
+	clientID     string
 	host         string
 	oauthBaseURL string
 	apiBaseURL   string
@@ -210,6 +214,7 @@ func NewAuthService(options AuthOptions) *AuthService {
 	}
 	return &AuthService{
 		store:        store,
+		clientID:     strings.TrimSpace(options.ClientID),
 		host:         host,
 		oauthBaseURL: oauthBaseURL,
 		apiBaseURL:   apiBaseURL,
@@ -228,9 +233,23 @@ func (service *AuthService) Login(ctx context.Context, request LoginRequest) (Se
 	if err := service.contextError(ctx, "GitHub App login"); err != nil {
 		return SessionStatus{}, err
 	}
-	clientID, err := validateClientID(request.ClientID)
+	clientID, err := service.configuredClientID()
 	if err != nil {
 		return SessionStatus{}, err
+	}
+	requestClientID, err := validateClientID(request.ClientID)
+	if err != nil {
+		return SessionStatus{}, err
+	}
+	if requestClientID != clientID {
+		return SessionStatus{}, problem.New(problem.Details{
+			Code:        problem.CodeConfigurationInvalid,
+			Category:    problem.CategoryConfig,
+			Field:       "GitHub App client ID",
+			Expected:    "the configured GitHub App client ID",
+			Rule:        "GitHub App sessions are isolated by host, account, and configured client ID",
+			Remediation: "use the configured GitHub App client ID and retry auth login github",
+		})
 	}
 	device, deviceCode, err := service.requestDeviceAuthorization(ctx, clientID)
 	if err != nil {
@@ -269,11 +288,8 @@ func (service *AuthService) Status(ctx context.Context) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App status"); err != nil {
 		return SessionStatus{}, err
 	}
-	session, err := service.store.LoadActive(ctx, service.host)
+	session, err := service.loadConfiguredSession(ctx)
 	if err != nil {
-		return SessionStatus{}, sessionStoreProblem("load", err)
-	}
-	if err := validateSession(session, service.host); err != nil {
 		return SessionStatus{}, err
 	}
 	return sessionStatus(session, service.now()), nil
@@ -283,15 +299,22 @@ func (service *AuthService) Status(ctx context.Context) (SessionStatus, error) {
 // tokens cannot be revoked by this client without a GitHub App client secret,
 // which is intentionally never present on developer machines.
 func (service *AuthService) Logout(ctx context.Context) (SessionStatus, error) {
-	status, err := service.Status(ctx)
+	if err := service.contextError(ctx, "GitHub App logout"); err != nil {
+		return SessionStatus{}, err
+	}
+	clientID, err := service.configuredClientID()
 	if err != nil {
 		return SessionStatus{}, err
 	}
-	if err := service.store.DeleteActive(ctx, service.host); err != nil {
+	session, err := service.loadSession(ctx, clientID)
+	if err != nil {
+		return SessionStatus{}, err
+	}
+	if err := service.store.DeleteActive(ctx, service.host, clientID); err != nil {
 		return SessionStatus{}, sessionStoreProblem("delete", err)
 	}
-	service.forgetSession(Session{Host: status.Host, Account: status.Account})
-	return status, nil
+	service.forgetSession(session)
+	return sessionStatus(session, service.now()), nil
 }
 
 // Resolve returns a valid process-memory access token for exactly one
@@ -305,11 +328,12 @@ func (service *AuthService) Resolve(ctx context.Context, target CredentialTarget
 	if err != nil {
 		return "", err
 	}
-	session, err := service.store.LoadActive(ctx, target.Host)
+	clientID, err := service.configuredClientID()
 	if err != nil {
-		return "", sessionStoreProblem("load", err)
+		return "", err
 	}
-	if err := validateSession(session, target.Host); err != nil {
+	session, err := service.loadSession(ctx, clientID)
+	if err != nil {
 		return "", err
 	}
 	token, err := service.accessToken(ctx, session)
@@ -397,7 +421,7 @@ func (service *AuthService) pollForTokens(
 }
 
 func (service *AuthService) accessToken(ctx context.Context, session Session) (cachedToken, error) {
-	key := sessionKey(session.Host, session.Account)
+	key := sessionKey(session.Host, session.Account, session.ClientID)
 	now := service.now()
 	service.mutex.Lock()
 	if cached, found := service.cached[key]; found && tokenUsable(cached, now) {
@@ -474,7 +498,7 @@ func (service *AuthService) ensureRepositoryAuthorization(
 	token cachedToken,
 	target CredentialTarget,
 ) error {
-	authorizationKey := sessionKey(session.Host, session.Account) + "\x00" + target.Owner + "\x00" + target.Repository
+	authorizationKey := sessionKey(session.Host, session.Account, session.ClientID) + "\x00" + target.Owner + "\x00" + target.Repository
 	service.mutex.Lock()
 	expiresAt, authorized := service.authorized[authorizationKey]
 	service.mutex.Unlock()
@@ -664,7 +688,7 @@ func (service *AuthService) contextError(ctx context.Context, operation string) 
 }
 
 func (service *AuthService) forgetSession(session Session) {
-	key := sessionKey(session.Host, session.Account)
+	key := sessionKey(session.Host, session.Account, session.ClientID)
 	service.mutex.Lock()
 	delete(service.cached, key)
 	service.dropAuthorizationsForSession(key)
@@ -694,18 +718,41 @@ func validateClientID(value string) (string, error) {
 	return value, nil
 }
 
-func validateSession(session Session, expectedHost string) error {
+func (service *AuthService) configuredClientID() (string, error) {
+	return validateClientID(service.clientID)
+}
+
+func (service *AuthService) loadConfiguredSession(ctx context.Context) (Session, error) {
+	clientID, err := service.configuredClientID()
+	if err != nil {
+		return Session{}, err
+	}
+	return service.loadSession(ctx, clientID)
+}
+
+func (service *AuthService) loadSession(ctx context.Context, clientID string) (Session, error) {
+	session, err := service.store.LoadActive(ctx, service.host, clientID)
+	if err != nil {
+		return Session{}, sessionStoreProblem("load", err)
+	}
+	if err := validateSession(session, service.host, clientID); err != nil {
+		return Session{}, err
+	}
+	return session, nil
+}
+
+func validateSession(session Session, expectedHost, expectedClientID string) error {
 	if !strings.EqualFold(strings.TrimSpace(session.Host), expectedHost) ||
 		strings.TrimSpace(session.Account) == "" ||
-		strings.TrimSpace(session.ClientID) == "" ||
+		strings.TrimSpace(session.ClientID) != expectedClientID ||
 		strings.TrimSpace(session.RefreshToken) == "" ||
 		session.RefreshTokenExpiresAt.IsZero() {
 		return problem.New(problem.Details{
 			Code:        problem.CodeConfigurationInvalid,
 			Category:    problem.CategoryConfig,
 			Field:       "GitHub App session",
-			Expected:    "a complete protected refresh session for " + expectedHost,
-			Rule:        "GitHub App sessions must be host-bound, complete, and stored securely",
+			Expected:    "a complete protected refresh session for the configured GitHub App",
+			Rule:        "GitHub App sessions must be isolated by host, account, and configured client ID",
 			Remediation: "run auth logout github, then run auth login github again",
 		})
 	}
@@ -748,8 +795,21 @@ func sessionStatus(session Session, now time.Time) SessionStatus {
 	}
 }
 
-func sessionKey(host, account string) string {
-	return strings.ToLower(strings.TrimSpace(host)) + "\x00" + strings.ToLower(strings.TrimSpace(account))
+func sessionKey(host, account, clientID string) string {
+	return normalizeHost(host) + "\x00" + strings.ToLower(strings.TrimSpace(account)) + "\x00" + strings.TrimSpace(clientID)
+}
+
+func sessionScopeKey(host, clientID string) string {
+	return normalizeHost(host) + "\x00" + strings.TrimSpace(clientID)
+}
+
+func nativeSessionScope(host, clientID string) string {
+	digest := sha256.Sum256([]byte(strings.TrimSpace(clientID)))
+	return normalizeHost(host) + "." + hex.EncodeToString(digest[:])
+}
+
+func normalizeHost(host string) string {
+	return strings.ToLower(strings.TrimSpace(host))
 }
 
 func waitForContext(ctx context.Context, duration time.Duration) error {

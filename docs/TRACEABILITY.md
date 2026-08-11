@@ -70,7 +70,7 @@ does not rely on any external governance repository or unpublished rule set.
 | manifest hotfix candidate publication | IMPLEMENTED / PROVISIONING REQUIRED | protected `hotfix-propagation.yml` controller, controller-only `--publish`, masked ephemeral transport, and dedicated `hotfix-propagation` broker contract exist; App, Secret, Cloud Run, OIDC/WIF, IAM, Environment, and Artifact Registry resources remain external prerequisites |
 | `workflow release cut`, `request`, `execute-request`, `finalize-request`, `stabilize`, `align-promotion-base`, `align-reconciliation-base`, `promote`, `backmerge`, `support`, `cleanup` | IMPLEMENTED / PROVISIONING REQUIRED | local cut/support commands remain intent-only; the protected request controller persists a ticket-, SHA-, target-, expiry- and idempotency-bound record, the execution workflow receives only `request_id`, and an automatic read-only finalizer writes the authoritative completion state. The functional `release-request`, `release-execution`, and `release-credential-verification` lane configuration remains external. |
 | GitHub App pull-request adapter | IMPLEMENTED | just-in-time App credential resolution, host/repository isolation, bounded REST responses, and idempotent existing-PR lookup |
-| `auth login/status/logout github` | IMPLEMENTED | explicit Device Flow, redacted status, native secret-store session lifecycle, and CLI contract tests |
+| `auth login/status/logout github` | IMPLEMENTED | explicit Device Flow, redacted status, canonical native secret-store lifecycle scoped by host, account, and configured GitHub App client ID, legacy-storage rejection, and CLI contract tests |
 | `validate pre-push` | IMPLEMENTED | parses every Git stdin ref update, validates the actual remote target, and reuses final local quality evidence only when it exactly matches the outgoing candidate |
 | `config key` | IMPLEMENTED | OS configuration directory, atomic JSON storage |
 | `policy describe`, `completion`, `version` | IMPLEMENTED | policy and environment inspection are read-only |
@@ -168,6 +168,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Direct scratch selection | require/select an official ticket-branch base before creation | IMPLEMENTED |
 | Application-level scratch base guard | reject remote-tracking scratch bases even for programmatic callers | IMPLEMENTED |
 | Regular ticket exclusivity | reject a second official regular branch for one ticket after fetch | IMPLEMENTED |
+| GitHub App session isolation | scope native refresh sessions, in-memory refresh state, authorization state, status, logout, and credential resolution by host, account, and configured client ID; reject legacy storage without selecting or migrating it | IMPLEMENTED |
 | Project-agnostic quality gates | explicit repository-local command-array configuration; absent config reports `unconfigured` instead of pass | IMPLEMENTED |
 | Final local publish quality | full suite runs after final synchronization; short-lived local Git metadata is reused only for an exact fresh candidate and otherwise falls back | IMPLEMENTED |
 

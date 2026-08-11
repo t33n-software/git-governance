@@ -150,7 +150,7 @@ func TestAuthServiceLoginHandlesDevicePollingAndFailures(t *testing.T) {
 			waits = append(waits, duration)
 			return nil
 		}
-		if _, err := service.Login(context.Background(), LoginRequest{ClientID: "client"}); err != nil {
+		if _, err := service.Login(context.Background(), LoginRequest{ClientID: "public-client-id"}); err != nil {
 			t.Fatalf("Login() error = %v", err)
 		}
 		if tokenCalls != 3 || len(waits) != 2 || waits[0] != 2*time.Second || waits[1] != 7*time.Second {
@@ -241,7 +241,7 @@ func TestAuthServiceResolverRefreshesAndAuthorizesExactRepository(t *testing.T) 
 	store := &memorySessionStore{session: Session{
 		Host:                  "github.com",
 		Account:               "octocat",
-		ClientID:              "client",
+		ClientID:              "public-client-id",
 		RefreshToken:          "ghr-old-secret",
 		RefreshTokenExpiresAt: now.Add(time.Hour),
 	}}
@@ -252,7 +252,7 @@ func TestAuthServiceResolverRefreshesAndAuthorizesExactRepository(t *testing.T) 
 		}
 		switch request.URL.Path {
 		case "/login/oauth/access_token":
-			assertFormValue(t, request, "client_id", "client")
+			assertFormValue(t, request, "client_id", "public-client-id")
 			assertFormValue(t, request, "grant_type", "refresh_token")
 			assertFormValue(t, request, "refresh_token", "ghr-old-secret")
 			writeJSON(t, writer, tokenResponse{
@@ -316,7 +316,7 @@ func TestAuthServiceResolverFailsClosedAndRedactsSecrets(t *testing.T) {
 	validSession := Session{
 		Host:                  "github.com",
 		Account:               "octocat",
-		ClientID:              "client",
+		ClientID:              "public-client-id",
 		RefreshToken:          "ghr-secret",
 		RefreshTokenExpiresAt: now.Add(time.Hour),
 	}
@@ -346,7 +346,11 @@ func TestAuthServiceResolverFailsClosedAndRedactsSecrets(t *testing.T) {
 	t.Run("rejects expired and malformed sessions", func(t *testing.T) {
 		expired := validSession
 		expired.RefreshTokenExpiresAt = now.Add(-time.Second)
-		for _, session := range []Session{expired, {Host: "github.com", Account: "octocat"}} {
+		for _, session := range []Session{expired, {
+			Host:     "github.com",
+			Account:  "octocat",
+			ClientID: "public-client-id",
+		}} {
 			service := newTestAuthService(t, AuthOptions{
 				Store: &memorySessionStore{session: session},
 				Now:   func() time.Time { return now },
@@ -399,7 +403,7 @@ func TestAuthServiceRefreshesExactlyOncePerProfile(t *testing.T) {
 	store := &memorySessionStore{session: Session{
 		Host:                  "github.com",
 		Account:               "octocat",
-		ClientID:              "client",
+		ClientID:              "public-client-id",
 		RefreshToken:          "ghr-refresh",
 		RefreshTokenExpiresAt: now.Add(time.Hour),
 	}}
@@ -466,7 +470,7 @@ func TestAuthStatusLogoutAndUtilityContracts(t *testing.T) {
 	session := Session{
 		Host:                  "github.com",
 		Account:               "octocat",
-		ClientID:              "client",
+		ClientID:              "public-client-id",
 		RefreshToken:          "ghr-secret",
 		RefreshTokenExpiresAt: now.Add(time.Hour),
 	}
@@ -495,7 +499,7 @@ func TestAuthStatusLogoutAndUtilityContracts(t *testing.T) {
 		tokenUsable(cachedToken{}, now) {
 		t.Fatal("token usability boundaries are wrong")
 	}
-	if sessionKey("GitHub.COM", "OctoCat") != "github.com\x00octocat" {
+	if sessionKey("GitHub.COM", "OctoCat", "public-client-id") != "github.com\x00octocat\x00public-client-id" {
 		t.Fatal("session key was not normalized")
 	}
 	for _, raw := range []string{"", "http://github.com", "https://user@github.com", "https://github.com"} {
@@ -514,6 +518,92 @@ func TestAuthStatusLogoutAndUtilityContracts(t *testing.T) {
 		if _, err := joinHTTPSURL("https://github.com", path); err == nil {
 			t.Fatalf("joinHTTPSURL accepted invalid path %q", path)
 		}
+	}
+}
+
+func TestAuthServiceScopesSessionsByConfiguredClientID(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	tenantA := testStoredSession("github.com", "octocat")
+	tenantA.ClientID = "tenant-a-client-id"
+	tenantA.RefreshToken = "ghr-tenant-a-refresh"
+	platform := testStoredSession("github.com", "octocat")
+	platform.ClientID = "platform-client-id"
+	platform.RefreshToken = "ghr-platform-refresh"
+
+	store := &memorySessionStore{}
+	if err := store.SaveActive(context.Background(), tenantA); err != nil {
+		t.Fatalf("SaveActive(tenant A) error = %v", err)
+	}
+	if err := store.SaveActive(context.Background(), platform); err != nil {
+		t.Fatalf("SaveActive(platform) error = %v", err)
+	}
+
+	tenantService := newTestAuthService(t, AuthOptions{
+		Store:    store,
+		ClientID: tenantA.ClientID,
+		Now:      func() time.Time { return now },
+	})
+	platformService := newTestAuthService(t, AuthOptions{
+		Store:    store,
+		ClientID: platform.ClientID,
+		Now:      func() time.Time { return now },
+	})
+
+	if status, err := tenantService.Status(context.Background()); err != nil || status.Account != tenantA.Account {
+		t.Fatalf("tenant Status() = (%#v, %v)", status, err)
+	}
+	if status, err := platformService.Status(context.Background()); err != nil || status.Account != platform.Account {
+		t.Fatalf("platform Status() = (%#v, %v)", status, err)
+	}
+	if _, err := platformService.Logout(context.Background()); err != nil {
+		t.Fatalf("platform Logout() error = %v", err)
+	}
+	if _, err := tenantService.Status(context.Background()); err != nil {
+		t.Fatalf("tenant session was removed by platform logout: %v", err)
+	}
+	_, err := platformService.Status(context.Background())
+	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+}
+
+func TestAuthServiceFailsClosedForMissingOrMismatchedConfiguredClientID(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	missingClientID := NewAuthService(AuthOptions{
+		Store: &memorySessionStore{session: testStoredSession("github.com", "octocat")},
+		Now:   func() time.Time { return now },
+	})
+	_, err := missingClientID.Status(context.Background())
+	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	_, err = missingClientID.Logout(context.Background())
+	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	_, err = missingClientID.Resolve(context.Background(), CredentialTarget{
+		Host:       "github.com",
+		Owner:      "acme",
+		Repository: "governance",
+	})
+	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+
+	store := &memorySessionStore{}
+	service := newTestAuthService(t, AuthOptions{
+		Store:    store,
+		ClientID: "tenant-a-client-id",
+		Now:      func() time.Time { return now },
+	})
+	_, err = service.Login(context.Background(), LoginRequest{ClientID: "platform-client-id"})
+	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	if store.saveCalls != 0 {
+		t.Fatalf("mismatched client ID persisted a session: saves=%d", store.saveCalls)
+	}
+	_, err = service.Login(context.Background(), LoginRequest{})
+	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = service.Logout(cancelled)
+	assertAuthProblem(t, err, problem.CodeOperationCancelled)
+
+	if first, second := nativeSessionScope("github.com", "tenant-a-client-id"), nativeSessionScope("github.com", "platform-client-id"); first == second ||
+		!strings.HasPrefix(first, "github.com.") || strings.Contains(first, "tenant-a-client-id") {
+		t.Fatalf("native session scopes = (%q, %q)", first, second)
 	}
 }
 
@@ -557,7 +647,7 @@ func TestAuthServiceClassifiesOAuthAndContextFailures(t *testing.T) {
 			HTTPClient:   server.Client(),
 		})
 		_, err := service.Login(context.Background(), LoginRequest{
-			ClientID: "client",
+			ClientID: "public-client-id",
 			OnDeviceAuthorization: func(DeviceAuthorization) error {
 				return callbackErr
 			},
@@ -658,10 +748,11 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 
 		badEndpoint := NewAuthService(AuthOptions{
 			Store:        &memorySessionStore{},
+			ClientID:     "public-client-id",
 			OAuthBaseURL: "http://not-https",
 			Now:          func() time.Time { return now },
 		})
-		_, err = badEndpoint.Login(context.Background(), LoginRequest{ClientID: "client"})
+		_, err = badEndpoint.Login(context.Background(), LoginRequest{ClientID: "public-client-id"})
 		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
 
 		store := &memorySessionStore{saveErr: errors.New("vault unavailable")}
@@ -685,7 +776,7 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 			HTTPClient:   server.Client(),
 			Now:          func() time.Time { return now },
 		})
-		_, err = service.Login(context.Background(), LoginRequest{ClientID: "client"})
+		_, err = service.Login(context.Background(), LoginRequest{ClientID: "public-client-id"})
 		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 
 		for _, testCase := range []struct {
@@ -716,7 +807,7 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 				HTTPClient:   server.Client(),
 				Now:          func() time.Time { return now },
 			})
-			_, err := service.Login(context.Background(), LoginRequest{ClientID: "client"})
+			_, err := service.Login(context.Background(), LoginRequest{ClientID: "public-client-id"})
 			assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
 			server.Close()
 		}
@@ -728,7 +819,11 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 			code  problem.Code
 		}{
 			{store: &memorySessionStore{loadErr: errors.New("load unavailable")}, code: problem.CodeConfigurationUnavailable},
-			{store: &memorySessionStore{session: Session{Host: "github.com", Account: "octocat"}}, code: problem.CodeConfigurationInvalid},
+			{store: &memorySessionStore{session: Session{
+				Host:     "github.com",
+				Account:  "octocat",
+				ClientID: "public-client-id",
+			}}, code: problem.CodeConfigurationInvalid},
 		} {
 			service := newTestAuthService(t, AuthOptions{Store: testCase.store, Now: func() time.Time { return now }})
 			_, err := service.Status(context.Background())
@@ -781,7 +876,7 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 	t.Run("covers pending refresh errors", func(t *testing.T) {
 		session := testStoredSession("github.com", "octocat")
 		service := newTestAuthService(t, AuthOptions{Store: &memorySessionStore{}, Now: func() time.Time { return now }})
-		key := sessionKey(session.Host, session.Account)
+		key := sessionKey(session.Host, session.Account, session.ClientID)
 		pending := &refreshCall{done: make(chan struct{}), err: errors.New("refresh failed")}
 		service.refreshing[key] = pending
 		close(pending.done)
@@ -975,7 +1070,7 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 	})
 
 	service := newTestAuthService(t, AuthOptions{Store: &memorySessionStore{}, Now: func() time.Time { return now }})
-	prefix := sessionKey("github.com", "octocat")
+	prefix := sessionKey("github.com", "octocat", "public-client-id")
 	service.authorized[prefix+"\x00acme\x00governance"] = now
 	service.authorized["other"] = now
 	service.dropAuthorizationsForSession(prefix)
@@ -1033,6 +1128,9 @@ func newTestAuthService(t *testing.T, options AuthOptions) *AuthService {
 			return time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
 		}
 	}
+	if options.ClientID == "" {
+		options.ClientID = "public-client-id"
+	}
 	return NewAuthService(options)
 }
 
@@ -1072,25 +1170,34 @@ func statusJSON(t *testing.T, status SessionStatus) string {
 }
 
 type memorySessionStore struct {
-	mutex       sync.Mutex
-	session     Session
-	loadErr     error
-	saveErr     error
-	deleteErr   error
-	saveCalls   int
-	deleteCalls int
+	mutex         sync.Mutex
+	session       Session
+	sessions      map[string]Session
+	activeByScope map[string]string
+	initialized   bool
+	loadErr       error
+	saveErr       error
+	deleteErr     error
+	saveCalls     int
+	deleteCalls   int
 }
 
-func (store *memorySessionStore) LoadActive(context.Context, string) (Session, error) {
+func (store *memorySessionStore) LoadActive(_ context.Context, host, clientID string) (Session, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	if store.loadErr != nil {
 		return Session{}, store.loadErr
 	}
-	if strings.TrimSpace(store.session.Account) == "" {
+	store.initialize()
+	account, found := store.activeByScope[sessionScopeKey(host, clientID)]
+	if !found {
 		return Session{}, errSessionNotFound
 	}
-	return store.session, nil
+	session, found := store.sessions[sessionKey(host, account, clientID)]
+	if !found {
+		return Session{}, errSessionNotFound
+	}
+	return session, nil
 }
 
 func (store *memorySessionStore) SaveActive(_ context.Context, session Session) error {
@@ -1099,23 +1206,52 @@ func (store *memorySessionStore) SaveActive(_ context.Context, session Session) 
 	if store.saveErr != nil {
 		return store.saveErr
 	}
+	store.initialize()
+	scope := sessionScopeKey(session.Host, session.ClientID)
+	if previousAccount, found := store.activeByScope[scope]; found &&
+		!strings.EqualFold(strings.TrimSpace(previousAccount), strings.TrimSpace(session.Account)) {
+		delete(store.sessions, sessionKey(session.Host, previousAccount, session.ClientID))
+	}
+	store.sessions[sessionKey(session.Host, session.Account, session.ClientID)] = session
+	store.activeByScope[scope] = session.Account
 	store.session = session
 	store.saveCalls++
 	return nil
 }
 
-func (store *memorySessionStore) DeleteActive(context.Context, string) error {
+func (store *memorySessionStore) DeleteActive(_ context.Context, host, clientID string) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	if store.deleteErr != nil {
 		return store.deleteErr
 	}
-	if strings.TrimSpace(store.session.Account) == "" {
+	store.initialize()
+	scope := sessionScopeKey(host, clientID)
+	account, found := store.activeByScope[scope]
+	if !found {
 		return errSessionNotFound
 	}
-	store.session = Session{}
+	delete(store.activeByScope, scope)
+	deleted := store.sessions[sessionKey(host, account, clientID)]
+	delete(store.sessions, sessionKey(host, account, clientID))
+	if store.session == deleted {
+		store.session = Session{}
+	}
 	store.deleteCalls++
 	return nil
+}
+
+func (store *memorySessionStore) initialize() {
+	if store.initialized {
+		return
+	}
+	store.sessions = make(map[string]Session)
+	store.activeByScope = make(map[string]string)
+	if strings.TrimSpace(store.session.Account) != "" {
+		store.sessions[sessionKey(store.session.Host, store.session.Account, store.session.ClientID)] = store.session
+		store.activeByScope[sessionScopeKey(store.session.Host, store.session.ClientID)] = store.session.Account
+	}
+	store.initialized = true
 }
 
 var _ SessionStore = (*memorySessionStore)(nil)
