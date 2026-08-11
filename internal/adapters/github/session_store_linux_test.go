@@ -103,6 +103,7 @@ func TestLinuxSecretServiceStoreRejectsFailureModes(t *testing.T) {
 
 func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 	session := testStoredSession("github.com", "octocat")
+	scope := nativeSessionScope(session.Host, session.ClientID)
 
 	t.Run("uses the Linux-native store and executable contract", func(t *testing.T) {
 		if _, ok := newPlatformSessionStore().(*linuxSecretServiceStore); !ok {
@@ -154,7 +155,7 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeLinuxStore()
-		runner.values[runner.key(session.Host, linuxSecretActiveAccount)] = []byte("octocat")
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte("octocat")
 		runner.fail = func(command, _, account string, _ int) error {
 			if command == "lookup" && account == session.Account {
 				return errors.New("account lookup failed")
@@ -166,15 +167,15 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeLinuxStore()
-		runner.values[runner.key(session.Host, linuxSecretActiveAccount)] = []byte("octocat")
-		runner.values[runner.key(session.Host, session.Account)] = []byte("{}")
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte("octocat")
+		runner.values[runner.key(scope, session.Account)] = []byte("{}")
 		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("LoadActive accepted an incomplete decoded session")
 		}
 
 		store, runner = newFakeLinuxStore()
-		runner.values[runner.key(session.Host, linuxSecretActiveAccount)] = []byte("octocat")
-		runner.values[runner.key(session.Host, session.Account)] = []byte(" ")
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte("octocat")
+		runner.values[runner.key(scope, session.Account)] = []byte(" ")
 		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionNotFound) {
 			t.Fatalf("empty session error = %v", err)
 		}
@@ -210,7 +211,7 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeLinuxStore()
-		runner.values[runner.key(session.Host, linuxSecretActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
 		runner.fail = func(command, _, _ string, call int) error {
 			if command == "clear" && call == 1 {
 				return errors.New("session clear failed")
@@ -222,7 +223,7 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeLinuxStore()
-		runner.values[runner.key(session.Host, linuxSecretActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
 		runner.fail = func(command, _, _ string, call int) error {
 			if command == "clear" && call == 2 {
 				return errors.New("active profile clear failed")
@@ -231,6 +232,42 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("DeleteActive accepted an active-profile clear failure")
+		}
+	})
+
+	t.Run("replaces only the current client account and rejects scoped mismatches", func(t *testing.T) {
+		store, runner := newFakeLinuxStore()
+		next := testStoredSession(session.Host, "hubot")
+		next.ClientID = session.ClientID
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = []byte("previous-refresh-session")
+		if err := store.SaveActive(context.Background(), next); err != nil {
+			t.Fatalf("SaveActive() replacement error = %v", err)
+		}
+		if _, found := runner.values[runner.key(scope, session.Account)]; found {
+			t.Fatal("SaveActive retained the replaced account session")
+		}
+		if got := string(runner.values[runner.key(scope, linuxSecretActiveAccount)]); got != next.Account {
+			t.Fatalf("active account = %q, want %q", got, next.Account)
+		}
+
+		store, runner = newFakeLinuxStore()
+		runner.err = errSessionStoreUnavailable
+		if err := store.SaveActive(context.Background(), session); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("SaveActive unavailable lookup error = %v", err)
+		}
+
+		store, runner = newFakeLinuxStore()
+		mismatched := session
+		mismatched.ClientID = "other-client-id"
+		encoded, err := json.Marshal(mismatched)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = encoded
+		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); err == nil {
+			t.Fatal("LoadActive accepted a session for another client ID")
 		}
 	})
 
