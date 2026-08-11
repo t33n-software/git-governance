@@ -1155,10 +1155,13 @@ func TestProtectedLineRequestInternalFailureSeams(t *testing.T) {
 	originalNew := protectedLineRequestNew
 	originalTransition := protectedLineRequestTransition
 	originalExecutionBind := protectedLineExecutionBind
+	originalNow := protectedLineRequestNow
+	protectedLineRequestNow = func() time.Time { return now }
 	t.Cleanup(func() {
 		protectedLineRequestNew = originalNew
 		protectedLineRequestTransition = originalTransition
 		protectedLineExecutionBind = originalExecutionBind
+		protectedLineRequestNow = originalNow
 	})
 
 	newServer := func(t *testing.T, dispatchStatus int) *httptest.Server {
@@ -1463,7 +1466,12 @@ func TestProtectedLineWorkflowRunProvenanceValidation(t *testing.T) {
 func TestProtectedLineFinalizerFailureTransitionsAndAuditWrites(t *testing.T) {
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, time.UTC)
 	originalTransition := protectedLineRequestTransition
-	t.Cleanup(func() { protectedLineRequestTransition = originalTransition })
+	originalNow := protectedLineRequestNow
+	protectedLineRequestNow = func() time.Time { return now }
+	t.Cleanup(func() {
+		protectedLineRequestTransition = originalTransition
+		protectedLineRequestNow = originalNow
+	})
 
 	t.Run("rejects recovery for a non-pending request", func(t *testing.T) {
 		record := protectedLineRecord(t, now, releaserequest.StateExecuting, "456")

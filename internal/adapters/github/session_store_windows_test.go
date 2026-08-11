@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -19,7 +20,7 @@ func TestDPAPISessionStoreRoundTripsAndRemovesEncryptedSessions(t *testing.T) {
 	store := newDPAPISessionStore(path)
 	ctx := context.Background()
 
-	if _, err := store.LoadActive(ctx, "github.com"); !errors.Is(err, errSessionNotFound) {
+	if _, err := store.LoadActive(ctx, "github.com", "public-client-id"); !errors.Is(err, errSessionNotFound) {
 		t.Fatalf("missing LoadActive() error = %v", err)
 	}
 	if err := store.SaveActive(ctx, Session{}); err == nil {
@@ -37,7 +38,7 @@ func TestDPAPISessionStoreRoundTripsAndRemovesEncryptedSessions(t *testing.T) {
 	if strings.Contains(string(encrypted), octocat.RefreshToken) {
 		t.Fatal("DPAPI session file contains the plaintext refresh token")
 	}
-	loaded, err := store.LoadActive(ctx, "GitHub.COM")
+	loaded, err := store.LoadActive(ctx, "GitHub.COM", octocat.ClientID)
 	if err != nil || loaded != octocat {
 		t.Fatalf("LoadActive() = (%#v, %v)", loaded, err)
 	}
@@ -46,25 +47,167 @@ func TestDPAPISessionStoreRoundTripsAndRemovesEncryptedSessions(t *testing.T) {
 	if err := store.SaveActive(ctx, enterprise); err != nil {
 		t.Fatalf("second SaveActive() error = %v", err)
 	}
-	if err := store.DeleteActive(ctx, enterprise.Host); err != nil {
+	if err := store.DeleteActive(ctx, enterprise.Host, enterprise.ClientID); err != nil {
 		t.Fatalf("DeleteActive() with another stored profile error = %v", err)
 	}
-	if _, err := store.LoadActive(ctx, enterprise.Host); !errors.Is(err, errSessionNotFound) {
+	if _, err := store.LoadActive(ctx, enterprise.Host, enterprise.ClientID); !errors.Is(err, errSessionNotFound) {
 		t.Fatalf("deleted profile LoadActive() error = %v", err)
 	}
-	if _, err := store.LoadActive(ctx, octocat.Host); err != nil {
+	if _, err := store.LoadActive(ctx, octocat.Host, octocat.ClientID); err != nil {
 		t.Fatalf("remaining profile LoadActive() error = %v", err)
 	}
 
-	if err := store.DeleteActive(ctx, octocat.Host); err != nil {
+	if err := store.DeleteActive(ctx, octocat.Host, octocat.ClientID); err != nil {
 		t.Fatalf("final DeleteActive() error = %v", err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("session file stat error = %v, want not exist", err)
 	}
-	if err := store.DeleteActive(ctx, octocat.Host); !errors.Is(err, errSessionNotFound) {
+	if err := store.DeleteActive(ctx, octocat.Host, octocat.ClientID); !errors.Is(err, errSessionNotFound) {
 		t.Fatalf("second DeleteActive() error = %v", err)
 	}
+}
+
+func TestDPAPISessionStoreIsolatesClientIDsAndRejectsLegacySchema(t *testing.T) {
+	ctx := context.Background()
+	tenantA := testStoredSession("github.com", "octocat")
+	tenantA.ClientID = "tenant-a-client-id"
+	platform := testStoredSession("github.com", "octocat")
+	platform.ClientID = "platform-client-id"
+	platform.RefreshToken = "ghr-platform"
+
+	legacyPath := filepath.Join(t.TempDir(), "github-app-sessions.dpapi")
+	legacyDocument := struct {
+		SchemaVersion int                `json:"schemaVersion"`
+		ActiveByHost  map[string]string  `json:"activeByHost"`
+		Sessions      map[string]Session `json:"sessions"`
+	}{
+		SchemaVersion: 1,
+		ActiveByHost:  map[string]string{"github.com": tenantA.Account},
+		Sessions: map[string]Session{
+			"github.com\x00octocat": tenantA,
+		},
+	}
+	encrypted, err := protectDPAPI(mustJSON(t, legacyDocument))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, encrypted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyStore := newDPAPISessionStore(legacyPath)
+	if _, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err == nil {
+		t.Fatal("LoadActive accepted a legacy schema")
+	}
+	if err := legacyStore.SaveActive(ctx, tenantA); err == nil {
+		t.Fatal("SaveActive accepted a legacy schema")
+	}
+
+	store := newDPAPISessionStore(filepath.Join(t.TempDir(), "github-app-sessions.dpapi"))
+	if err := store.SaveActive(ctx, tenantA); err != nil {
+		t.Fatalf("SaveActive(tenant A) error = %v", err)
+	}
+	if err := store.SaveActive(ctx, platform); err != nil {
+		t.Fatalf("SaveActive(platform) error = %v", err)
+	}
+	if loaded, err := store.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err != nil || loaded != tenantA {
+		t.Fatalf("tenant LoadActive() = (%#v, %v)", loaded, err)
+	}
+	if err := store.DeleteActive(ctx, platform.Host, platform.ClientID); err != nil {
+		t.Fatalf("DeleteActive(platform) error = %v", err)
+	}
+	if _, err := store.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err != nil {
+		t.Fatalf("tenant session was removed by platform deletion: %v", err)
+	}
+}
+
+func TestDPAPISessionStoreScopedFailurePaths(t *testing.T) {
+	t.Run("rejects incomplete and mismatched scoped sessions", func(t *testing.T) {
+		for _, session := range []Session{
+			{
+				Host:     "github.com",
+				Account:  "octocat",
+				ClientID: "tenant-a-client-id",
+			},
+			{
+				Host:                  "github.com",
+				Account:               "octocat",
+				ClientID:              "other-client-id",
+				RefreshToken:          "ghr-other",
+				RefreshTokenExpiresAt: time.Date(2026, time.December, 31, 23, 59, 59, 0, time.UTC),
+			},
+		} {
+			session := session
+			t.Run(session.ClientID, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "sessions.dpapi")
+				document := emptySessionDocument()
+				document.ActiveByScope[sessionScopeKey("github.com", "tenant-a-client-id")] = "octocat"
+				document.Sessions[sessionKey("github.com", "octocat", "tenant-a-client-id")] = session
+				encrypted, err := protectDPAPI(mustJSON(t, document))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := newDPAPISessionStore(path).LoadActive(context.Background(), "github.com", "tenant-a-client-id"); err == nil {
+					t.Fatal("LoadActive accepted an invalid scoped session")
+				}
+			})
+		}
+	})
+
+	t.Run("replaces only the active account for one client scope", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		first := testStoredSession("github.com", "octocat")
+		first.ClientID = "tenant-a-client-id"
+		second := testStoredSession("github.com", "hubot")
+		second.ClientID = first.ClientID
+		if err := store.SaveActive(context.Background(), first); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveActive(context.Background(), second); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := store.LoadActive(context.Background(), first.Host, first.ClientID)
+		if err != nil || loaded != second {
+			t.Fatalf("active account after replacement = (%#v, %v)", loaded, err)
+		}
+		document, err := store.load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, found := document.Sessions[sessionKey(first.Host, first.Account, first.ClientID)]; found {
+			t.Fatal("replaced account refresh session remained in the client scope")
+		}
+	})
+
+	t.Run("initializes absent version-two maps and rejects every other schema", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		store := newDPAPISessionStore(path)
+		for _, document := range []sessionDocument{
+			{SchemaVersion: sessionStoreSchemaVersion},
+			{SchemaVersion: 3},
+		} {
+			encrypted, err := protectDPAPI(mustJSON(t, document))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := store.load()
+			if document.SchemaVersion == sessionStoreSchemaVersion {
+				if err != nil || loaded.ActiveByScope == nil || loaded.Sessions == nil {
+					t.Fatalf("load initialized version-two document = (%#v, %v)", loaded, err)
+				}
+				continue
+			}
+			if err == nil {
+				t.Fatalf("load accepted unsupported schema %d", document.SchemaVersion)
+			}
+		}
+	})
 }
 
 func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) {
@@ -74,13 +217,13 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := store.LoadActive(ctx, "github.com"); !errors.Is(err, context.Canceled) {
+	if _, err := store.LoadActive(ctx, "github.com", "public-client-id"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled LoadActive() error = %v", err)
 	}
 	if err := store.SaveActive(ctx, testStoredSession("github.com", "octocat")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled SaveActive() error = %v", err)
 	}
-	if err := store.DeleteActive(ctx, "github.com"); !errors.Is(err, context.Canceled) {
+	if err := store.DeleteActive(ctx, "github.com", "public-client-id"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled DeleteActive() error = %v", err)
 	}
 	if contextFailure(testNilContext()) != nil || contextFailure(context.Background()) != nil {
@@ -105,7 +248,7 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 		t.Fatal("load accepted invalid JSON")
 	}
 
-	unsupported, err := protectDPAPI([]byte(`{"schemaVersion":2}`))
+	unsupported, err := protectDPAPI([]byte(`{"schemaVersion":3}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +267,7 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 		t.Fatal(err)
 	}
 	document, err := store.load()
-	if err != nil || document.ActiveByHost == nil || document.Sessions == nil {
+	if err != nil || document.ActiveByScope == nil || document.Sessions == nil {
 		t.Fatalf("load initialized nil maps = (%#v, %v)", document, err)
 	}
 
@@ -148,7 +291,7 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 		t.Fatal("normalizeHost did not canonicalize the host")
 	}
 	if document := emptySessionDocument(); document.SchemaVersion != sessionStoreSchemaVersion ||
-		len(document.ActiveByHost) != 0 || len(document.Sessions) != 0 {
+		len(document.ActiveByScope) != 0 || len(document.Sessions) != 0 {
 		t.Fatalf("empty session document = %#v", document)
 	}
 	if path, err := defaultDPAPISessionStorePath(); err != nil || !strings.HasSuffix(path, "github-app-sessions.dpapi") {
@@ -174,7 +317,7 @@ func TestDPAPISessionStoreReportsFilesystemAndIndexFailures(t *testing.T) {
 	path := filepath.Join(root, "sessions.dpapi")
 	store = newDPAPISessionStore(path)
 	document := emptySessionDocument()
-	document.ActiveByHost["github.com"] = "missing"
+	document.ActiveByScope[sessionScopeKey("github.com", "public-client-id")] = "missing"
 	encrypted, err := protectDPAPI(mustJSON(t, document))
 	if err != nil {
 		t.Fatal(err)
@@ -182,7 +325,7 @@ func TestDPAPISessionStoreReportsFilesystemAndIndexFailures(t *testing.T) {
 	if err := os.WriteFile(path, encrypted, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.LoadActive(context.Background(), "github.com"); err == nil {
+	if _, err := store.LoadActive(context.Background(), "github.com", "public-client-id"); err == nil {
 		t.Fatal("LoadActive accepted an inconsistent active session index")
 	}
 
@@ -199,8 +342,8 @@ func TestDPAPISessionStoreReportsFilesystemAndIndexFailures(t *testing.T) {
 	}
 	if err := directoryStore.save(sessionDocument{
 		SchemaVersion: sessionStoreSchemaVersion,
-		ActiveByHost:  map[string]string{"github.com": "octocat"},
-		Sessions:      map[string]Session{sessionKey("github.com", "octocat"): testStoredSession("github.com", "octocat")},
+		ActiveByScope: map[string]string{sessionScopeKey("github.com", "public-client-id"): "octocat"},
+		Sessions:      map[string]Session{sessionKey("github.com", "octocat", "public-client-id"): testStoredSession("github.com", "octocat")},
 	}); err == nil {
 		t.Fatal("save replaced a directory as a session file")
 	}
@@ -209,9 +352,9 @@ func TestDPAPISessionStoreReportsFilesystemAndIndexFailures(t *testing.T) {
 func TestDPAPISessionStoreInjectableFailurePaths(t *testing.T) {
 	document := sessionDocument{
 		SchemaVersion: sessionStoreSchemaVersion,
-		ActiveByHost:  map[string]string{"github.com": "octocat"},
+		ActiveByScope: map[string]string{sessionScopeKey("github.com", "public-client-id"): "octocat"},
 		Sessions: map[string]Session{
-			sessionKey("github.com", "octocat"): testStoredSession("github.com", "octocat"),
+			sessionKey("github.com", "octocat", "public-client-id"): testStoredSession("github.com", "octocat"),
 		},
 	}
 
@@ -222,13 +365,13 @@ func TestDPAPISessionStoreInjectableFailurePaths(t *testing.T) {
 			return nil, readErr
 		}
 		store := newDPAPISessionStore("session.dpapi")
-		if _, err := store.LoadActive(context.Background(), "github.com"); !errors.Is(err, readErr) {
+		if _, err := store.LoadActive(context.Background(), "github.com", "public-client-id"); !errors.Is(err, readErr) {
 			t.Fatalf("LoadActive read error = %v", err)
 		}
 		if err := store.SaveActive(context.Background(), testStoredSession("github.com", "octocat")); !errors.Is(err, readErr) {
 			t.Fatalf("SaveActive read error = %v", err)
 		}
-		if err := store.DeleteActive(context.Background(), "github.com"); !errors.Is(err, readErr) {
+		if err := store.DeleteActive(context.Background(), "github.com", "public-client-id"); !errors.Is(err, readErr) {
 			t.Fatalf("DeleteActive read error = %v", err)
 		}
 	})

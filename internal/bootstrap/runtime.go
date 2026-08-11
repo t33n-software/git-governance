@@ -101,6 +101,7 @@ func defaultRuntime() Runtime {
 		GitHubAuthFactory: func(timeout time.Duration) github.AuthProvider {
 			return github.NewAuthService(github.AuthOptions{
 				HTTPClient: &http.Client{Timeout: timeout},
+				ClientID:   os.Getenv("GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID"),
 			})
 		},
 		Browser: browser.New(browser.Options{}),

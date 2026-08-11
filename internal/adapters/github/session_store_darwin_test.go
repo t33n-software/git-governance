@@ -4,6 +4,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -22,15 +23,57 @@ func TestMacOSKeychainStorePreservesRefreshSessionsWithoutSecretArguments(t *tes
 	if strings.Contains(strings.Join(runner.arguments, " "), session.RefreshToken) {
 		t.Fatalf("Keychain command arguments leaked a refresh token: %#v", runner.arguments)
 	}
-	loaded, err := store.LoadActive(context.Background(), "github.com")
+	loaded, err := store.LoadActive(context.Background(), "github.com", session.ClientID)
 	if err != nil || loaded != session {
 		t.Fatalf("LoadActive() = (%#v, %v)", loaded, err)
 	}
-	if err := store.DeleteActive(context.Background(), "github.com"); err != nil {
+	if err := store.DeleteActive(context.Background(), "github.com", session.ClientID); err != nil {
 		t.Fatalf("DeleteActive() error = %v", err)
 	}
-	if _, err := store.LoadActive(context.Background(), "github.com"); !errors.Is(err, errSessionNotFound) {
+	if _, err := store.LoadActive(context.Background(), "github.com", session.ClientID); !errors.Is(err, errSessionNotFound) {
 		t.Fatalf("deleted LoadActive() error = %v", err)
+	}
+}
+
+func TestMacOSKeychainStoreIsolatesClientIDsAndRejectsLegacyStorage(t *testing.T) {
+	store, runner := newFakeMacOSStore()
+	tenantA := testStoredSession("github.com", "octocat")
+	tenantA.ClientID = "tenant-a-client-id"
+	tenantA.RefreshToken = "ghr-tenant-a"
+	legacyEncoded, err := json.Marshal(tenantA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.values[runner.key(tenantA.Host, macOSKeychainActiveAccount)] = []byte(tenantA.Account)
+	runner.values[runner.key(tenantA.Host, tenantA.Account)] = legacyEncoded
+
+	if _, err := store.LoadActive(context.Background(), tenantA.Host, tenantA.ClientID); !errors.Is(err, errSessionNotFound) {
+		t.Fatalf("LoadActive() error = %v, want legacy storage to be ignored", err)
+	}
+	if _, found := runner.values[runner.key(tenantA.Host, macOSKeychainActiveAccount)]; !found {
+		t.Fatal("current storage read or removed the legacy session")
+	}
+
+	if err := store.SaveActive(context.Background(), tenantA); err != nil {
+		t.Fatalf("SaveActive(tenant A) error = %v", err)
+	}
+	platform := testStoredSession("github.com", "octocat")
+	platform.ClientID = "platform-client-id"
+	platform.RefreshToken = "ghr-platform"
+	if err := store.SaveActive(context.Background(), platform); err != nil {
+		t.Fatalf("SaveActive(platform) error = %v", err)
+	}
+	if loaded, err := store.LoadActive(context.Background(), platform.Host, platform.ClientID); err != nil || loaded != platform {
+		t.Fatalf("platform LoadActive() = (%#v, %v)", loaded, err)
+	}
+	if err := store.DeleteActive(context.Background(), platform.Host, platform.ClientID); err != nil {
+		t.Fatalf("DeleteActive(platform) error = %v", err)
+	}
+	if _, err := store.LoadActive(context.Background(), tenantA.Host, tenantA.ClientID); err != nil {
+		t.Fatalf("tenant session was removed by platform deletion: %v", err)
+	}
+	if !strings.Contains(strings.Join(runner.arguments, "\n"), "-s "+macOSKeychainService(nativeSessionScope(tenantA.Host, tenantA.ClientID))) {
+		t.Fatalf("current session storage did not use the canonical Keychain namespace: %#v", runner.arguments)
 	}
 }
 
@@ -46,13 +89,14 @@ func TestMacOSKeychainStoreRejectsFailureModes(t *testing.T) {
 		t.Fatal("SaveActive accepted an incomplete session")
 	}
 	runner.err = errors.New("keychain unavailable")
-	if _, err := store.LoadActive(context.Background(), "github.com"); !errors.Is(err, errSessionNotFound) {
+	if _, err := store.LoadActive(context.Background(), "github.com", "public-client-id"); !errors.Is(err, errSessionNotFound) {
 		t.Fatalf("lookup failure = %v", err)
 	}
 	runner.err = nil
-	runner.values[runner.key("github.com", macOSKeychainActiveAccount)] = []byte("octocat")
-	runner.values[runner.key("github.com", "octocat")] = []byte("{")
-	if _, err := store.LoadActive(context.Background(), "github.com"); err == nil {
+	scope := nativeSessionScope("github.com", "public-client-id")
+	runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte("octocat")
+	runner.values[runner.key(scope, "octocat")] = []byte("{")
+	if _, err := store.LoadActive(context.Background(), "github.com", "public-client-id"); err == nil {
 		t.Fatal("LoadActive accepted malformed Keychain JSON")
 	}
 	if macOSKeychainService(" GitHub.COM ") != "git-governance.github-app.github.com" {
@@ -98,13 +142,13 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		store, _ := newFakeMacOSStore()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := store.LoadActive(ctx, session.Host); !errors.Is(err, context.Canceled) {
+		if _, err := store.LoadActive(ctx, session.Host, session.ClientID); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled LoadActive() error = %v", err)
 		}
 		if err := store.SaveActive(ctx, session); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled SaveActive() error = %v", err)
 		}
-		if err := store.DeleteActive(ctx, session.Host); !errors.Is(err, context.Canceled) {
+		if err := store.DeleteActive(ctx, session.Host, session.ClientID); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled DeleteActive() error = %v", err)
 		}
 		if sessionStoreContextError(testNilContext()) != nil || sessionStoreContextError(context.Background()) != nil {
@@ -118,7 +162,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 	t.Run("classifies all load failures", func(t *testing.T) {
 		store, runner := newFakeMacOSStore()
 		runner.err = errSessionStoreUnavailable
-		if _, err := store.LoadActive(context.Background(), session.Host); !errors.Is(err, errSessionStoreUnavailable) {
+		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionStoreUnavailable) {
 			t.Fatalf("unavailable keychain error = %v", err)
 		}
 
@@ -130,21 +174,21 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 			}
 			return nil
 		}
-		if _, err := store.LoadActive(context.Background(), session.Host); !errors.Is(err, errSessionNotFound) {
+		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionNotFound) {
 			t.Fatalf("missing account session error = %v", err)
 		}
 
 		store, runner = newFakeMacOSStore()
 		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
 		runner.values[runner.key(session.Host, session.Account)] = []byte("{}")
-		if _, err := store.LoadActive(context.Background(), session.Host); err == nil {
+		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("LoadActive accepted an incomplete decoded session")
 		}
 
 		store, runner = newFakeMacOSStore()
 		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
 		runner.values[runner.key(session.Host, session.Account)] = []byte(" ")
-		if _, err := store.LoadActive(context.Background(), session.Host); !errors.Is(err, errSessionNotFound) {
+		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionNotFound) {
 			t.Fatalf("empty session error = %v", err)
 		}
 	})
@@ -152,7 +196,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 	t.Run("classifies both save calls and both delete calls", func(t *testing.T) {
 		store, runner := newFakeMacOSStore()
 		runner.err = errSessionStoreUnavailable
-		if err := store.DeleteActive(context.Background(), session.Host); !errors.Is(err, errSessionStoreUnavailable) {
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionStoreUnavailable) {
 			t.Fatalf("DeleteActive unavailable keychain error = %v", err)
 		}
 
@@ -186,7 +230,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 			}
 			return nil
 		}
-		if err := store.DeleteActive(context.Background(), session.Host); err == nil {
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("DeleteActive accepted a session-delete failure")
 		}
 
@@ -198,7 +242,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 			}
 			return nil
 		}
-		if err := store.DeleteActive(context.Background(), session.Host); err == nil {
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("DeleteActive accepted an active-profile delete failure")
 		}
 	})

@@ -31,15 +31,57 @@ func newPlatformSessionStore() SessionStore {
 	return &macOSKeychainStore{runner: macOSSecurityRunner{}}
 }
 
-func (store *macOSKeychainStore) LoadActive(ctx context.Context, host string) (Session, error) {
+func (store *macOSKeychainStore) LoadActive(ctx context.Context, host, clientID string) (Session, error) {
 	if err := sessionStoreContextError(ctx); err != nil {
 		return Session{}, err
 	}
-	account, err := store.lookup(ctx, host, macOSKeychainActiveAccount)
+	return store.loadScoped(ctx, nativeSessionScope(host, clientID), host, clientID)
+}
+
+func (store *macOSKeychainStore) SaveActive(ctx context.Context, session Session) error {
+	if err := sessionStoreContextError(ctx); err != nil {
+		return err
+	}
+	if err := validateStoredSession(session); err != nil {
+		return err
+	}
+	scope := nativeSessionScope(session.Host, session.ClientID)
+	if previousAccount, err := store.lookup(ctx, scope, macOSKeychainActiveAccount); err == nil &&
+		!strings.EqualFold(strings.TrimSpace(string(previousAccount)), strings.TrimSpace(session.Account)) {
+		if err := store.delete(ctx, scope, strings.TrimSpace(string(previousAccount))); err != nil {
+			return err
+		}
+	} else if err != nil && !errors.Is(err, errSessionNotFound) {
+		return err
+	}
+	encoded, _ := json.Marshal(session)
+	if err := store.store(ctx, scope, session.Account, encoded); err != nil {
+		return err
+	}
+	return store.store(ctx, scope, macOSKeychainActiveAccount, []byte(session.Account))
+}
+
+func (store *macOSKeychainStore) DeleteActive(ctx context.Context, host, clientID string) error {
+	if err := sessionStoreContextError(ctx); err != nil {
+		return err
+	}
+	scope := nativeSessionScope(host, clientID)
+	account, err := store.lookup(ctx, scope, macOSKeychainActiveAccount)
+	if err != nil {
+		return err
+	}
+	if err := store.delete(ctx, scope, strings.TrimSpace(string(account))); err != nil {
+		return err
+	}
+	return store.delete(ctx, scope, macOSKeychainActiveAccount)
+}
+
+func (store *macOSKeychainStore) loadScoped(ctx context.Context, scope, host, clientID string) (Session, error) {
+	account, err := store.lookup(ctx, scope, macOSKeychainActiveAccount)
 	if err != nil {
 		return Session{}, err
 	}
-	encoded, err := store.lookup(ctx, host, strings.TrimSpace(string(account)))
+	encoded, err := store.lookup(ctx, scope, strings.TrimSpace(string(account)))
 	if err != nil {
 		return Session{}, err
 	}
@@ -50,35 +92,11 @@ func (store *macOSKeychainStore) LoadActive(ctx context.Context, host string) (S
 	if err := validateStoredSession(session); err != nil {
 		return Session{}, err
 	}
+	if !strings.EqualFold(strings.TrimSpace(session.Host), strings.TrimSpace(host)) ||
+		strings.TrimSpace(session.ClientID) != strings.TrimSpace(clientID) {
+		return Session{}, errors.New("macOS Keychain GitHub App session scope is inconsistent")
+	}
 	return session, nil
-}
-
-func (store *macOSKeychainStore) SaveActive(ctx context.Context, session Session) error {
-	if err := sessionStoreContextError(ctx); err != nil {
-		return err
-	}
-	if err := validateStoredSession(session); err != nil {
-		return err
-	}
-	encoded, _ := json.Marshal(session)
-	if err := store.store(ctx, session.Host, session.Account, encoded); err != nil {
-		return err
-	}
-	return store.store(ctx, session.Host, macOSKeychainActiveAccount, []byte(session.Account))
-}
-
-func (store *macOSKeychainStore) DeleteActive(ctx context.Context, host string) error {
-	if err := sessionStoreContextError(ctx); err != nil {
-		return err
-	}
-	account, err := store.lookup(ctx, host, macOSKeychainActiveAccount)
-	if err != nil {
-		return err
-	}
-	if err := store.delete(ctx, host, strings.TrimSpace(string(account))); err != nil {
-		return err
-	}
-	return store.delete(ctx, host, macOSKeychainActiveAccount)
 }
 
 func (store *macOSKeychainStore) lookup(ctx context.Context, host, account string) ([]byte, error) {

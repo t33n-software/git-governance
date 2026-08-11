@@ -42,6 +42,29 @@ Authorization Code Flow is therefore not used locally: GitHub requires a
 client secret for its code exchange even when PKCE is present. The Device Flow
 is the secure native-client flow because it uses only the public client ID.
 
+## Session isolation for multiple GitHub Apps
+
+The public GitHub App client ID is part of the protected local session scope:
+
+```text
+GitHub host + GitHub account + configured GitHub App client ID
+```
+
+`auth status github`, `auth logout github`, credential refresh, repository
+authorization, and pull-request publication select only the session for the
+currently configured `GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID`. Logging in to a
+second GitHub App for the same account and host therefore does not overwrite
+the first App's session, and logout for one App does not remove another App's
+session.
+
+Host-and-account-only legacy session storage is deliberately not supported.
+The canonical client-ID-scoped layout keeps the standard native-store names;
+it does not create a versioned parallel store. Delete any old local session
+entries before upgrading, then run `auth login github` for each GitHub App
+that needs a local session. Legacy data is never selected, transformed,
+migrated, or assigned to another App; an undeleted incompatible DPAPI document
+is rejected fail-closed.
+
 The local operating-system secret store must also be available:
 
 | Platform | Protected refresh-session store |
@@ -138,10 +161,11 @@ The command performs this sequence:
    fails when the code expires or the user denies approval.
 5. GitHub returns a short-lived user access token and a rotating refresh token.
    The CLI uses the access token only in memory to identify the account.
-6. Only the host-bound refresh session, public client ID, account name, and
-   refresh expiry are persisted in the native secret store. The access token,
-   device code, authorization header, and refresh token are never written to
-   preferences, logs, JSON output, errors, or command arguments.
+6. Only the host-, account-, and client-ID-bound refresh session, public client
+   ID, account name, and refresh expiry are persisted in the native secret
+   store. The access token, device code, authorization header, and refresh
+   token are never written to preferences, logs, JSON output, errors, or
+   command arguments.
 
 Check the non-sensitive result afterwards:
 
@@ -173,7 +197,8 @@ immediately before every GitHub API call:
 2. For a local session, it accepts only `github.com`; a session for one host
    cannot be sent to another host.
 3. It refreshes an expired or near-expiry access token exactly once per
-   host/account profile while concurrent calls wait for the same result.
+   host/account/client-ID profile while concurrent calls wait for the same
+   result.
 4. It checks the GitHub App installations and repositories visible to the
    authenticated user and rejects a repository that is not in that
    intersection.
