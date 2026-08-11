@@ -106,6 +106,7 @@ func TestMacOSKeychainStoreRejectsFailureModes(t *testing.T) {
 
 func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 	session := testStoredSession("github.com", "octocat")
+	scope := nativeSessionScope(session.Host, session.ClientID)
 
 	t.Run("uses the macOS-native store and executable contract", func(t *testing.T) {
 		if _, ok := newPlatformSessionStore().(*macOSKeychainStore); !ok {
@@ -167,7 +168,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeMacOSStore()
-		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
 		runner.fail = func(command, _, account string, _ int) error {
 			if command == "find-generic-password" && account == session.Account {
 				return errors.New("account lookup failed")
@@ -179,15 +180,15 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeMacOSStore()
-		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
-		runner.values[runner.key(session.Host, session.Account)] = []byte("{}")
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = []byte("{}")
 		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("LoadActive accepted an incomplete decoded session")
 		}
 
 		store, runner = newFakeMacOSStore()
-		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
-		runner.values[runner.key(session.Host, session.Account)] = []byte(" ")
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = []byte(" ")
 		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionNotFound) {
 			t.Fatalf("empty session error = %v", err)
 		}
@@ -223,7 +224,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeMacOSStore()
-		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
 		runner.fail = func(command, _, _ string, call int) error {
 			if command == "delete-generic-password" && call == 1 {
 				return errors.New("session delete failed")
@@ -235,7 +236,7 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeMacOSStore()
-		runner.values[runner.key(session.Host, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
 		runner.fail = func(command, _, _ string, call int) error {
 			if command == "delete-generic-password" && call == 2 {
 				return errors.New("active profile delete failed")
@@ -244,6 +245,42 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("DeleteActive accepted an active-profile delete failure")
+		}
+	})
+
+	t.Run("replaces only the current client account and rejects scoped mismatches", func(t *testing.T) {
+		store, runner := newFakeMacOSStore()
+		next := testStoredSession(session.Host, "hubot")
+		next.ClientID = session.ClientID
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = []byte("previous-refresh-session")
+		if err := store.SaveActive(context.Background(), next); err != nil {
+			t.Fatalf("SaveActive() replacement error = %v", err)
+		}
+		if _, found := runner.values[runner.key(scope, session.Account)]; found {
+			t.Fatal("SaveActive retained the replaced account session")
+		}
+		if got := string(runner.values[runner.key(scope, macOSKeychainActiveAccount)]); got != next.Account {
+			t.Fatalf("active account = %q, want %q", got, next.Account)
+		}
+
+		store, runner = newFakeMacOSStore()
+		runner.err = errSessionStoreUnavailable
+		if err := store.SaveActive(context.Background(), session); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("SaveActive unavailable lookup error = %v", err)
+		}
+
+		store, runner = newFakeMacOSStore()
+		mismatched := session
+		mismatched.ClientID = "other-client-id"
+		encoded, err := json.Marshal(mismatched)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = encoded
+		if _, err := store.LoadActive(context.Background(), session.Host, session.ClientID); err == nil {
+			t.Fatal("LoadActive accepted a session for another client ID")
 		}
 	})
 
