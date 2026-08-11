@@ -265,6 +265,18 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeMacOSStore()
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.fail = func(command, _, _ string, _ int) error {
+			if command == "delete-generic-password" {
+				return errors.New("replacement delete failed")
+			}
+			return nil
+		}
+		if err := store.SaveActive(context.Background(), next); err == nil {
+			t.Fatal("SaveActive accepted a replaced-account delete failure")
+		}
+
+		store, runner = newFakeMacOSStore()
 		runner.err = errSessionStoreUnavailable
 		if err := store.SaveActive(context.Background(), session); !errors.Is(err, errSessionStoreUnavailable) {
 			t.Fatalf("SaveActive unavailable lookup error = %v", err)

@@ -252,6 +252,18 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeLinuxStore()
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
+		runner.fail = func(command, _, _ string, _ int) error {
+			if command == "clear" {
+				return errors.New("replacement clear failed")
+			}
+			return nil
+		}
+		if err := store.SaveActive(context.Background(), next); err == nil {
+			t.Fatal("SaveActive accepted a replaced-account clear failure")
+		}
+
+		store, runner = newFakeLinuxStore()
 		runner.err = errSessionStoreUnavailable
 		if err := store.SaveActive(context.Background(), session); !errors.Is(err, errSessionStoreUnavailable) {
 			t.Fatalf("SaveActive unavailable lookup error = %v", err)
