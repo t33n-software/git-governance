@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
 	"github.com/spf13/cobra"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 func TestNewCommandUsesBuildMetadata(t *testing.T) {

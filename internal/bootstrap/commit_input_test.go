@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 func TestResolveCommitMessageInputRepresentations(t *testing.T) {

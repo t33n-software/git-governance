@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CyberT33N/git-governance/internal/adapters/browser"
-	"github.com/CyberT33N/git-governance/internal/adapters/github"
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
 	"github.com/spf13/cobra"
+	"github.com/t33n-software/git-governance/internal/adapters/browser"
+	"github.com/t33n-software/git-governance/internal/adapters/github"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 func TestGitHubAuthCommandsUseExplicitInteractiveDeviceFlow(t *testing.T) {

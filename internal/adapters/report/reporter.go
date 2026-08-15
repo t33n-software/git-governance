@@ -8,8 +8,8 @@ import (
 	"io"
 	"sort"
 
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 // Format controls the public reporting contract.

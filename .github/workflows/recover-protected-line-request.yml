@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   finalize:
-    if: github.repository == 'CyberT33N/git-governance' && github.ref == 'refs/heads/main'
+    if: github.repository == 't33n-software/git-governance' && github.ref == 'refs/heads/main'
     name: Recover bound protected-line request
     runs-on: ubuntu-24.04
     steps:

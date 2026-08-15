@@ -36,7 +36,7 @@ func TestPackageManagerTemplatesMatchGoReleaserArchiveNames(t *testing.T) {
 			forbidden: []string{"_Windows_", "_x86_64"},
 		},
 		{
-			path: filepath.Join("packaging", "winget", "CyberT33N.GitGovernance.installer.yaml.tmpl"),
+			path: filepath.Join("packaging", "winget", "t33n-software.GitGovernance.installer.yaml.tmpl"),
 			required: []string{
 				"git-governance_{{VERSION}}_windows_amd64.zip",
 				"git-governance_{{VERSION}}_windows_arm64.zip",

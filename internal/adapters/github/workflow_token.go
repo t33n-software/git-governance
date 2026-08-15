@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 // WorkflowTokenResolver exposes only the ephemeral job token injected by a

@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
-	"github.com/CyberT33N/git-governance/internal/application/policy"
-	"github.com/CyberT33N/git-governance/internal/application/port"
 	"github.com/spf13/cobra"
+	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
+	"github.com/t33n-software/git-governance/internal/application/policy"
+	"github.com/t33n-software/git-governance/internal/application/port"
 )
 
 func newValidateCommand(application *application) *cobra.Command {

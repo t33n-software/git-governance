@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/CyberT33N/git-governance/internal/bootstrap"
 	"github.com/spf13/cobra/doc"
+	"github.com/t33n-software/git-governance/internal/bootstrap"
 )
 
 var (

@@ -19,6 +19,7 @@ ticket grammar, or local workflow policy.
 
 | File | Targets | Intent |
 |---|---|---|
+| [`00-push-protections.json`](00-push-protections.json) | every push (no branch targets) | push protection: blocks secret- and key-shaped artifacts from entering the commit graph |
 | [`01-ticket-working-branches.json`](01-ticket-working-branches.json) | all official ticket and `hotfix/*` working branches | light protection: block force push; allow direct commits and deletion after merge |
 | [`02-develop.json`](02-develop.json) | `develop` | strong shared line: PR only, no force push, no deletion, CI/review gates, explicitly permits all three repository-approved PR merge methods |
 | [`03-main.json`](03-main.json) | `main` | maximal shared line: PR only, no force push, no deletion, CI/review gates, merge commits only |
@@ -41,6 +42,26 @@ ticket grammar, or local workflow policy.
 The absence of a `scratch/*` JSON file is intentional policy coverage, not a
 gap. A no-op GitHub ruleset would add no enforcement; a restrictive one would
 contradict the private-exploration contract.
+
+## Push protections
+
+`00-push-protections.json` is a push Ruleset: it applies to every push to the
+repository and its entire fork network and carries no branch targeting. It
+blocks secret- and key-shaped artifacts (private-key and key-store extensions,
+environment files, credential files, and infrastructure state files) from
+entering the commit graph.
+
+Push Rulesets exist only for private and internal repositories with the Team
+plan. This repository is public and cannot carry one; the file documents the
+boundary and stands ready if the repository is ever reclassified as private.
+The public secret-material boundary is secret scanning with push protection
+plus the local quality gates. The file is therefore excluded from the import
+sequences below while the repository stays public.
+
+The file mirrors the official GitHub export envelope because the import
+validates against that schema: a `source` field with the repository's own
+identity, an explicit `conditions: null` (push Rulesets carry no branch
+conditions), and restricted file extensions in glob form (`*.pem`, not `pem`).
 
 ## Hotfix, Scratch, and Staging
 
@@ -375,7 +396,7 @@ local `scratch/*` branches.
 3. **New ruleset → Import a ruleset**.
 4. Select one JSON file from this directory.
 5. Review targets and rules, then **Create**.
-6. Repeat for each file in numeric order.
+6. Repeat for each branch ruleset file in numeric order.
 
 ## Import (API)
 
