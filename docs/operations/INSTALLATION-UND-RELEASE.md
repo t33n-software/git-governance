@@ -35,8 +35,8 @@ Zusätzliche Betriebssysteme sind keine implizite Zusage. Sie benötigen Zielpla
 Build-Eigenschaften:
 
 - Go 1.26 als Sprachversion
-- gepinnte Toolchain Go 1.26.5
-- `go 1.26` plus `toolchain go1.26.5` im Modulvertrag
+- gepinnte Toolchain Go 1.26.6
+- `go 1.26` plus `toolchain go1.26.6` im Modulvertrag
 - `CGO_ENABLED=0`, solange kein belegter Adapter cgo benötigt
 - keine Build- oder Compilerinstallation auf Endgeräten
 - reproduzierbare Versionsmetadaten aus dem unveränderlichen Release-Commit

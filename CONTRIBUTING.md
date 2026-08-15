@@ -2,7 +2,7 @@
 
 ## Development prerequisites
 
-- Go 1.26.5; `go.mod` pins `toolchain go1.26.5`
+- Go 1.26.6; `go.mod` pins `toolchain go1.26.6`
 - Git 2.53 or newer recommended
 
 ```powershell

@@ -16,10 +16,10 @@ does not rely on any external governance repository or unpublished rule set.
 | Item | Status | Evidence |
 |---|---|---|
 | Local repository | VERIFIED | `main` and `origin/main` are initialized; every audit and release gate begins by checking the current Git status |
-| Go toolchain | VERIFIED | Go 1.26.5, Windows amd64 |
+| Go toolchain | VERIFIED | Go 1.26.6, Windows amd64 |
 | Git client | VERIFIED | Git 2.53.0.windows.2 |
 | Legacy scripts and copied hooks | VERIFIED | not present in this repository |
-| Go module | VERIFIED | `github.com/CyberT33N/git-governance`, language Go 1.26 and pinned toolchain Go 1.26.5 |
+| Go module | VERIFIED | `github.com/CyberT33N/git-governance`, language Go 1.26 and pinned toolchain Go 1.26.6 |
 
 ## Core domain and validation
 
@@ -136,7 +136,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Lefthook configuration | IMPLEMENTED | thin `commit-msg` and `pre-push` runners; no duplicated regex |
 | Local Lefthook validation | VERIFIED | Lefthook v2.1.10 returned `All good` |
 | Reproducible release configuration | VERIFIED | GoReleaser v2.16.0 installed locally and validated `.goreleaser.yaml` |
-| Controlled Go execution | IMPLEMENTED | CI and release set `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, and `GOVCS=*:off`, then verify Go 1.26.5 before running Go commands |
+| Controlled Go execution | IMPLEMENTED | CI and release set `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, and `GOVCS=*:off`, then verify Go 1.26.6 before running Go commands |
 | Dependency admission review | IMPLEMENTED | immutable `actions/dependency-review-action` gate blocks dependency changes that introduce low-severity-or-higher findings across all dependency scopes |
 | Dependency-review merge enforcement | VERIFIED | `Dependency admission review` is a required status check for `develop`, `main`, `release/*`, and `support/*`; the repository contract test binds the workflow name and all four ruleset arrays |
 | Periodic dependency re-evaluation | IMPLEMENTED | the CI workflow runs daily in addition to pull-request, push, and manual triggers |
