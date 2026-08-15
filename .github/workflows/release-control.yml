@@ -101,14 +101,14 @@ jobs:
             --request POST "$BROKER_URL/v1/github/installations/token" \
             --header "Authorization: Bearer $BROKER_ID_TOKEN" \
             --header "Content-Type: application/json" \
-            --data '{"host":"github.com","owner":"CyberT33N","repository":"git-governance"}')"
+            --data '{"host":"github.com","owner":"t33n-software","repository":"git-governance"}')"
           test "$approved_status" = "200"
 
           rejected_status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
             --request POST "$BROKER_URL/v1/github/installations/token" \
             --header "Authorization: Bearer $BROKER_ID_TOKEN" \
             --header "Content-Type: application/json" \
-            --data '{"host":"github.com","owner":"CyberT33N","repository":"not-approved"}')"
+            --data '{"host":"github.com","owner":"t33n-software","repository":"not-approved"}')"
           test "$rejected_status" = "403"
 
   release-request:
@@ -271,7 +271,7 @@ jobs:
             --request POST "$PUBLISHER_BROKER_URL/v1/github/installations/token" \
             --header "Authorization: Bearer $PUBLISHER_BROKER_ID_TOKEN" \
             --header "Content-Type: application/json" \
-            --data '{"host":"github.com","owner":"CyberT33N","repository":"git-governance"}')"
+            --data '{"host":"github.com","owner":"t33n-software","repository":"git-governance"}')"
           test "$status" = "200"
           transport_token="$(jq --exit-status --raw-output '.access_token' "$response")"
           test -n "$transport_token"

@@ -49,7 +49,7 @@ nfpms:
       - git-governance
     package_name: git-governance
     description: Native cross-platform CLI for governed Git branch, commit, and workflow operations.
-    maintainer: CyberT33N
+    maintainer: t33n-software
     formats:
       - deb
       - rpm
@@ -79,7 +79,7 @@ signs:
 
 release:
   github:
-    owner: CyberT33N
+    owner: t33n-software
     name: git-governance
   prerelease: auto
 

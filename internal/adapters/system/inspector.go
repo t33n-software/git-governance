@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/CyberT33N/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/port"
 )
 
 const defaultTimeout = 5 * time.Second

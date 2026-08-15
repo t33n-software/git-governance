@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
-	"github.com/CyberT33N/git-governance/internal/domain/ticket"
+	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 type fakeGitRepository struct {

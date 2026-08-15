@@ -1,7 +1,7 @@
 // Package branchapp contains use cases for governed branch operations.
 package branchapp
 
-import "github.com/CyberT33N/git-governance/internal/domain/branch"
+import "github.com/t33n-software/git-governance/internal/domain/branch"
 
 // FamilyInfo explains a branch family to human and automation consumers.
 type FamilyInfo struct {

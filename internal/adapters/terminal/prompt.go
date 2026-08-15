@@ -15,8 +15,8 @@ import (
 
 	"charm.land/huh/v2"
 
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 // Options configures an interactive terminal adapter.

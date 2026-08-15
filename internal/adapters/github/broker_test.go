@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 func TestBrokerResolverMintsAndCachesRepositoryBoundTokens(t *testing.T) {

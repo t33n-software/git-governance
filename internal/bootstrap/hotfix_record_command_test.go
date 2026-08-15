@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/hotfix"
-	"github.com/CyberT33N/git-governance/internal/domain/ticket"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/hotfix"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 func TestHotfixValidateRecordCommand(t *testing.T) {

@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
-	"github.com/CyberT33N/git-governance/internal/domain/ticket"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 func TestFamiliesReflectTheCanonicalCommitTypes(t *testing.T) {

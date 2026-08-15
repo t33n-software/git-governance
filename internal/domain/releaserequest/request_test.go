@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/ticket"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 func TestNewValidatesImmutableRequestBinding(t *testing.T) {
@@ -18,7 +18,7 @@ func TestNewValidatesImmutableRequestBinding(t *testing.T) {
 			t.Fatal(err)
 		}
 		if release.ID() != "request-50" ||
-			release.Repository() != "CyberT33N/git-governance" ||
+			release.Repository() != "t33n-software/git-governance" ||
 			release.Operation() != OperationRelease ||
 			release.Ticket().String() != "GOV-50" ||
 			release.Version() != "1.2.0" ||
@@ -224,7 +224,7 @@ func validInput(t *testing.T, now time.Time) Input {
 	}
 	return Input{
 		ID:               "request-50",
-		Repository:       "CyberT33N/git-governance",
+		Repository:       "t33n-software/git-governance",
 		Operation:        OperationRelease,
 		Ticket:           id,
 		Version:          "1.2.0",

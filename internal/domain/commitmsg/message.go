@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
-	"github.com/CyberT33N/git-governance/internal/domain/ticket"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 const maxSubjectRunes = 200

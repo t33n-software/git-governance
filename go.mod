@@ -1,4 +1,4 @@
-module github.com/CyberT33N/git-governance
+module github.com/t33n-software/git-governance
 
 go 1.26
 

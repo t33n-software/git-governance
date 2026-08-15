@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 func TestParseKey(t *testing.T) {

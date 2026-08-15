@@ -3,10 +3,10 @@ package workflow
 import (
 	"context"
 
-	branchapp "github.com/CyberT33N/git-governance/internal/application/branch"
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/commitmsg"
+	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 )
 
 // AlignReleasePromotionBaseRequest describes an explicit, release-preparation

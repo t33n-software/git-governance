@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/CyberT33N/git-governance/internal/application/port"
-	domainbranch "github.com/CyberT33N/git-governance/internal/domain/branch"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/application/port"
+	domainbranch "github.com/t33n-software/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 type finalQualityGit struct {

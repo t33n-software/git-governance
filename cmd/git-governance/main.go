@@ -4,9 +4,9 @@ import (
 	"context"
 	"os"
 
-	"github.com/CyberT33N/git-governance/internal/bootstrap"
-	"github.com/CyberT33N/git-governance/internal/domain/problem"
 	"github.com/spf13/cobra"
+	"github.com/t33n-software/git-governance/internal/bootstrap"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
 var (

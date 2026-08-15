@@ -81,7 +81,7 @@ its dedicated `GCP_HOTFIX_PROPAGATION_PUBLISHER_*` variables. Do not copy
 broker variables, tokens, PEM values, or authorization headers between lanes.
 
 First dispatch `broker-smoke`. It proves that the broker accepts the approved
-`CyberT33N/git-governance` repository request and rejects an unapproved request
+`t33n-software/git-governance` repository request and rejects an unapproved request
 without printing the returned installation token. A release owner then
 authorizes a bound `release-request`; the separately approved
 `release-execution` job performs at most one protected ref mutation.

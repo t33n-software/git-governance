@@ -222,7 +222,7 @@ jobs:
             --request POST "$BROKER_URL/v1/github/installations/token" \
             --header "Authorization: Bearer $BROKER_ID_TOKEN" \
             --header "Content-Type: application/json" \
-            --data '{"host":"github.com","owner":"CyberT33N","repository":"git-governance"}')"
+            --data '{"host":"github.com","owner":"t33n-software","repository":"git-governance"}')"
           test "$status" = "200"
 
           token="$(jq --exit-status --raw-output '.access_token' "$response")"

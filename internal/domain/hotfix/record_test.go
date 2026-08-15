@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/CyberT33N/git-governance/internal/domain/branch"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
 )
 
 func TestParseRecordAcceptsCompleteMainPatchRecord(t *testing.T) {
