@@ -2,7 +2,7 @@ module github.com/CyberT33N/git-governance
 
 go 1.26
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	charm.land/huh/v2 v2.0.3

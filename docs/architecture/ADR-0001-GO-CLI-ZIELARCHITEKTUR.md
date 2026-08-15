@@ -175,10 +175,10 @@ Go bleibt die richtige Sprache. Die projektbezogene MCDA priorisiert für diese 
 Zielstand:
 
 - Sprachversion: Go 1.26
-- gepinnte Build-Toolchain: Go 1.26.5
+- gepinnte Build-Toolchain: Go 1.26.6
 - cgo: deaktiviert, solange kein belegter Adapter es benötigt
 
-Die Toolchain ist auf der Entwicklungsmaschine als Go 1.26.5 installiert.
+Die Toolchain ist auf der Entwicklungsmaschine als Go 1.26.6 installiert.
 Domain-, Adapter-, Application-, CLI- und lokale Git-Integrationstests sind
 ausgeführt. Plattformübergreifende Release-Smoketests sowie Signierung bleiben
 separate Release-Gates.

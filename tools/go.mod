@@ -2,7 +2,7 @@ module github.com/CyberT33N/git-governance/tools
 
 go 1.26.4
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 tool (
 	github.com/evilmartians/lefthook/v2
