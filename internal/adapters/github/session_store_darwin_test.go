@@ -146,6 +146,9 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		if _, err := store.LoadActive(ctx, session.Host, session.ClientID); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled LoadActive() error = %v", err)
 		}
+		if _, err := store.LoadActiveForHost(ctx, session.Host); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled LoadActiveForHost() error = %v", err)
+		}
 		if err := store.SaveActive(ctx, session); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled SaveActive() error = %v", err)
 		}
