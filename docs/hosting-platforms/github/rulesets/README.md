@@ -63,6 +63,24 @@ validates against that schema: a `source` field with the repository's own
 identity, an explicit `conditions: null` (push Rulesets carry no branch
 conditions), and restricted file extensions in glob form (`*.pem`, not `pem`).
 
+## Code owner review
+
+`.github/CODEOWNERS` is the versioned ownership contract. Its default `*`
+entry binds every path to `@CyberT33N`, the maintainer of this
+single-maintainer organization. The shared-line Rulesets `02-develop.json`,
+`03-main.json`, `04-release.json`, and `05-support.json` set
+`require_code_owner_review: true`, so a shared-line pull request requires an
+approval from the bound owner in addition to the existing review count and
+resolved review threads.
+
+GitHub CODEOWNERS entries may reference users, organization teams
+(`@org/team`), or email addresses; a bare organization cannot own code. A team
+reference such as `@t33n-software/<team>` is added by a governed change once
+the organization establishes its first team.
+
+After a merged change to these Ruleset sources, re-import the affected files
+through the GitHub UI so the live rules match the versioned sources.
+
 ## Hotfix, Scratch, and Staging
 
 ### Hotfix
@@ -360,10 +378,10 @@ bypass is ruleset-wide, so use a dedicated, least-privileged actor rather than
 an unrestricted administrator bypass when a bypass is genuinely required.
 
 The rulesets require one approval and resolved review threads, which implement
-the governance recommendations. `require_code_owner_review` is `false` because
-this repository currently has no `CODEOWNERS` file; set it to `true` only after
-that ownership contract exists. Signed commits are likewise a recommended,
-separate decision and are not silently imposed here.
+the governance recommendations. Code owner review is active on every shared
+line through the versioned ownership contract; see "Code owner review". Signed
+commits remain a recommended, separate decision and are not silently imposed
+here.
 
 ## Branch cleanup after merge
 

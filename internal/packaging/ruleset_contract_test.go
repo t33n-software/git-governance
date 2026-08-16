@@ -126,6 +126,65 @@ func TestPushProtectionsRulesetBlocksCredentialShapedArtifacts(t *testing.T) {
 	}
 }
 
+func TestSharedLineRulesetsRequireCodeOwnerReview(t *testing.T) {
+	t.Parallel()
+
+	for _, fileName := range []string{
+		"02-develop.json",
+		"03-main.json",
+		"04-release.json",
+		"05-support.json",
+	} {
+		fileName := fileName
+		t.Run(fileName, func(t *testing.T) {
+			t.Parallel()
+
+			if !rulesetRequiresCodeOwnerReview(t, fileName) {
+				t.Fatal("shared-line ruleset must require code owner review")
+			}
+		})
+	}
+}
+
+func TestCodeOwnersContractBindsTheMaintainer(t *testing.T) {
+	t.Parallel()
+
+	contents := readRepositoryDocument(t, filepath.Join(".github", "CODEOWNERS"))
+
+	defaultFound := false
+	for _, line := range strings.Split(strings.ReplaceAll(contents, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			t.Fatalf("CODEOWNERS entry %q must map a path pattern to at least one owner", line)
+		}
+		for _, owner := range fields[1:] {
+			if !strings.HasPrefix(owner, "@") {
+				t.Fatalf("CODEOWNERS owner %q must be a GitHub user or team reference", owner)
+			}
+		}
+		if fields[0] == "*" {
+			defaultFound = true
+			if fields[1] != "@CyberT33N" {
+				t.Fatalf("CODEOWNERS default owner = %q, want @CyberT33N", fields[1])
+			}
+		}
+	}
+	if !defaultFound {
+		t.Fatal("CODEOWNERS must define the default * ownership entry")
+	}
+
+	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "hosting-platforms", "github", "rulesets", "README.md")))
+	for _, required := range []string{"CODEOWNERS", "require_code_owner_review", "@CyberT33N"} {
+		if !strings.Contains(readme, required) {
+			t.Fatalf("Ruleset README does not document the code owner token %q", required)
+		}
+	}
+}
+
 func readRepositoryDocument(t *testing.T, path string) string {
 	t.Helper()
 
@@ -177,6 +236,42 @@ func rulesetStatusChecks(t *testing.T, fileName string) (bool, []string) {
 	}
 	t.Fatal("ruleset does not define required status checks")
 	return false, nil
+}
+
+func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
+	t.Helper()
+
+	contents, err := os.ReadFile(filepath.Join(
+		repositoryRoot(t),
+		"docs",
+		"hosting-platforms",
+		"github",
+		"rulesets",
+		fileName,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var ruleset struct {
+		Rules []struct {
+			Type       string `json:"type"`
+			Parameters struct {
+				RequireCodeOwnerReview bool `json:"require_code_owner_review"`
+			} `json:"parameters"`
+		} `json:"rules"`
+	}
+	if err := json.Unmarshal(contents, &ruleset); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, rule := range ruleset.Rules {
+		if rule.Type == "pull_request" {
+			return rule.Parameters.RequireCodeOwnerReview
+		}
+	}
+	t.Fatal("ruleset does not define a pull_request rule")
+	return false
 }
 
 const dependencyAdmissionReviewStatusCheck = "Dependency admission review"
