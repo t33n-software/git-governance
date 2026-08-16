@@ -28,12 +28,6 @@ const (
 
 var errSessionNotFound = errors.New("GitHub App session not found")
 
-// activeScopePointerAccount is the well-known account label of the
-// host-level record that names the client ID of the currently active
-// session. Platform stores that cannot enumerate scopes resolve the active
-// session through this pointer.
-const activeScopePointerAccount = "__git_governance_active_scope__"
-
 // CredentialTarget identifies the exact GitHub repository for which an API
 // credential is requested. A resolver must reject a host mismatch rather than
 // attempting to reuse a credential for another GitHub host.
