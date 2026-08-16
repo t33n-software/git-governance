@@ -181,7 +181,7 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("classifies both save calls and both delete calls", func(t *testing.T) {
+	t.Run("classifies all save calls and delete calls", func(t *testing.T) {
 		store, runner := newFakeLinuxStore()
 		runner.err = errSessionStoreUnavailable
 		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionStoreUnavailable) {
@@ -211,6 +211,17 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 
 		store, runner = newFakeLinuxStore()
+		runner.fail = func(command, _, _ string, call int) error {
+			if command == "store" && call == 3 {
+				return errors.New("host pointer store failed")
+			}
+			return nil
+		}
+		if err := store.SaveActive(context.Background(), session); err == nil {
+			t.Fatal("SaveActive accepted a host-pointer store failure")
+		}
+
+		store, runner = newFakeLinuxStore()
 		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
 		runner.fail = func(command, _, _ string, call int) error {
 			if command == "clear" && call == 1 {
@@ -232,6 +243,72 @@ func TestLinuxSecretServiceStoreWhiteboxErrorPaths(t *testing.T) {
 		}
 		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err == nil {
 			t.Fatal("DeleteActive accepted an active-profile clear failure")
+		}
+	})
+
+	t.Run("resolves the active session through the host pointer", func(t *testing.T) {
+		store, runner := newFakeLinuxStore()
+		if _, err := store.LoadActiveForHost(context.Background(), "github.com"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("empty LoadActiveForHost() error = %v", err)
+		}
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatalf("SaveActive() error = %v", err)
+		}
+		loaded, err := store.LoadActiveForHost(context.Background(), "GitHub.COM")
+		if err != nil || loaded != session {
+			t.Fatalf("LoadActiveForHost() = (%#v, %v)", loaded, err)
+		}
+		if got := string(runner.values[runner.key(session.Host, activeScopePointerAccount)]); got != session.ClientID {
+			t.Fatalf("host pointer = %q, want %q", got, session.ClientID)
+		}
+
+		next := testStoredSession("github.com", "octocat")
+		next.ClientID = "platform-client-id"
+		next.RefreshToken = "ghr-platform"
+		if err := store.SaveActive(context.Background(), next); err != nil {
+			t.Fatalf("SaveActive(next) error = %v", err)
+		}
+		if loaded, err := store.LoadActiveForHost(context.Background(), "github.com"); err != nil || loaded != next {
+			t.Fatalf("host pointer did not follow the latest login: (%#v, %v)", loaded, err)
+		}
+
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err != nil {
+			t.Fatalf("DeleteActive(previous scope) error = %v", err)
+		}
+		if loaded, err := store.LoadActiveForHost(context.Background(), "github.com"); err != nil || loaded != next {
+			t.Fatalf("deleting a non-active scope moved the pointer: (%#v, %v)", loaded, err)
+		}
+		if err := store.DeleteActive(context.Background(), next.Host, next.ClientID); err != nil {
+			t.Fatalf("DeleteActive(active scope) error = %v", err)
+		}
+		if _, err := store.LoadActiveForHost(context.Background(), "github.com"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("pointer survived its session deletion: %v", err)
+		}
+	})
+
+	t.Run("propagates host pointer failures", func(t *testing.T) {
+		store, runner := newFakeLinuxStore()
+		runner.err = errSessionStoreUnavailable
+		if _, err := store.LoadActiveForHost(context.Background(), "github.com"); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("unavailable pointer lookup error = %v", err)
+		}
+
+		store, runner = newFakeLinuxStore()
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err != nil {
+			t.Fatalf("DeleteActive() without pointer error = %v", err)
+		}
+
+		store, runner = newFakeLinuxStore()
+		runner.values[runner.key(scope, linuxSecretActiveAccount)] = []byte(session.Account)
+		runner.fail = func(command, _, account string, _ int) error {
+			if command == "lookup" && account == activeScopePointerAccount {
+				return errSessionStoreUnavailable
+			}
+			return nil
+		}
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("pointer lookup failure = %v", err)
 		}
 	})
 

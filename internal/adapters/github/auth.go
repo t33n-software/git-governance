@@ -28,6 +28,12 @@ const (
 
 var errSessionNotFound = errors.New("GitHub App session not found")
 
+// activeScopePointerAccount is the well-known account label of the
+// host-level record that names the client ID of the currently active
+// session. Platform stores that cannot enumerate scopes resolve the active
+// session through this pointer.
+const activeScopePointerAccount = "__git_governance_active_scope__"
+
 // CredentialTarget identifies the exact GitHub repository for which an API
 // credential is requested. A resolver must reject a host mismatch rather than
 // attempting to reuse a credential for another GitHub host.
@@ -47,7 +53,14 @@ type CredentialResolver interface {
 // SessionStore persists only refresh credentials and non-sensitive profile
 // metadata in a native operating-system secret store.
 type SessionStore interface {
+	// LoadActive returns the active session for exactly one host and client
+	// ID pair.
 	LoadActive(context.Context, string, string) (Session, error)
+	// LoadActiveForHost returns the active session for a host without
+	// requiring the caller to know its client ID. Exactly one session is
+	// active per host; a missing pointer fails closed with
+	// errSessionNotFound.
+	LoadActiveForHost(context.Context, string) (Session, error)
 	SaveActive(context.Context, Session) error
 	DeleteActive(context.Context, string, string) error
 }
@@ -104,7 +117,6 @@ type AuthProvider interface {
 // store; tests provide fake stores, clocks, and HTTP clients.
 type AuthOptions struct {
 	Store        SessionStore
-	ClientID     string
 	Host         string
 	OAuthBaseURL string
 	APIBaseURL   string
@@ -117,7 +129,6 @@ type AuthOptions struct {
 // repository authorization checks, and just-in-time credential resolution.
 type AuthService struct {
 	store        SessionStore
-	clientID     string
 	host         string
 	oauthBaseURL string
 	apiBaseURL   string
@@ -214,7 +225,6 @@ func NewAuthService(options AuthOptions) *AuthService {
 	}
 	return &AuthService{
 		store:        store,
-		clientID:     strings.TrimSpace(options.ClientID),
 		host:         host,
 		oauthBaseURL: oauthBaseURL,
 		apiBaseURL:   apiBaseURL,
@@ -228,30 +238,19 @@ func NewAuthService(options AuthOptions) *AuthService {
 }
 
 // Login starts an explicit Device Flow login, waits for user authorization,
-// validates the user identity, and persists only the refresh session.
+// validates the user identity, and persists only the refresh session. The
+// public GitHub App client ID is supplied with the request; the persisted
+// session becomes the active session for the host and the authority for all
+// later credential resolution.
 func (service *AuthService) Login(ctx context.Context, request LoginRequest) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App login"); err != nil {
-		return SessionStatus{}, err
-	}
-	clientID, err := service.configuredClientID()
-	if err != nil {
 		return SessionStatus{}, err
 	}
 	requestClientID, err := validateClientID(request.ClientID)
 	if err != nil {
 		return SessionStatus{}, err
 	}
-	if requestClientID != clientID {
-		return SessionStatus{}, problem.New(problem.Details{
-			Code:        problem.CodeConfigurationInvalid,
-			Category:    problem.CategoryConfig,
-			Field:       "GitHub App client ID",
-			Expected:    "the configured GitHub App client ID",
-			Rule:        "GitHub App sessions are isolated by host, account, and configured client ID",
-			Remediation: "use the configured GitHub App client ID and retry auth login github",
-		})
-	}
-	device, deviceCode, err := service.requestDeviceAuthorization(ctx, clientID)
+	device, deviceCode, err := service.requestDeviceAuthorization(ctx, requestClientID)
 	if err != nil {
 		return SessionStatus{}, err
 	}
@@ -260,7 +259,7 @@ func (service *AuthService) Login(ctx context.Context, request LoginRequest) (Se
 			return SessionStatus{}, err
 		}
 	}
-	tokens, err := service.pollForTokens(ctx, clientID, device, deviceCode)
+	tokens, err := service.pollForTokens(ctx, requestClientID, device, deviceCode)
 	if err != nil {
 		return SessionStatus{}, err
 	}
@@ -271,7 +270,7 @@ func (service *AuthService) Login(ctx context.Context, request LoginRequest) (Se
 	session := Session{
 		Host:                  service.host,
 		Account:               account,
-		ClientID:              clientID,
+		ClientID:              requestClientID,
 		RefreshToken:          tokens.RefreshToken,
 		RefreshTokenExpiresAt: service.now().Add(time.Duration(tokens.RefreshTokenExpiresIn) * time.Second),
 	}
@@ -288,7 +287,7 @@ func (service *AuthService) Status(ctx context.Context) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App status"); err != nil {
 		return SessionStatus{}, err
 	}
-	session, err := service.loadConfiguredSession(ctx)
+	session, err := service.loadActiveSession(ctx)
 	if err != nil {
 		return SessionStatus{}, err
 	}
@@ -302,15 +301,11 @@ func (service *AuthService) Logout(ctx context.Context) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App logout"); err != nil {
 		return SessionStatus{}, err
 	}
-	clientID, err := service.configuredClientID()
+	session, err := service.loadActiveSession(ctx)
 	if err != nil {
 		return SessionStatus{}, err
 	}
-	session, err := service.loadSession(ctx, clientID)
-	if err != nil {
-		return SessionStatus{}, err
-	}
-	if err := service.store.DeleteActive(ctx, service.host, clientID); err != nil {
+	if err := service.store.DeleteActive(ctx, service.host, session.ClientID); err != nil {
 		return SessionStatus{}, sessionStoreProblem("delete", err)
 	}
 	service.forgetSession(session)
@@ -328,11 +323,7 @@ func (service *AuthService) Resolve(ctx context.Context, target CredentialTarget
 	if err != nil {
 		return "", err
 	}
-	clientID, err := service.configuredClientID()
-	if err != nil {
-		return "", err
-	}
-	session, err := service.loadSession(ctx, clientID)
+	session, err := service.loadActiveSession(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -710,32 +701,23 @@ func validateClientID(value string) (string, error) {
 			Code:        problem.CodeConfigurationInvalid,
 			Category:    problem.CategoryConfig,
 			Field:       "GitHub App client ID",
-			Expected:    "a non-empty GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID environment variable",
+			Expected:    "a non-empty public GitHub App client ID",
 			Rule:        "GitHub App Device Flow requires a public GitHub App client ID",
-			Remediation: "set the public client ID outside the repository and retry auth login github",
+			Remediation: "enter the public GitHub App client ID when auth login github prompts for it",
 		})
 	}
 	return value, nil
 }
 
-func (service *AuthService) configuredClientID() (string, error) {
-	return validateClientID(service.clientID)
-}
-
-func (service *AuthService) loadConfiguredSession(ctx context.Context) (Session, error) {
-	clientID, err := service.configuredClientID()
-	if err != nil {
-		return Session{}, err
-	}
-	return service.loadSession(ctx, clientID)
-}
-
-func (service *AuthService) loadSession(ctx context.Context, clientID string) (Session, error) {
-	session, err := service.store.LoadActive(ctx, service.host, clientID)
+// loadActiveSession resolves the single active session for the configured
+// host from the protected store. The stored session, not an ambient
+// environment value, is the authority for the GitHub App client ID.
+func (service *AuthService) loadActiveSession(ctx context.Context) (Session, error) {
+	session, err := service.store.LoadActiveForHost(ctx, service.host)
 	if err != nil {
 		return Session{}, sessionStoreProblem("load", err)
 	}
-	if err := validateSession(session, service.host, clientID); err != nil {
+	if err := validateSession(session, service.host, session.ClientID); err != nil {
 		return Session{}, err
 	}
 	return session, nil

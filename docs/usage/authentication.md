@@ -30,32 +30,65 @@ following before a user runs the CLI:
    eight-hour access token and a six-month refresh token in that mode.
 5. Give the user access to the selected repository. A user token is limited to
    the intersection of the App's installation access and the user's access.
-6. Supply the App's public client ID to the invoking process. It is not a
-   secret:
-
-   ```powershell
-   $env:GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID = "<GitHub-App-client-ID>"
-   ```
+6. Have the App's public client ID ready for the first login. It is not a
+   secret. The user enters it once when `auth login github` prompts for it;
+   the CLI stores it with the protected session and never asks for it again
+   on that host.
 
 The local CLI never receives the App ID, private key, or client secret. The
 Authorization Code Flow is therefore not used locally: GitHub requires a
 client secret for its code exchange even when PKCE is present. The Device Flow
 is the secure native-client flow because it uses only the public client ID.
+No environment variable and no command-line flag supplies the client ID: the
+interactive login prompt is the only entry point, and the stored session is
+the only authority afterwards.
 
-## Session isolation for multiple GitHub Apps
+## Session model and multi-project resolution
 
-The public GitHub App client ID is part of the protected local session scope:
+Every protected local session record is scoped by:
 
 ```text
-GitHub host + GitHub account + configured GitHub App client ID
+GitHub host + GitHub account + GitHub App client ID
 ```
 
-`auth status github`, `auth logout github`, credential refresh, repository
-authorization, and pull-request publication select only the session for the
-currently configured `GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID`. Logging in to a
-second GitHub App for the same account and host therefore does not overwrite
-the first App's session, and logout for one App does not remove another App's
-session.
+Exactly one session is active per host. The session that completes
+`auth login github` becomes the active session for its host and carries the
+public client ID inside the protected record. From that point on, no
+environment variable, flag, or repeated input is involved:
+
+- `auth status github` reads the active session for the host.
+- `auth logout github` removes the active session for the host.
+- Credential refresh and pull-request publication resolve the active session
+  for the host and verify repository authorization against the actual target
+  repository immediately before every GitHub API call.
+
+Logging in to a second GitHub App on the same host moves the active marker to
+the new session. The previous session record remains stored under its own
+scope but is no longer selected; logging in again with the first client ID
+makes it active again. Logout removes only the active session.
+
+## Multiple projects on one workstation
+
+The session is a machine- and user-level credential, not a per-project file.
+A developer authenticates once per host and then works across any number of
+local repositories:
+
+1. The CLI discovers the current repository from the working directory, or
+   from `--repo` when another project is explicitly selected, and derives
+   host, owner, and repository from its remote.
+2. Credential resolution loads the active session for that host from the
+   native secret store. No project-specific client ID, environment variable,
+   or flag exists.
+3. Immediately before a pull-request API call, the CLI verifies that the
+   GitHub App installation and the authenticated user both cover exactly that
+   repository. A session whose App is not installed for the current
+   repository fails closed with an actionable authorization error.
+
+This makes cross-project drift structurally impossible: the binding check is
+evaluated per target repository at call time, not per value configured in a
+shell. Working on project A and then project B requires no re-login and no
+reconfiguration; publishing into a repository the App does not cover is
+rejected regardless of which session is active.
 
 Host-and-account-only legacy session storage is deliberately not supported.
 The canonical client-ID-scoped layout keeps the standard native-store names;
@@ -63,7 +96,9 @@ it does not create a versioned parallel store. Delete any old local session
 entries before upgrading, then run `auth login github` for each GitHub App
 that needs a local session. Legacy data is never selected, transformed,
 migrated, or assigned to another App; an undeleted incompatible DPAPI document
-is rejected fail-closed.
+is rejected fail-closed. Sessions stored before the host-pointer layout also
+do not carry the active-session marker; one fresh `auth login github` per host
+rebinds them.
 
 The local operating-system secret store must also be available:
 
@@ -150,18 +185,21 @@ starts login implicitly.
 
 The command performs this sequence:
 
-1. It sends the public client ID to GitHub's Device Authorization endpoint.
-2. It prints the HTTPS verification URL and one-time user code, then attempts
+1. It prompts for the public GitHub App client ID exactly once. The value is
+   public configuration, not a secret; it is stored with the protected session
+   and never requested again on that host.
+2. It sends the public client ID to GitHub's Device Authorization endpoint.
+3. It prints the HTTPS verification URL and one-time user code, then attempts
    to open that URL in the native browser. If opening the browser fails, the
    printed URL and code remain sufficient for a manual browser login.
-3. The user signs in to GitHub, verifies any required organization SSO session,
+4. The user signs in to GitHub, verifies any required organization SSO session,
    and approves the GitHub App in the browser.
-4. The CLI polls only at GitHub's requested interval. It honors
+5. The CLI polls only at GitHub's requested interval. It honors
    `authorization_pending`, increases the interval for `slow_down`, and
    fails when the code expires or the user denies approval.
-5. GitHub returns a short-lived user access token and a rotating refresh token.
+6. GitHub returns a short-lived user access token and a rotating refresh token.
    The CLI uses the access token only in memory to identify the account.
-6. Only the host-, account-, and client-ID-bound refresh session, public client
+7. Only the host-, account-, and client-ID-bound refresh session, public client
    ID, account name, and refresh expiry are persisted in the native secret
    store. The access token, device code, authorization header, and refresh
    token are never written to preferences, logs, JSON output, errors, or
@@ -191,7 +229,8 @@ required.
 ## Pull-request publication after login
 
 With `--pull-request-provider github`, the publisher resolves credentials
-immediately before every GitHub API call:
+from the active stored session immediately before every GitHub API call. No
+environment variable, flag, or repeated client-ID input participates:
 
 1. It parses the selected Git remote into host, owner, and repository.
 2. For a local session, it accepts only `github.com`; a session for one host

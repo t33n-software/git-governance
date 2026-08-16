@@ -43,9 +43,13 @@ var (
 )
 
 type sessionDocument struct {
-	SchemaVersion int                `json:"schemaVersion"`
-	ActiveByScope map[string]string  `json:"activeByScope,omitempty"`
-	Sessions      map[string]Session `json:"sessions"`
+	SchemaVersion int `json:"schemaVersion"`
+	// ActiveScopeByHost maps a normalized host to the scope key of the
+	// currently active session. It lets the store resolve the active session
+	// without an ambient client-ID value.
+	ActiveScopeByHost map[string]string  `json:"activeScopeByHost,omitempty"`
+	ActiveByScope     map[string]string  `json:"activeByScope,omitempty"`
+	Sessions          map[string]Session `json:"sessions"`
 }
 
 type dpapiSessionStore struct {
@@ -72,6 +76,29 @@ func (store *dpapiSessionStore) LoadActive(ctx context.Context, host, clientID s
 	if err != nil {
 		return Session{}, err
 	}
+	return loadScopedSession(document, host, clientID)
+}
+
+func (store *dpapiSessionStore) LoadActiveForHost(ctx context.Context, host string) (Session, error) {
+	if err := contextFailure(ctx); err != nil {
+		return Session{}, err
+	}
+	document, err := store.load()
+	if err != nil {
+		return Session{}, err
+	}
+	scope, found := document.ActiveScopeByHost[normalizeHost(host)]
+	if !found || strings.TrimSpace(scope) == "" {
+		return Session{}, errSessionNotFound
+	}
+	clientID, found := strings.CutPrefix(scope, normalizeHost(host)+"\x00")
+	if !found || strings.TrimSpace(clientID) == "" {
+		return Session{}, errors.New("protected GitHub App session host pointer is inconsistent")
+	}
+	return loadScopedSession(document, host, clientID)
+}
+
+func loadScopedSession(document sessionDocument, host, clientID string) (Session, error) {
 	scope := sessionScopeKey(host, clientID)
 	account, found := document.ActiveByScope[scope]
 	if !found || strings.TrimSpace(account) == "" {
@@ -109,6 +136,7 @@ func (store *dpapiSessionStore) SaveActive(ctx context.Context, session Session)
 	}
 	document.Sessions[sessionKey(session.Host, session.Account, session.ClientID)] = session
 	document.ActiveByScope[scope] = session.Account
+	document.ActiveScopeByHost[normalizeHost(session.Host)] = scope
 	return store.save(document)
 }
 
@@ -127,6 +155,9 @@ func (store *dpapiSessionStore) DeleteActive(ctx context.Context, host, clientID
 	}
 	delete(document.ActiveByScope, scope)
 	delete(document.Sessions, sessionKey(host, account, clientID))
+	if document.ActiveScopeByHost[normalizeHost(host)] == scope {
+		delete(document.ActiveScopeByHost, normalizeHost(host))
+	}
 	return store.save(document)
 }
 
@@ -161,6 +192,9 @@ func (store *dpapiSessionStore) load() (sessionDocument, error) {
 	}
 	if document.Sessions == nil {
 		document.Sessions = make(map[string]Session)
+	}
+	if document.ActiveScopeByHost == nil {
+		document.ActiveScopeByHost = make(map[string]string)
 	}
 	return document, nil
 }
@@ -220,9 +254,10 @@ func defaultDPAPISessionStorePath() (string, error) {
 
 func emptySessionDocument() sessionDocument {
 	return sessionDocument{
-		SchemaVersion: sessionStoreSchemaVersion,
-		ActiveByScope: make(map[string]string),
-		Sessions:      make(map[string]Session),
+		SchemaVersion:     sessionStoreSchemaVersion,
+		ActiveScopeByHost: make(map[string]string),
+		ActiveByScope:     make(map[string]string),
+		Sessions:          make(map[string]Session),
 	}
 }
 

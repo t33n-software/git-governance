@@ -27,7 +27,8 @@ func TestGitHubAuthCommandsUseExplicitInteractiveDeviceFlow(t *testing.T) {
 	}
 	provider := &bootstrapAuthProvider{loginStatus: status, statusValue: status, logoutStatus: status}
 	opener := &bootstrapBrowserOpener{}
-	application := newAuthCommandApplication(provider, opener, func() string { return "public-client-id" })
+	prompt := &runtimeTestPrompt{inputValue: "public-client-id"}
+	application := newAuthCommandApplication(provider, opener, prompt)
 	command := newAuthCommand(application)
 	stdout, stderr, err := executeAuthCommand(t, command, context.Background(), "login", "github")
 	if err != nil {
@@ -35,6 +36,10 @@ func TestGitHubAuthCommandsUseExplicitInteractiveDeviceFlow(t *testing.T) {
 	}
 	if stderr != "" || provider.loginCalls != 1 || provider.loginClientID != "public-client-id" {
 		t.Fatalf("login output=%q stderr=%q provider=%#v", stdout, stderr, provider)
+	}
+	if len(prompt.inputRequests) != 1 || prompt.inputRequests[0].Label != "GitHub App client ID" ||
+		!prompt.inputRequests[0].Required {
+		t.Fatalf("login did not prompt once for the client ID: %#v", prompt.inputRequests)
 	}
 	if len(opener.urls) != 1 || opener.urls[0] != "https://github.com/login/device" {
 		t.Fatalf("opened browser URLs = %#v", opener.urls)
@@ -65,7 +70,7 @@ func TestGitHubAuthStatusAndLogoutContracts(t *testing.T) {
 		RefreshState:          "active",
 	}
 	provider := &bootstrapAuthProvider{statusValue: status, logoutStatus: status}
-	application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, func() string { return "client" })
+	application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{})
 
 	statusCommand := newAuthCommand(application)
 	application.options.output = "json"
@@ -99,7 +104,7 @@ func TestGitHubAuthStatusAndLogoutContracts(t *testing.T) {
 func TestGitHubAuthCommandsRejectUnsafeExecutionAndProviderFailures(t *testing.T) {
 	t.Run("requires a human interactive terminal for login", func(t *testing.T) {
 		provider := &bootstrapAuthProvider{}
-		application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, func() string { return "client" })
+		application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{})
 		for _, configure := range []func(){
 			func() { application.options.interactive = "never" },
 			func() { application.options.output = "json" },
@@ -122,7 +127,7 @@ func TestGitHubAuthCommandsRejectUnsafeExecutionAndProviderFailures(t *testing.T
 	t.Run("surfaces provider errors and unavailable composition", func(t *testing.T) {
 		expected := errors.New("session unavailable")
 		provider := &bootstrapAuthProvider{loginErr: expected, statusErr: expected, logoutErr: expected}
-		application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, func() string { return "client" })
+		application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{inputValue: "client"})
 		for _, args := range [][]string{{"login", "github"}, {"status", "github"}, {"logout", "github"}} {
 			_, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), args...)
 			if !errors.Is(err, expected) {
@@ -138,10 +143,23 @@ func TestGitHubAuthCommandsRejectUnsafeExecutionAndProviderFailures(t *testing.T
 		assertBootstrapAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 	})
 
+	t.Run("surfaces a client ID prompt failure before the device flow", func(t *testing.T) {
+		expected := errors.New("input unavailable")
+		provider := &bootstrapAuthProvider{}
+		application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{inputErr: expected})
+		_, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "login", "github")
+		if !errors.Is(err, expected) {
+			t.Fatalf("login prompt error = %v, want %v", err, expected)
+		}
+		if provider.loginCalls != 0 {
+			t.Fatalf("prompt failure called provider %d times", provider.loginCalls)
+		}
+	})
+
 	t.Run("browser opening failure does not block manual verification", func(t *testing.T) {
 		opener := &bootstrapBrowserOpener{err: errors.New("browser unavailable")}
 		provider := &bootstrapAuthProvider{loginStatus: github.SessionStatus{Host: "github.com", Account: "octocat"}}
-		application := newAuthCommandApplication(provider, opener, func() string { return "client" })
+		application := newAuthCommandApplication(provider, opener, &runtimeTestPrompt{inputValue: "client"})
 		output, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "login", "github")
 		if err != nil || !strings.Contains(output, "Verification URL:") || len(opener.urls) != 1 {
 			t.Fatalf("manual login fallback = (%q, %v), urls=%#v", output, err, opener.urls)
@@ -169,7 +187,7 @@ func TestAuthCommandHelpersAreRedactedAndStable(t *testing.T) {
 		t.Fatalf("session fields = %#v", fields)
 	}
 	output := &bytes.Buffer{}
-	command := newAuthCommand(newAuthCommandApplication(&bootstrapAuthProvider{}, &bootstrapBrowserOpener{}, func() string { return "client" }))
+	command := newAuthCommand(newAuthCommandApplication(&bootstrapAuthProvider{}, &bootstrapBrowserOpener{}, &runtimeTestPrompt{}))
 	command.SetOut(output)
 	writeDeviceAuthorizationInstructions(command, github.DeviceAuthorization{
 		VerificationURI: "https://github.com/login/device",
@@ -184,7 +202,7 @@ func TestAuthCommandHelpersAreRedactedAndStable(t *testing.T) {
 func newAuthCommandApplication(
 	provider github.AuthProvider,
 	opener browser.Opener,
-	clientID func() string,
+	prompt port.Prompt,
 ) *application {
 	return newApplication(Runtime{
 		GitFactory: func(time.Duration) port.GitRepository {
@@ -196,10 +214,12 @@ func newAuthCommandApplication(
 		GitHubAuthFactory: func(time.Duration) github.AuthProvider {
 			return provider
 		},
-		Browser:           opener,
-		GitHubAppClientID: clientID,
-		InputIsTerminal:   func() bool { return true },
-		OutputIsTerminal:  func() bool { return true },
+		Browser: opener,
+		PromptFactory: func(bool, string) port.Prompt {
+			return prompt
+		},
+		InputIsTerminal:  func() bool { return true },
+		OutputIsTerminal: func() bool { return true },
 	}, &appOptions{
 		interactive: "auto",
 		output:      "human",

@@ -521,7 +521,7 @@ func TestAuthStatusLogoutAndUtilityContracts(t *testing.T) {
 	}
 }
 
-func TestAuthServiceScopesSessionsByConfiguredClientID(t *testing.T) {
+func TestAuthServiceResolvesTheHostScopedActiveSession(t *testing.T) {
 	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
 	tenantA := testStoredSession("github.com", "octocat")
 	tenantA.ClientID = "tenant-a-client-id"
@@ -538,61 +538,48 @@ func TestAuthServiceScopesSessionsByConfiguredClientID(t *testing.T) {
 		t.Fatalf("SaveActive(platform) error = %v", err)
 	}
 
-	tenantService := newTestAuthService(t, AuthOptions{
-		Store:    store,
-		ClientID: tenantA.ClientID,
-		Now:      func() time.Time { return now },
-	})
-	platformService := newTestAuthService(t, AuthOptions{
-		Store:    store,
-		ClientID: platform.ClientID,
-		Now:      func() time.Time { return now },
+	service := newTestAuthService(t, AuthOptions{
+		Store: store,
+		Now:   func() time.Time { return now },
 	})
 
-	if status, err := tenantService.Status(context.Background()); err != nil || status.Account != tenantA.Account {
-		t.Fatalf("tenant Status() = (%#v, %v)", status, err)
+	// The latest login becomes the active session for the host; no ambient
+	// client ID is consulted.
+	status, err := service.Status(context.Background())
+	if err != nil || status.Account != platform.Account {
+		t.Fatalf("host-scoped Status() = (%#v, %v)", status, err)
 	}
-	if status, err := platformService.Status(context.Background()); err != nil || status.Account != platform.Account {
-		t.Fatalf("platform Status() = (%#v, %v)", status, err)
+	if _, err := service.Logout(context.Background()); err != nil {
+		t.Fatalf("Logout() error = %v", err)
 	}
-	if _, err := platformService.Logout(context.Background()); err != nil {
-		t.Fatalf("platform Logout() error = %v", err)
-	}
-	if _, err := tenantService.Status(context.Background()); err != nil {
-		t.Fatalf("tenant session was removed by platform logout: %v", err)
-	}
-	_, err := platformService.Status(context.Background())
+	// Logging out the active session clears the host pointer even though the
+	// replaced scope record remains stored; resolution fails closed until the
+	// next explicit login.
+	_, err = service.Status(context.Background())
 	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 }
 
-func TestAuthServiceFailsClosedForMissingOrMismatchedConfiguredClientID(t *testing.T) {
+func TestAuthServiceFailsClosedWithoutActiveSession(t *testing.T) {
 	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
-	missingClientID := NewAuthService(AuthOptions{
-		Store: &memorySessionStore{session: testStoredSession("github.com", "octocat")},
+	store := &memorySessionStore{}
+	service := newTestAuthService(t, AuthOptions{
+		Store: store,
 		Now:   func() time.Time { return now },
 	})
-	_, err := missingClientID.Status(context.Background())
-	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
-	_, err = missingClientID.Logout(context.Background())
-	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
-	_, err = missingClientID.Resolve(context.Background(), CredentialTarget{
+	_, err := service.Status(context.Background())
+	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	_, err = service.Logout(context.Background())
+	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	_, err = service.Resolve(context.Background(), CredentialTarget{
 		Host:       "github.com",
 		Owner:      "acme",
 		Repository: "governance",
 	})
-	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
-
-	store := &memorySessionStore{}
-	service := newTestAuthService(t, AuthOptions{
-		Store:    store,
-		ClientID: "tenant-a-client-id",
-		Now:      func() time.Time { return now },
-	})
-	_, err = service.Login(context.Background(), LoginRequest{ClientID: "platform-client-id"})
-	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 	if store.saveCalls != 0 {
-		t.Fatalf("mismatched client ID persisted a session: saves=%d", store.saveCalls)
+		t.Fatalf("failed resolution persisted a session: saves=%d", store.saveCalls)
 	}
+
 	_, err = service.Login(context.Background(), LoginRequest{})
 	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
 
@@ -748,7 +735,6 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 
 		badEndpoint := NewAuthService(AuthOptions{
 			Store:        &memorySessionStore{},
-			ClientID:     "public-client-id",
 			OAuthBaseURL: "http://not-https",
 			Now:          func() time.Time { return now },
 		})
@@ -1128,9 +1114,6 @@ func newTestAuthService(t *testing.T, options AuthOptions) *AuthService {
 			return time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
 		}
 	}
-	if options.ClientID == "" {
-		options.ClientID = "public-client-id"
-	}
 	return NewAuthService(options)
 }
 
@@ -1170,16 +1153,17 @@ func statusJSON(t *testing.T, status SessionStatus) string {
 }
 
 type memorySessionStore struct {
-	mutex         sync.Mutex
-	session       Session
-	sessions      map[string]Session
-	activeByScope map[string]string
-	initialized   bool
-	loadErr       error
-	saveErr       error
-	deleteErr     error
-	saveCalls     int
-	deleteCalls   int
+	mutex             sync.Mutex
+	session           Session
+	sessions          map[string]Session
+	activeByScope     map[string]string
+	activeScopeByHost map[string]string
+	initialized       bool
+	loadErr           error
+	saveErr           error
+	deleteErr         error
+	saveCalls         int
+	deleteCalls       int
 }
 
 func (store *memorySessionStore) LoadActive(_ context.Context, host, clientID string) (Session, error) {
@@ -1190,6 +1174,32 @@ func (store *memorySessionStore) LoadActive(_ context.Context, host, clientID st
 	}
 	store.initialize()
 	account, found := store.activeByScope[sessionScopeKey(host, clientID)]
+	if !found {
+		return Session{}, errSessionNotFound
+	}
+	session, found := store.sessions[sessionKey(host, account, clientID)]
+	if !found {
+		return Session{}, errSessionNotFound
+	}
+	return session, nil
+}
+
+func (store *memorySessionStore) LoadActiveForHost(_ context.Context, host string) (Session, error) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	if store.loadErr != nil {
+		return Session{}, store.loadErr
+	}
+	store.initialize()
+	scope, found := store.activeScopeByHost[normalizeHost(host)]
+	if !found {
+		return Session{}, errSessionNotFound
+	}
+	clientID, found := strings.CutPrefix(scope, normalizeHost(host)+"\x00")
+	if !found || strings.TrimSpace(clientID) == "" {
+		return Session{}, errSessionNotFound
+	}
+	account, found := store.activeByScope[scope]
 	if !found {
 		return Session{}, errSessionNotFound
 	}
@@ -1214,6 +1224,7 @@ func (store *memorySessionStore) SaveActive(_ context.Context, session Session) 
 	}
 	store.sessions[sessionKey(session.Host, session.Account, session.ClientID)] = session
 	store.activeByScope[scope] = session.Account
+	store.activeScopeByHost[normalizeHost(session.Host)] = scope
 	store.session = session
 	store.saveCalls++
 	return nil
@@ -1234,6 +1245,9 @@ func (store *memorySessionStore) DeleteActive(_ context.Context, host, clientID 
 	delete(store.activeByScope, scope)
 	deleted := store.sessions[sessionKey(host, account, clientID)]
 	delete(store.sessions, sessionKey(host, account, clientID))
+	if store.activeScopeByHost[normalizeHost(host)] == scope {
+		delete(store.activeScopeByHost, normalizeHost(host))
+	}
 	if store.session == deleted {
 		store.session = Session{}
 	}
@@ -1247,9 +1261,12 @@ func (store *memorySessionStore) initialize() {
 	}
 	store.sessions = make(map[string]Session)
 	store.activeByScope = make(map[string]string)
+	store.activeScopeByHost = make(map[string]string)
 	if strings.TrimSpace(store.session.Account) != "" {
 		store.sessions[sessionKey(store.session.Host, store.session.Account, store.session.ClientID)] = store.session
-		store.activeByScope[sessionScopeKey(store.session.Host, store.session.ClientID)] = store.session.Account
+		scope := sessionScopeKey(store.session.Host, store.session.ClientID)
+		store.activeByScope[scope] = store.session.Account
+		store.activeScopeByHost[normalizeHost(store.session.Host)] = scope
 	}
 	store.initialized = true
 }

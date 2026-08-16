@@ -51,7 +51,6 @@ type Runtime struct {
 	Publisher                         port.PullRequestPublisher
 	GitHubAuthFactory                 func(timeout time.Duration) github.AuthProvider
 	Browser                           browser.Opener
-	GitHubAppClientID                 func() string
 	GitHubCredentialBrokerURL         func() string
 	GitHubWorkloadIdentity            func() string
 	GitHubWorkflowToken               func() string
@@ -101,13 +100,9 @@ func defaultRuntime() Runtime {
 		GitHubAuthFactory: func(timeout time.Duration) github.AuthProvider {
 			return github.NewAuthService(github.AuthOptions{
 				HTTPClient: &http.Client{Timeout: timeout},
-				ClientID:   os.Getenv("GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID"),
 			})
 		},
 		Browser: browser.New(browser.Options{}),
-		GitHubAppClientID: func() string {
-			return os.Getenv("GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID")
-		},
 		GitHubCredentialBrokerURL: func() string {
 			return os.Getenv("GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL")
 		},
@@ -156,9 +151,6 @@ func newApplication(runtime Runtime, options *appOptions) *application {
 	}
 	if runtime.Browser == nil {
 		runtime.Browser = defaultRuntime().Browser
-	}
-	if runtime.GitHubAppClientID == nil {
-		runtime.GitHubAppClientID = defaultRuntime().GitHubAppClientID
 	}
 	if runtime.GitHubCredentialBrokerURL == nil {
 		runtime.GitHubCredentialBrokerURL = defaultRuntime().GitHubCredentialBrokerURL
