@@ -7,3 +7,5 @@
 *.test
 *.out
 *.cov
+cover-github
+*.txt
