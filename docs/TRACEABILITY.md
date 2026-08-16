@@ -152,6 +152,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Platform-native signing and notarization | BLOCKED | Authenticode and Apple credentials are external publisher prerequisites; checksum Cosign signing remains configured |
 | Internal Approved Proxy and registry admission | BLOCKED | intentionally deferred until the artifact-registry platform is provisioned; the repository does not change its current Go proxy configuration |
 | Hermetic release build enclave | BLOCKED | requires the deferred Approved Proxy plus an immutable, pre-provisioned build image and network isolation outside repository configuration |
+| Code owner review on shared lines | IMPLEMENTED / PROVISIONING REQUIRED | `.github/CODEOWNERS` binds the default owner and the four shared-line ruleset sources set `require_code_owner_review: true`; re-importing the updated rulesets through the GitHub UI remains an external prerequisite |
 
 ## Confirmed remediation work
 
