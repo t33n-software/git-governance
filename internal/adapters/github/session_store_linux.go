@@ -42,6 +42,19 @@ func (store *linuxSecretServiceStore) LoadActive(ctx context.Context, host, clie
 	return store.loadScoped(ctx, nativeSessionScope(host, clientID), host, clientID)
 }
 
+// LoadActiveForHost resolves the active session through the host-level
+// pointer record, which stores the active client ID under the bare host key.
+func (store *linuxSecretServiceStore) LoadActiveForHost(ctx context.Context, host string) (Session, error) {
+	if err := sessionStoreContextError(ctx); err != nil {
+		return Session{}, err
+	}
+	clientID, err := store.lookup(ctx, host, activeScopePointerAccount)
+	if err != nil {
+		return Session{}, err
+	}
+	return store.loadScoped(ctx, nativeSessionScope(host, strings.TrimSpace(string(clientID))), host, strings.TrimSpace(string(clientID)))
+}
+
 func (store *linuxSecretServiceStore) SaveActive(ctx context.Context, session Session) error {
 	if err := sessionStoreContextError(ctx); err != nil {
 		return err
@@ -62,7 +75,10 @@ func (store *linuxSecretServiceStore) SaveActive(ctx context.Context, session Se
 	if err := store.store(ctx, scope, session.Account, encoded); err != nil {
 		return err
 	}
-	return store.store(ctx, scope, linuxSecretActiveAccount, []byte(session.Account))
+	if err := store.store(ctx, scope, linuxSecretActiveAccount, []byte(session.Account)); err != nil {
+		return err
+	}
+	return store.store(ctx, session.Host, activeScopePointerAccount, []byte(session.ClientID))
 }
 
 func (store *linuxSecretServiceStore) DeleteActive(ctx context.Context, host, clientID string) error {
@@ -77,7 +93,20 @@ func (store *linuxSecretServiceStore) DeleteActive(ctx context.Context, host, cl
 	if err := store.clear(ctx, scope, strings.TrimSpace(string(account))); err != nil {
 		return err
 	}
-	return store.clear(ctx, scope, linuxSecretActiveAccount)
+	if err := store.clear(ctx, scope, linuxSecretActiveAccount); err != nil {
+		return err
+	}
+	pointer, err := store.lookup(ctx, host, activeScopePointerAccount)
+	if errors.Is(err, errSessionNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(pointer)) == strings.TrimSpace(clientID) {
+		return store.clear(ctx, host, activeScopePointerAccount)
+	}
+	return nil
 }
 
 func (store *linuxSecretServiceStore) loadScoped(ctx context.Context, scope, host, clientID string) (Session, error) {

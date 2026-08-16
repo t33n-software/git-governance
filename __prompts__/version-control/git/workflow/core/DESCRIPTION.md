@@ -195,7 +195,28 @@ values set `ticket_binding` to `user_provided` or `confirmed_proposal`. If
 discovery fails or the proposal is declined without replacement values, the
 `WAITING_FOR_TICKET` stop sequence applies unchanged.
 
-### 3.8 Current hotfix capability boundary
+### 3.8 Scoped one-time provider-session verification
+
+When the classified task pattern implies provider publication (pull-request
+creation in ticket work, hotfix or release provider steps), the core verifies
+the provider session exactly once, immediately after pattern binding:
+
+```text
+task pattern bound and publication in scope
+-> one auth status check (Help-first)
+-> provider_session_verified bound to this scope
+-> never re-probed within the same scope
+```
+
+A failed prefetch blocks early with the re-login remediation, before branch
+or implementation steps begin. A mid-flight provider failure — for example a
+session revoked or expired after the prefetch — is the affected endpoint's
+fail-closed runtime path and is reported as `BLOCKED` with the re-login
+remediation; the prompt deliberately carries no iterative re-check logic for
+it. Patterns without provider effects (`diagnostic`, local-only `exploration`)
+mark the surface `not_required` and skip the check entirely.
+
+### 3.9 Current hotfix capability boundary
 
 The core recognizes the current bounded hotfix endpoints:
 
@@ -259,6 +280,8 @@ The core requires:
   without explicit user confirmation;
 - no fabricated discovery evidence and no anonymous API access to
   non-public repositories;
+- no repeated provider-session probing within a bound task scope and no
+  prompt-level retry loop for a provider runtime failure;
 - no completion claim without real PR, delivery, tag, artifact or
   propagation evidence where that evidence is required.
 ```
@@ -304,7 +327,9 @@ adapter only after the core is loaded. Classify the branch and bind the
 shared-line guard before any mutation, and classify the task pattern before
 any endpoint selection. When the user supplies neither key nor ticket, run
 the proactive discovery and its confirmation gate before entering the ticket
-stop sequence. Do not consult external documentation to fill a gap that the
+stop sequence. When the bound pattern implies provider publication, verify the
+provider session exactly once after pattern binding and never re-probe within
+the same scope. Do not consult external documentation to fill a gap that the
 binary's current help or a required protected controller must answer. If the
 executable surface cannot provide a required capability, preserve all state
 and report the precise blocker.

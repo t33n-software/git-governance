@@ -39,15 +39,11 @@ and restores a temporary `.bak` recovery copy if an interrupted replacement
 leaves the target absent. It never stores secrets or a global default ticket
 number.
 
-GitHub authentication is not stored in this preference file. Local users set
-only the non-secret GitHub App client ID in the invoking environment:
-
-```powershell
-$env:GIT_GOVERNANCE_GITHUB_APP_CLIENT_ID = "<GitHub-App-client-ID>"
-```
-
-Then run `git governance auth login github` interactively. The protected
-refresh session belongs to the operating system's native secret store; API
+GitHub authentication is not stored in this preference file. The non-secret
+GitHub App client ID is entered once at the interactive `git governance auth
+login github` prompt and is stored with the protected refresh session in the
+operating system's native secret store. It is never stored in this file and
+never required again — not as an environment variable, not as a flag. API
 access tokens remain in memory and are renewed just in time.
 
 Managed CI uses a broker endpoint and workload identity supplied by its

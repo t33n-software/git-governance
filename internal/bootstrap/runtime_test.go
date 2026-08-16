@@ -20,7 +20,7 @@ func TestDefaultRuntimeConstructsAllAdapters(t *testing.T) {
 
 	if runtime.GitFactory == nil || runtime.StoreFactory == nil || runtime.KeyPolicy == nil ||
 		runtime.QualityFactory == nil || runtime.GitHubAuthFactory == nil || runtime.Browser == nil ||
-		runtime.GitHubAppClientID == nil || runtime.GitHubCredentialBrokerURL == nil ||
+		runtime.GitHubCredentialBrokerURL == nil ||
 		runtime.GitHubWorkloadIdentity == nil || runtime.GitHubWorkflowToken == nil ||
 		runtime.GitHubWorkflowTokenEnabled == nil || runtime.HotfixPropagationPublisherEnabled == nil ||
 		runtime.Tools == nil || runtime.PromptFactory == nil ||
@@ -39,7 +39,6 @@ func TestDefaultRuntimeConstructsAllAdapters(t *testing.T) {
 	if runtime.GitHubAuthFactory(time.Second) == nil {
 		t.Fatal("default GitHub authentication runtime dependencies are unavailable")
 	}
-	_ = runtime.GitHubAppClientID()
 	_ = runtime.GitHubCredentialBrokerURL()
 	_ = runtime.GitHubWorkloadIdentity()
 	_ = runtime.GitHubWorkflowToken()
@@ -99,7 +98,7 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 	if withFallbacks.runtime.GitFactory == nil || withFallbacks.runtime.StoreFactory == nil ||
 		withFallbacks.runtime.KeyPolicy == nil || withFallbacks.runtime.QualityFactory == nil ||
 		withFallbacks.runtime.GitHubAuthFactory == nil || withFallbacks.runtime.Browser == nil ||
-		withFallbacks.runtime.GitHubAppClientID == nil || withFallbacks.runtime.GitHubCredentialBrokerURL == nil ||
+		withFallbacks.runtime.GitHubCredentialBrokerURL == nil ||
 		withFallbacks.runtime.GitHubWorkloadIdentity == nil || withFallbacks.runtime.HotfixPropagationPublisherEnabled == nil ||
 		withFallbacks.runtime.Tools == nil || withFallbacks.runtime.PromptFactory == nil ||
 		withFallbacks.runtime.InputIsTerminal == nil || withFallbacks.runtime.OutputIsTerminal == nil {
@@ -136,9 +135,6 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 			return githubAuth
 		},
 		Browser: browser,
-		GitHubAppClientID: func() string {
-			return "public-client-id"
-		},
 		GitHubCredentialBrokerURL: func() string {
 			return "https://broker.example"
 		},
@@ -169,7 +165,6 @@ func TestNewApplicationSuppliesAndPreservesRuntimeSeams(t *testing.T) {
 		application.runtime.QualityFactory("quality.yaml", time.Second) != factoryQuality ||
 		application.runtime.GitHubAuthFactory(time.Second) != githubAuth ||
 		application.runtime.Browser != browser ||
-		application.runtime.GitHubAppClientID() != "public-client-id" ||
 		application.runtime.GitHubCredentialBrokerURL() != "https://broker.example" ||
 		application.runtime.GitHubWorkloadIdentity() != "workload-identity" ||
 		application.runtime.GitHubWorkflowToken() != "ephemeral-token" ||

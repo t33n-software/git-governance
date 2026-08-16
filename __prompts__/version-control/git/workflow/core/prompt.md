@@ -79,13 +79,13 @@ zwingend ein eigenes, von allen anderen Bereichen unterscheidbares Symbol.
 | Symbol | Bereich | Umfasst |
 |---|---|---|
 | 🧭 | Kontext & Guard | Branch-Ermittlung und -Klassifizierung, Shared-Line-Guard, Mutations-Embargo, Fortsetzungsentscheidung, `branch validate`, `branch list` |
-| 🩺 | Umgebung & Policy | `doctor`, `policy describe`, `config`, Binary-Version, Plattform- und Toolchain-Prüfung |
+| 🩺 | Umgebung & Policy | `doctor`, `policy describe`, `config`, Binary-Version, Plattform- und Toolchain-Prüfung, einmaliger Provider-Session-Prefetch über `auth status`, `auth login` als Remediation |
 | 🎯 | Intake & Entscheidungsbindung | Aufgabenmuster-Klassifizierung, Ticket-, Family- und Slug-Bindung, Ausführungsebenen-Entscheidung, Scratch-Bewertung |
 | 🌱 | Branch-Bereitstellung | `workflow ticket start`, `branch create`, `branch sync-base` — governete Erzeugung und Basis-Ausrichtung von Working-Branches außerhalb der Spezial-Lanes |
 | 🛠️ | Implementierung | Acceptance-Ledger-Ausführung, Datei-Edits, `branch merge-scratch`, sonstige konfliktfreie Umsetzungsschritte |
 | 🧪 | Verifikation | Quality-Suite, Tests, Coverage und repositorylokale Prüfungen |
 | 📦 | Commit | `commit create`, `commit validate`, Commit-Planung und -Serie |
-| 🚀 | Publikation & Pull Request | `workflow ticket publish`, `validate pre-push`, `auth status github`, `auth login github`, Push- und PR-Vorbereitung |
+| 🚀 | Publikation & Pull Request | `workflow ticket publish`, `validate pre-push`, Push- und PR-Vorbereitung |
 | 🏷️ | Release-/Support-Lifecycle | alle `workflow release`-Endpunkte (request, cut, stabilize, publish-stabilization, align-*, promote, backmerge, support) |
 | 🚑 | Hotfix-Lifecycle | alle `workflow hotfix`-Endpunkte (start, validate-record, publish, verify-merge, verify-delivery, propagate, propagate-manifest) |
 | ⚠️ | Konflikt-Recovery | `PAUSED_CONFLICT`, Konfliktanalyse und -Resolution, governeter Resume-Pfad |
@@ -195,6 +195,7 @@ Der Agent führt diese Zustandsflächen jederzeit explizit:
 - active_task_pattern = ticket | hotfix | release | support | exploration | diagnostic | unbound
 - execution_level = workflow | command | raw_git | none
 - ticket_binding = user_provided | confirmed_proposal | missing
+- provider_session_state = not_required | unverified | verified | unavailable
 ```
 
 `mutation_embargo = active` ist der Initialzustand nach
@@ -244,6 +245,7 @@ Zusatznachweise, nur bei Betroffenheit:
 - key_ticket_discovery_evaluated    (Ticket/Key nicht vom Benutzer übergeben)
 - key_ticket_proposal_presented     (Erkennung hat einen Vorschlag erzeugt)
 - ticket_binding_confirmed          (Benutzer hat Vorschlag oder Ersatzwerte bestätigt)
+- provider_session_verified         (Aufgabenmuster mit Provider-Publikation; genau einmal pro Scope)
 ```
 
 Für Release- und Hotfix-Wege ergänzt der Agent nur bei Betroffenheit:
@@ -388,6 +390,26 @@ Bei Mehrdeutigkeit wird keine Mutation vorbereitet, sondern zuerst
 fachlich geklärt. Ändert sich der Scope während der Arbeit, wird das Muster
 neu klassifiziert und der gebundene Ausführungspfad wird invalidiert und neu
 gebunden.
+
+Einmalige Provider-Session-Prüfung (Prefetch): Schließt das klassifizierte
+Aufgabenmuster eine Provider-Publikation ein — Pull-Request-Erzeugung bei
+Ticket-Arbeit sowie Hotfix- oder Release-Provider-Schritte —, prüft der Agent
+unmittelbar nach der Musterbindung genau einmal den Provider-Session-Status
+über `auth status github` (Help-first) und bindet bei Erfolg
+`provider_session_verified` an diesen Scope; `provider_session_state`
+wechselt auf `verified`. Schlägt die Prüfung fehl, wechselt der Zustand zu
+`BLOCKED` mit der Remediation `auth login github`, bevor Branch- oder
+Implementierungsschritte starten; `provider_session_state` ist dann
+`unavailable`.
+
+Der gebundene Nachweis wird innerhalb desselben Scopes niemals erneut
+geprüft. Ein späterer Provider-Laufzeitfehler — etwa eine zwischenzeitlich
+widerrufene oder abgelaufene Session — ist ein technischer Fail-closed-Pfad
+des jeweiligen Endpunkts und wird als `BLOCKED` mit Re-Login-Remediation
+gemeldet; dafür existiert bewusst keine prompt-seitige Wiederholungslogik.
+Muster ohne Provider-Wirkung (`diagnostic`, reine lokale `exploration`)
+setzen `provider_session_state = not_required` und benötigen diesen Nachweis
+nicht.
 
 ### 4.2 Ausführungsebenen-Hierarchie
 
@@ -648,8 +670,8 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `doctor` | RO | Vor Mutation oder bei Umgebungszweifeln | Umgebung / Repository diagnostizieren |
 | `commit validate` | RO | Commit-Nachricht oder vorhandene Serie beurteilen | Keine Mutation |
 | `validate pre-push` | RO | Hook- oder Raw-Push-Pfad | Strukturelle Ref-Policy plus Quality-Fallback |
-| `auth status github` | RO | Vor nichtinteraktiver Provider-Publikation | Keine Browser- oder Credential-Preisgabe |
-| `auth login github` | RO | Nur bei expliziter lokaler Anmeldeanforderung | Interaktive Sitzung, keine Secrets im Prompt |
+| `auth status github` | RO | Genau einmal als Prefetch nach der Aufgabenmuster-Bindung bei geplanter Provider-Publikation | Keine Browser- oder Credential-Preisgabe; Ergebnis bindet `provider_session_verified` |
+| `auth login github` | RO | Nur bei expliziter lokaler Anmeldeanforderung oder als Remediation eines blockierten Prefetch | Interaktive Sitzung, keine Secrets im Prompt |
 
 ### 5.2 Reguläre Ticket-Arbeit
 
@@ -820,7 +842,8 @@ Vor PR-Publikation prüft der Agent:
 - Branch und Commit gegen die aktuelle Binary validiert;
 - finale lokale Quality und strukturelle Pre-Push-Policy bestanden;
 - jeder verwendete CLI-Aufruf mit frischer Help-Reanchor dokumentiert;
-- Provider-Sitzung oder Controller-Identität vorhanden;
+- gebundener `provider_session_verified`-Nachweis oder Controller-Identität
+  vorhanden — ohne erneute Status-Abfrage;
 - PR-Ziel entspricht dem fachlichen Workflow.
 ```
 
@@ -898,6 +921,10 @@ Der Agent darf niemals:
 - anonyme API-Zugriffe auf nicht-öffentliche Repositories versuchen;
 - nach gescheiterter oder abgelehnter Erkennung die Stopp-Sequenz
   `WAITING_FOR_TICKET` überspringen;
+- den Provider-Session-Status innerhalb eines gebundenen Scopes mehrfach
+  prüfen oder vor jeder Provider-Invocation erneut abzufragen;
+- einen Provider-Laufzeitfehler durch prompt-seitige Wiederholungsprüfung
+  statt durch die gemeldete Re-Login-Remediation behandeln;
 - Flags, Regexe oder Wertebereiche der CLI aus einer alten Prompt-Version erraten;
 - einen Endpunkt ohne unmittelbar vorher gelesene Endpunkt-Hilfe ausführen;
 - eine vollständige Workflow-Fähigkeit durch rohe Git- oder Hosting-Befehle ersetzen;

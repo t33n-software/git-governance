@@ -50,8 +50,17 @@ func newGitHubLoginCommand(application *application) *cobra.Command {
 			if services.githubAuth == nil {
 				return githubAuthenticationUnavailable()
 			}
+			clientID, err := application.requireInput(
+				command.Context(),
+				"",
+				"GitHub App client ID",
+				"The public client ID of the GitHub App used for the device-flow login. It is stored with the protected session and never required again for this host.",
+			)
+			if err != nil {
+				return err
+			}
 			result, err := services.githubAuth.Login(command.Context(), github.LoginRequest{
-				ClientID: application.runtime.GitHubAppClientID(),
+				ClientID: clientID,
 				OnDeviceAuthorization: func(device github.DeviceAuthorization) error {
 					writeDeviceAuthorizationInstructions(command, device)
 					if application.runtime.Browser != nil {

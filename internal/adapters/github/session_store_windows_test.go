@@ -121,6 +121,105 @@ func TestDPAPISessionStoreIsolatesClientIDsAndRejectsLegacySchema(t *testing.T) 
 	}
 }
 
+func TestDPAPISessionStoreResolvesActiveSessionByHost(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("round trips the host pointer through save load and delete", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		if _, err := store.LoadActiveForHost(ctx, "github.com"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("empty LoadActiveForHost() error = %v", err)
+		}
+
+		tenantA := testStoredSession("github.com", "octocat")
+		tenantA.ClientID = "tenant-a-client-id"
+		if err := store.SaveActive(ctx, tenantA); err != nil {
+			t.Fatalf("SaveActive(tenant A) error = %v", err)
+		}
+		loaded, err := store.LoadActiveForHost(ctx, "GitHub.COM")
+		if err != nil || loaded != tenantA {
+			t.Fatalf("LoadActiveForHost() = (%#v, %v)", loaded, err)
+		}
+
+		platform := testStoredSession("github.com", "octocat")
+		platform.ClientID = "platform-client-id"
+		platform.RefreshToken = "ghr-platform"
+		if err := store.SaveActive(ctx, platform); err != nil {
+			t.Fatalf("SaveActive(platform) error = %v", err)
+		}
+		loaded, err = store.LoadActiveForHost(ctx, "github.com")
+		if err != nil || loaded != platform {
+			t.Fatalf("host pointer did not follow the latest login: (%#v, %v)", loaded, err)
+		}
+
+		enterprise := testStoredSession("github.enterprise.example", "hubot")
+		if err := store.SaveActive(ctx, enterprise); err != nil {
+			t.Fatalf("SaveActive(enterprise) error = %v", err)
+		}
+		if err := store.DeleteActive(ctx, enterprise.Host, enterprise.ClientID); err != nil {
+			t.Fatalf("DeleteActive(enterprise) error = %v", err)
+		}
+		if loaded, err := store.LoadActiveForHost(ctx, "github.com"); err != nil || loaded != platform {
+			t.Fatalf("deleting another host moved the pointer: (%#v, %v)", loaded, err)
+		}
+
+		if err := store.DeleteActive(ctx, platform.Host, platform.ClientID); err != nil {
+			t.Fatalf("DeleteActive(platform) error = %v", err)
+		}
+		if _, err := store.LoadActiveForHost(ctx, "github.com"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("pointer survived its session deletion: %v", err)
+		}
+	})
+
+	t.Run("rejects inconsistent host pointers", func(t *testing.T) {
+		for _, document := range []sessionDocument{
+			{
+				SchemaVersion:     sessionStoreSchemaVersion,
+				ActiveScopeByHost: map[string]string{"github.com": "github.com"},
+				ActiveByScope:     map[string]string{},
+				Sessions:          map[string]Session{},
+			},
+			{
+				SchemaVersion:     sessionStoreSchemaVersion,
+				ActiveScopeByHost: map[string]string{"github.com": sessionScopeKey("github.com", "public-client-id")},
+				ActiveByScope:     map[string]string{},
+				Sessions:          map[string]Session{},
+			},
+			{
+				SchemaVersion:     sessionStoreSchemaVersion,
+				ActiveScopeByHost: map[string]string{"github.com": sessionScopeKey("github.com", "public-client-id")},
+				ActiveByScope:     map[string]string{sessionScopeKey("github.com", "public-client-id"): "octocat"},
+				Sessions:          map[string]Session{},
+			},
+		} {
+			path := filepath.Join(t.TempDir(), "sessions.dpapi")
+			encrypted, err := protectDPAPI(mustJSON(t, document))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := newDPAPISessionStore(path).LoadActiveForHost(ctx, "github.com"); err == nil {
+				t.Fatalf("LoadActiveForHost accepted an inconsistent pointer document: %#v", document)
+			}
+		}
+	})
+
+	t.Run("documents without the host pointer fail closed", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		encrypted, err := protectDPAPI([]byte(`{"schemaVersion":1}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newDPAPISessionStore(path).LoadActiveForHost(ctx, "github.com"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("legacy document LoadActiveForHost() error = %v", err)
+		}
+	})
+}
+
 func TestDPAPISessionStoreScopedFailurePaths(t *testing.T) {
 	t.Run("rejects incomplete and mismatched scoped sessions", func(t *testing.T) {
 		for _, session := range []Session{
@@ -219,6 +318,9 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 	cancel()
 	if _, err := store.LoadActive(ctx, "github.com", "public-client-id"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled LoadActive() error = %v", err)
+	}
+	if _, err := store.LoadActiveForHost(ctx, "github.com"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled LoadActiveForHost() error = %v", err)
 	}
 	if err := store.SaveActive(ctx, testStoredSession("github.com", "octocat")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled SaveActive() error = %v", err)
@@ -367,6 +469,9 @@ func TestDPAPISessionStoreInjectableFailurePaths(t *testing.T) {
 		store := newDPAPISessionStore("session.dpapi")
 		if _, err := store.LoadActive(context.Background(), "github.com", "public-client-id"); !errors.Is(err, readErr) {
 			t.Fatalf("LoadActive read error = %v", err)
+		}
+		if _, err := store.LoadActiveForHost(context.Background(), "github.com"); !errors.Is(err, readErr) {
+			t.Fatalf("LoadActiveForHost read error = %v", err)
 		}
 		if err := store.SaveActive(context.Background(), testStoredSession("github.com", "octocat")); !errors.Is(err, readErr) {
 			t.Fatalf("SaveActive read error = %v", err)
