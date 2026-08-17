@@ -104,8 +104,16 @@ git governance --interactive never --output json --yes `
 The local workspace may prepare and push the non-shared candidate branch, but
 it must not create the Develop PR or receive release-automation credentials.
 Dispatch `reconciliation-resume` from `release-control.yml` on `main` with the
-same release, ticket, slug, and the exact candidate branch. The trusted
-controller accepts the branch only when it proves all of the following:
+same release, ticket, slug, and the exact candidate branch. This dispatch is a
+deliberate admission act: whoever triggers it — a human in the GitHub UI, a
+human or agent through `gh`, or a separate explicit command — is
+trust-equivalent, because the protected environment, the server-side
+provenance revalidation, and the publisher identity carry the control. The
+local CLI therefore never triggers this workflow as an automatic side effect
+of the candidate push; the trigger-boundary rationale is recorded in
+[ADR-0004](../../architecture/ADR-0004-TRUSTED-RELEASE-RECONCILIATION-CONTROL.md).
+The trusted controller accepts the branch only when it proves all of the
+following:
 
 - its ticket-bound `chore/*` name matches the supplied ticket and slug;
 - its merge commit has the immutable release ref as first parent and the
