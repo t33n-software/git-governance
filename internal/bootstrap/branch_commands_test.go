@@ -741,6 +741,196 @@ func TestBranchSyncBaseCommandContracts(t *testing.T) {
 	})
 }
 
+func TestBranchSyncBaseResumeContracts(t *testing.T) {
+	t.Run("continues a resolved rebase and reports JSON", func(t *testing.T) {
+		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git.active = true
+		git.activeOperation = "rebase"
+		git.missingBaseCommits = true
+		quality := &branchCommandQuality{
+			result: port.QualityResult{
+				Status: port.QualityPassed,
+				Detail: "all branch gates passed",
+			},
+		}
+		application := newBranchCommandApplication(git, quality, nil, "json")
+		application.options.yes = true
+
+		stdout, _, err := executeBranchCommand(
+			t,
+			newBranchSyncBaseCommand(application),
+			context.Background(),
+			"--resume",
+		)
+		if err != nil {
+			t.Fatalf("resume error = %v", err)
+		}
+		if git.active {
+			t.Fatal("resolved rebase left the operation active")
+		}
+		fields := utilityJSONFields(t, assertSingleUtilityJSONResult(t, stdout, "branch.sync-base"))
+		if fields["branch"] != "feature/ABC-123-add-export" ||
+			fields["base"] != "origin/develop" ||
+			fields["publication"] != string(branch.PublicationUnpublished) ||
+			fields["mutated"] != "true" ||
+			fields["recommendedAction"] != "rebased" ||
+			fields["qualityStatus"] != string(port.QualityPassed) {
+			t.Fatalf("resume fields = %#v", fields)
+		}
+		if quality.calls != 1 {
+			t.Fatalf("quality calls = %d, want 1", quality.calls)
+		}
+	})
+
+	t.Run("continues a resolved merge with target provenance", func(t *testing.T) {
+		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git.publication = branch.PublicationPublished
+		git.active = true
+		git.activeOperation = "merge"
+		git.mergeTargetMatches = true
+		git.missingBaseCommits = true
+		application := newBranchCommandApplication(git, nil, nil, "json")
+		application.options.yes = true
+
+		stdout, _, err := executeBranchCommand(
+			t,
+			newBranchSyncBaseCommand(application),
+			context.Background(),
+			"--resume",
+		)
+		if err != nil {
+			t.Fatalf("merge resume error = %v", err)
+		}
+		if git.continueMergeCalls != 1 {
+			t.Fatalf("continue merge calls = %d, want 1", git.continueMergeCalls)
+		}
+		fields := utilityJSONFields(t, assertSingleUtilityJSONResult(t, stdout, "branch.sync-base"))
+		if fields["mutated"] != "true" ||
+			fields["recommendedAction"] != "merged" ||
+			fields["publication"] != string(branch.PublicationPublished) {
+			t.Fatalf("merge resume fields = %#v", fields)
+		}
+	})
+
+	t.Run("verifies an externally completed synchronization", func(t *testing.T) {
+		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		application := newBranchCommandApplication(git, nil, nil, "json")
+		application.options.yes = true
+
+		stdout, _, err := executeBranchCommand(
+			t,
+			newBranchSyncBaseCommand(application),
+			context.Background(),
+			"--resume",
+		)
+		if err != nil {
+			t.Fatalf("external resume error = %v", err)
+		}
+		fields := utilityJSONFields(t, assertSingleUtilityJSONResult(t, stdout, "branch.sync-base"))
+		if fields["mutated"] != "true" || fields["recommendedAction"] != "rebased" {
+			t.Fatalf("external resume fields = %#v", fields)
+		}
+	})
+
+	t.Run("rejects resume with dry-run, a strategy, or merge inputs", func(t *testing.T) {
+		for _, testCase := range []struct {
+			name      string
+			arguments []string
+			dryRun    bool
+		}{
+			{name: "dry-run", arguments: []string{"--resume"}, dryRun: true},
+			{name: "strategy", arguments: []string{"--resume", "--strategy", "rebase"}},
+			{name: "merge message", arguments: []string{"--resume", "--merge-message", "chore(ABC-123): merge origin/develop"}},
+			{name: "merge type", arguments: []string{"--resume", "--merge-type", "chore"}},
+			{name: "merge subject", arguments: []string{"--resume", "--merge-subject", "merge origin/develop"}},
+		} {
+			t.Run(testCase.name, func(t *testing.T) {
+				git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+				git.active = true
+				git.activeOperation = "rebase"
+				application := newBranchCommandApplication(git, nil, nil, "human")
+				application.options.yes = true
+				application.options.dryRun = testCase.dryRun
+
+				_, _, err := executeBranchCommand(
+					t,
+					newBranchSyncBaseCommand(application),
+					context.Background(),
+					testCase.arguments...,
+				)
+				assertProblemCode(t, err, problem.CodeInvalidInput)
+				if !git.active {
+					t.Fatalf("rejected resume mutated the paused operation: %v", testCase.arguments)
+				}
+			})
+		}
+	})
+
+	t.Run("honors a declined resume confirmation", func(t *testing.T) {
+		prompt := &commandHelperPrompt{
+			confirms: []commandHelperConfirmReply{{value: false}},
+		}
+		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git.active = true
+		git.activeOperation = "rebase"
+		application := newBranchCommandApplication(git, nil, prompt, "human")
+
+		_, _, err := executeBranchCommand(
+			t,
+			newBranchSyncBaseCommand(application),
+			context.Background(),
+			"--resume",
+		)
+		assertProblemCode(t, err, problem.CodeOperationCancelled)
+		if len(prompt.confirmRequests) != 1 ||
+			prompt.confirmRequests[0].Label != "Resume branch base synchronization" ||
+			!strings.Contains(prompt.confirmRequests[0].Description, "rebase or merge") {
+			t.Fatalf("resume confirmation request = %#v", prompt.confirmRequests)
+		}
+		if !git.active {
+			t.Fatal("declined resume continued the paused rebase")
+		}
+	})
+
+	t.Run("propagates a still conflicted rebase as a governed conflict problem", func(t *testing.T) {
+		continueErr := errors.New("unresolved conflicts")
+		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git.active = true
+		git.activeOperation = "rebase"
+		git.continueRebaseErr = continueErr
+		application := newBranchCommandApplication(git, nil, nil, "human")
+		application.options.yes = true
+
+		_, _, err := executeBranchCommand(
+			t,
+			newBranchSyncBaseCommand(application),
+			context.Background(),
+			"--resume",
+		)
+		assertProblemCode(t, err, problem.CodeRebaseConflict)
+		if !errors.Is(err, continueErr) {
+			t.Fatalf("resume conflict error = %v, want %v", err, continueErr)
+		}
+	})
+
+	t.Run("rejects a paused rebase on a published branch", func(t *testing.T) {
+		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git.publication = branch.PublicationPublished
+		git.active = true
+		git.activeOperation = "rebase"
+		application := newBranchCommandApplication(git, nil, nil, "human")
+		application.options.yes = true
+
+		_, _, err := executeBranchCommand(
+			t,
+			newBranchSyncBaseCommand(application),
+			context.Background(),
+			"--resume",
+		)
+		assertProblemCode(t, err, problem.CodeRebaseAfterPublishForbidden)
+	})
+}
+
 func TestScratchMergeCommandFailureContracts(t *testing.T) {
 	const source = "scratch/ABC-123-export-exploration"
 	target, err := branch.ParseName("feature/ABC-123-add-export")
@@ -1077,6 +1267,10 @@ type branchCommandGit struct {
 	rebaseErr             error
 	continueRebaseErr     error
 	continueRebaseErrors  []error
+	continueMergeErr      error
+	continueMergeCalls    int
+	mergeTargetMatches    bool
+	mergeTargetMatchesErr error
 	activeOperationErr    error
 	unmergedConflictsErr  error
 	mergeErr              error
@@ -1292,6 +1486,24 @@ func (git *branchCommandGit) ContinueRebase(context.Context, port.RepositoryIden
 	git.activeOperation = ""
 	git.missingBaseCommits = false
 	return nil
+}
+
+func (git *branchCommandGit) ContinueMerge(context.Context, port.RepositoryIdentity) error {
+	git.continueMergeCalls++
+	if git.continueMergeErr != nil {
+		return git.continueMergeErr
+	}
+	git.active = false
+	git.activeOperation = ""
+	git.missingBaseCommits = false
+	return nil
+}
+
+func (git *branchCommandGit) ActiveMergeTargetMatches(context.Context, port.RepositoryIdentity, branch.TargetBase) (bool, error) {
+	if git.mergeTargetMatchesErr != nil {
+		return false, git.mergeTargetMatchesErr
+	}
+	return git.mergeTargetMatches, nil
 }
 
 func (git *branchCommandGit) Merge(

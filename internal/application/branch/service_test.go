@@ -14,42 +14,46 @@ import (
 )
 
 type fakeGitRepository struct {
-	hasCommits           bool
-	clean                bool
-	exists               bool
-	publication          domainbranch.PublicationState
-	missingBase          bool
-	err                  error
-	hasCommitsErr        error
-	worktreeCleanErr     error
-	validateRefErr       error
-	validateRefErrors    []error
-	branchExistsErr      error
-	officialBranchesErr  error
-	fetchErr             error
-	targetBaseErr        error
-	targetBaseMissing    bool
-	createBranchErr      error
-	workflowBaseErr      error
-	publicationErr       error
-	missingBaseErr       error
-	unmergedConflictsErr error
-	rebaseErr            error
-	continueRebaseErr    error
-	activeOperationErr   error
-	mergeErr             error
-	inspectionErr        error
-	inspections          []port.PushUpdateInspection
-	official             []domainbranch.BranchName
-	workflowBase         *domainbranch.TargetBase
-	activeOperation      string
-	active               bool
-	unmergedConflicts    bool
-	calls                []string
-	createdName          domainbranch.BranchName
-	createdBase          domainbranch.TargetBase
-	createdSwitch        bool
-	mergedMessage        commitmsg.Message
+	hasCommits              bool
+	clean                   bool
+	exists                  bool
+	publication             domainbranch.PublicationState
+	missingBase             bool
+	err                     error
+	hasCommitsErr           error
+	worktreeCleanErr        error
+	validateRefErr          error
+	validateRefErrors       []error
+	branchExistsErr         error
+	officialBranchesErr     error
+	fetchErr                error
+	targetBaseErr           error
+	targetBaseMissing       bool
+	createBranchErr         error
+	workflowBaseErr         error
+	publicationErr          error
+	missingBaseErr          error
+	unmergedConflictsErr    error
+	rebaseErr               error
+	continueRebaseErr       error
+	continueMergeErr        error
+	activeOperationErr      error
+	mergeErr                error
+	inspectionErr           error
+	mergeTargetMatches      bool
+	mergeTargetMatchesErr   error
+	activeOperationSequence []activeOperationAnswer
+	inspections             []port.PushUpdateInspection
+	official                []domainbranch.BranchName
+	workflowBase            *domainbranch.TargetBase
+	activeOperation         string
+	active                  bool
+	unmergedConflicts       bool
+	calls                   []string
+	createdName             domainbranch.BranchName
+	createdBase             domainbranch.TargetBase
+	createdSwitch           bool
+	mergedMessage           commitmsg.Message
 }
 
 func (fake *fakeGitRepository) Discover(context.Context, string) (port.RepositoryIdentity, error) {
@@ -69,6 +73,11 @@ func (fake *fakeGitRepository) RemoteURL(context.Context, port.RepositoryIdentit
 
 func (fake *fakeGitRepository) ActiveOperation(context.Context, port.RepositoryIdentity) (string, bool, error) {
 	fake.calls = append(fake.calls, "active-operation")
+	if len(fake.activeOperationSequence) > 0 {
+		answer := fake.activeOperationSequence[0]
+		fake.activeOperationSequence = fake.activeOperationSequence[1:]
+		return answer.operation, answer.active, answer.err
+	}
 	if fake.activeOperationErr != nil {
 		return "", false, fake.activeOperationErr
 	}
@@ -184,6 +193,16 @@ func (fake *fakeGitRepository) Rebase(context.Context, port.RepositoryIdentity, 
 func (fake *fakeGitRepository) ContinueRebase(context.Context, port.RepositoryIdentity) error {
 	fake.calls = append(fake.calls, "continue-rebase")
 	return fake.methodError(fake.continueRebaseErr)
+}
+
+func (fake *fakeGitRepository) ContinueMerge(context.Context, port.RepositoryIdentity) error {
+	fake.calls = append(fake.calls, "continue-merge")
+	return fake.methodError(fake.continueMergeErr)
+}
+
+func (fake *fakeGitRepository) ActiveMergeTargetMatches(context.Context, port.RepositoryIdentity, domainbranch.TargetBase) (bool, error) {
+	fake.calls = append(fake.calls, "merge-target-matches")
+	return fake.mergeTargetMatches, fake.methodError(fake.mergeTargetMatchesErr)
 }
 
 func (fake *fakeGitRepository) Merge(_ context.Context, _ port.RepositoryIdentity, _ domainbranch.TargetBase, message commitmsg.Message) error {
@@ -1635,6 +1654,462 @@ func TestSynchronizerResumeRebaseWhiteboxFailurePaths(t *testing.T) {
 		qualityErr := errors.New("quality failed")
 		git = &fakeGitRepository{publication: domainbranch.PublicationUnpublished}
 		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), &fakeQualityRunner{err: qualityErr}).ResumeRebase(context.Background(), request)
+		if !errors.Is(err, qualityErr) {
+			t.Fatalf("quality error = %v, want %v", err, qualityErr)
+		}
+	})
+}
+
+type activeOperationAnswer struct {
+	operation string
+	active    bool
+	err       error
+}
+
+type gitWithoutMergeResumePorts struct {
+	port.GitRepository
+}
+
+type gitWithMergeInspectorOnly struct {
+	port.GitRepository
+	matches bool
+	err     error
+}
+
+func (git gitWithMergeInspectorOnly) ActiveMergeTargetMatches(context.Context, port.RepositoryIdentity, domainbranch.TargetBase) (bool, error) {
+	return git.matches, git.err
+}
+
+func TestSynchronizerSyncClassifiesMergeConflicts(t *testing.T) {
+	name := mustBranch("feature/ABC-123-add-export")
+	base := mustBase("origin", "develop")
+
+	t.Run("classifies a paused merge conflict", func(t *testing.T) {
+		mergeErr := errors.New("conflict")
+		git := &fakeGitRepository{
+			clean:           true,
+			publication:     domainbranch.PublicationPublished,
+			missingBase:     true,
+			mergeErr:        mergeErr,
+			active:          true,
+			activeOperation: "merge",
+		}
+		message := mustMessage(t, "chore(ABC-123): merge origin/develop")
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).Sync(context.Background(), SyncRequest{
+			Repository:   testRepository(),
+			Name:         name,
+			Base:         &base,
+			Strategy:     SyncMerge,
+			MergeMessage: &message,
+		})
+		assertProblemCode(t, err, problem.CodeMergeConflict)
+		if !errors.Is(err, mergeErr) {
+			t.Fatalf("conflict error = %v, want %v", err, mergeErr)
+		}
+	})
+
+	t.Run("preserves merge failures without an active merge", func(t *testing.T) {
+		mergeErr := errors.New("merge failed")
+		git := &fakeGitRepository{
+			clean:       true,
+			publication: domainbranch.PublicationPublished,
+			missingBase: true,
+			mergeErr:    mergeErr,
+		}
+		message := mustMessage(t, "chore(ABC-123): merge origin/develop")
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).Sync(context.Background(), SyncRequest{
+			Repository:   testRepository(),
+			Name:         name,
+			Base:         &base,
+			Strategy:     SyncMerge,
+			MergeMessage: &message,
+		})
+		if !errors.Is(err, mergeErr) {
+			t.Fatalf("merge error = %v, want %v", err, mergeErr)
+		}
+	})
+}
+
+func TestSynchronizerResumeSyncDispatchAndOutcomes(t *testing.T) {
+	name := mustBranch("feature/ABC-123-add-export")
+	base := mustBase("origin", "develop")
+	request := ResumeSyncRequest{
+		Repository: testRepository(),
+		Name:       name,
+		Base:       &base,
+	}
+
+	t.Run("continues a resolved rebase and reruns validation and quality", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationUnpublished,
+			active:          true,
+			activeOperation: "rebase",
+		}
+		quality := &fakeQualityRunner{}
+		result, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), quality).ResumeSync(context.Background(), request)
+		if err != nil || !result.Mutated || result.RecommendedAction != "rebased" || result.Quality == nil || quality.calls != 1 {
+			t.Fatalf("ResumeSync() = (%#v, %v), quality=%d", result, err, quality.calls)
+		}
+		if !strings.Contains(strings.Join(git.calls, ","), "continue-rebase") {
+			t.Fatalf("resume calls = %v", git.calls)
+		}
+	})
+
+	t.Run("continues a resolved merge with target provenance and quality", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:        domainbranch.PublicationPublished,
+			active:             true,
+			activeOperation:    "merge",
+			mergeTargetMatches: true,
+		}
+		quality := &fakeQualityRunner{}
+		result, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), quality).ResumeSync(context.Background(), request)
+		if err != nil || !result.Mutated || result.RecommendedAction != "merged" || result.Quality == nil || quality.calls != 1 {
+			t.Fatalf("ResumeSync() merge = (%#v, %v), quality=%d", result, err, quality.calls)
+		}
+		joined := strings.Join(git.calls, ",")
+		for _, expected := range []string{"unmerged-conflicts", "fetch", "target-base-exists", "merge-target-matches", "continue-merge", "missing-base"} {
+			if !strings.Contains(joined, expected) {
+				t.Fatalf("merge resume calls missing %q: %v", expected, git.calls)
+			}
+		}
+	})
+
+	t.Run("verifies an externally completed synchronization by publication state", func(t *testing.T) {
+		git := &fakeGitRepository{publication: domainbranch.PublicationUnpublished}
+		result, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if err != nil || !result.Mutated || result.RecommendedAction != "rebased" {
+			t.Fatalf("external rebase ResumeSync() = (%#v, %v)", result, err)
+		}
+
+		git = &fakeGitRepository{publication: domainbranch.PublicationPublished}
+		result, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if err != nil || !result.Mutated || result.RecommendedAction != "merged" {
+			t.Fatalf("external merge ResumeSync() = (%#v, %v)", result, err)
+		}
+	})
+
+	t.Run("defers post-mutation quality when requested", func(t *testing.T) {
+		git := &fakeGitRepository{publication: domainbranch.PublicationUnpublished}
+		quality := &fakeQualityRunner{}
+		deferred := request
+		deferred.DeferPostMutationQuality = true
+		result, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), quality).ResumeSync(context.Background(), deferred)
+		if err != nil || result.Quality != nil || quality.calls != 0 {
+			t.Fatalf("deferred ResumeSync() = (%#v, %v), quality=%d", result, err, quality.calls)
+		}
+	})
+
+	t.Run("rejects a foreign active operation", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationUnpublished,
+			active:          true,
+			activeOperation: "cherry-pick",
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("keeps a remaining base delta a conflict after resume", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationUnpublished,
+			active:          true,
+			activeOperation: "rebase",
+			missingBase:     true,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeRebaseConflict)
+
+		git = &fakeGitRepository{
+			publication:        domainbranch.PublicationPublished,
+			active:             true,
+			activeOperation:    "merge",
+			mergeTargetMatches: true,
+			missingBase:        true,
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeMergeConflict)
+	})
+}
+
+func TestSynchronizerResumeSyncWhiteboxFailurePaths(t *testing.T) {
+	name := mustBranch("feature/ABC-123-add-export")
+	base := mustBase("origin", "develop")
+	request := ResumeSyncRequest{Repository: testRepository(), Name: name, Base: &base}
+
+	t.Run("guards repository context and dependencies", func(t *testing.T) {
+		invalidRepository := request
+		invalidRepository.Repository = port.RepositoryIdentity{}
+		_, err := NewSynchronizer(&fakeGitRepository{}, NewService(&fakeGitRepository{}, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), invalidRepository)
+		assertProblemCode(t, err, problem.CodeRepositoryNotFound)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		git := &fakeGitRepository{}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(ctx, request)
+		assertProblemCode(t, err, problem.CodeOperationCancelled)
+
+		_, err = NewSynchronizer(&fakeGitRepository{}, nil, nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+		_, err = NewSynchronizer(nil, NewService(&fakeGitRepository{}, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("rejects invalid branches and propagates validation errors", func(t *testing.T) {
+		git := &fakeGitRepository{}
+		invalid := request
+		invalid.Name = mustBranch("scratch/ABC-123-experiment")
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), invalid)
+		assertProblemCode(t, err, problem.CodeBranchFamilyInvalid)
+
+		validationErr := errors.New("validation failed")
+		git = &fakeGitRepository{validateRefErr: validationErr}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, validationErr) {
+			t.Fatalf("validation error = %v, want %v", err, validationErr)
+		}
+	})
+
+	t.Run("propagates base and publication resolution failures", func(t *testing.T) {
+		hotfix := mustBranch("hotfix/ABC-123-payment-timeout")
+		hotfixRequest := ResumeSyncRequest{Repository: testRepository(), Name: hotfix}
+		workflowBaseErr := errors.New("workflow base failed")
+		git := &fakeGitRepository{workflowBaseErr: workflowBaseErr}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), hotfixRequest)
+		if !errors.Is(err, workflowBaseErr) {
+			t.Fatalf("workflow base error = %v, want %v", err, workflowBaseErr)
+		}
+
+		git = &fakeGitRepository{}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), hotfixRequest)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+
+		publicationErr := errors.New("publication failed")
+		git = &fakeGitRepository{publicationErr: publicationErr}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, publicationErr) {
+			t.Fatalf("publication error = %v, want %v", err, publicationErr)
+		}
+
+		git = &fakeGitRepository{publication: domainbranch.PublicationUnknown}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeBranchPublicationUnknown)
+	})
+
+	t.Run("propagates operation inspection failures", func(t *testing.T) {
+		activeErr := errors.New("operation inspection failed")
+		git := &fakeGitRepository{
+			publication:        domainbranch.PublicationUnpublished,
+			activeOperationErr: activeErr,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, activeErr) {
+			t.Fatalf("operation inspection error = %v, want %v", err, activeErr)
+		}
+	})
+
+	t.Run("rejects a published branch for a paused rebase", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationPublished,
+			active:          true,
+			activeOperation: "rebase",
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeRebaseAfterPublishForbidden)
+	})
+
+	t.Run("classifies a failing rebase continuation", func(t *testing.T) {
+		continueErr := errors.New("unresolved conflicts")
+		git := &fakeGitRepository{
+			publication:       domainbranch.PublicationUnpublished,
+			active:            true,
+			activeOperation:   "rebase",
+			continueRebaseErr: continueErr,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeRebaseConflict)
+		if !errors.Is(err, continueErr) {
+			t.Fatalf("continue error = %v, want %v", err, continueErr)
+		}
+
+		git = &fakeGitRepository{
+			publication:       domainbranch.PublicationUnpublished,
+			continueRebaseErr: continueErr,
+			activeOperationSequence: []activeOperationAnswer{
+				{operation: "rebase", active: true},
+				{operation: "", active: false},
+			},
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, continueErr) {
+			t.Fatalf("externally resolved continue error = %v, want %v", err, continueErr)
+		}
+	})
+
+	t.Run("rejects a paused merge on an unpublished branch", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationUnpublished,
+			active:          true,
+			activeOperation: "merge",
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+	})
+
+	t.Run("fails closed while merge conflicts remain unresolved", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:       domainbranch.PublicationPublished,
+			active:            true,
+			activeOperation:   "merge",
+			unmergedConflicts: true,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeMergeConflict)
+		if strings.Contains(strings.Join(git.calls, ","), "continue-merge") {
+			t.Fatalf("unresolved merge continued: %v", git.calls)
+		}
+
+		conflictsErr := errors.New("conflict inspection failed")
+		git = &fakeGitRepository{
+			publication:          domainbranch.PublicationPublished,
+			active:               true,
+			activeOperation:      "merge",
+			unmergedConflictsErr: conflictsErr,
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, conflictsErr) {
+			t.Fatalf("conflict inspection error = %v, want %v", err, conflictsErr)
+		}
+	})
+
+	t.Run("propagates merge resume fetch and base failures", func(t *testing.T) {
+		fetchErr := errors.New("fetch failed")
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationPublished,
+			active:          true,
+			activeOperation: "merge",
+			fetchErr:        fetchErr,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, fetchErr) {
+			t.Fatalf("fetch error = %v, want %v", err, fetchErr)
+		}
+
+		git = &fakeGitRepository{
+			publication:       domainbranch.PublicationPublished,
+			active:            true,
+			activeOperation:   "merge",
+			targetBaseMissing: true,
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+
+		targetBaseErr := errors.New("target base failed")
+		git = &fakeGitRepository{
+			publication:     domainbranch.PublicationPublished,
+			active:          true,
+			activeOperation: "merge",
+			targetBaseErr:   targetBaseErr,
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, targetBaseErr) {
+			t.Fatalf("target base error = %v, want %v", err, targetBaseErr)
+		}
+	})
+
+	t.Run("requires the merge target inspector and continuator ports", func(t *testing.T) {
+		git := &fakeGitRepository{
+			publication:     domainbranch.PublicationPublished,
+			active:          true,
+			activeOperation: "merge",
+		}
+		_, err := NewSynchronizer(gitWithoutMergeResumePorts{git}, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+
+		inspectorOnly := gitWithMergeInspectorOnly{
+			GitRepository: git,
+			matches:       true,
+		}
+		_, err = NewSynchronizer(inspectorOnly, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("propagates merge target inspection failures and rejects stale targets", func(t *testing.T) {
+		matchesErr := errors.New("merge target inspection failed")
+		git := &fakeGitRepository{
+			publication:           domainbranch.PublicationPublished,
+			active:                true,
+			activeOperation:       "merge",
+			mergeTargetMatchesErr: matchesErr,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, matchesErr) {
+			t.Fatalf("merge target inspection error = %v, want %v", err, matchesErr)
+		}
+
+		git = &fakeGitRepository{
+			publication:     domainbranch.PublicationPublished,
+			active:          true,
+			activeOperation: "merge",
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeMergeConflict)
+	})
+
+	t.Run("classifies a failing merge continuation", func(t *testing.T) {
+		continueErr := errors.New("unresolved merge conflicts")
+		git := &fakeGitRepository{
+			publication:        domainbranch.PublicationPublished,
+			active:             true,
+			activeOperation:    "merge",
+			mergeTargetMatches: true,
+			continueMergeErr:   continueErr,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeMergeConflict)
+		if !errors.Is(err, continueErr) {
+			t.Fatalf("continue error = %v, want %v", err, continueErr)
+		}
+
+		git = &fakeGitRepository{
+			publication:        domainbranch.PublicationPublished,
+			mergeTargetMatches: true,
+			continueMergeErr:   continueErr,
+			activeOperationSequence: []activeOperationAnswer{
+				{operation: "merge", active: true},
+				{operation: "", active: false},
+			},
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, continueErr) {
+			t.Fatalf("externally resolved continue error = %v, want %v", err, continueErr)
+		}
+	})
+
+	t.Run("propagates final comparison and validation failures", func(t *testing.T) {
+		missingErr := errors.New("base comparison failed")
+		git := &fakeGitRepository{
+			publication:    domainbranch.PublicationUnpublished,
+			missingBaseErr: missingErr,
+		}
+		_, err := NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, missingErr) {
+			t.Fatalf("missing-base error = %v, want %v", err, missingErr)
+		}
+
+		postValidationErr := errors.New("post-resume validation failed")
+		git = &fakeGitRepository{
+			publication:       domainbranch.PublicationUnpublished,
+			validateRefErrors: []error{nil, postValidationErr},
+		}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), nil).ResumeSync(context.Background(), request)
+		if !errors.Is(err, postValidationErr) {
+			t.Fatalf("post-validation error = %v, want %v", err, postValidationErr)
+		}
+
+		qualityErr := errors.New("quality failed")
+		git = &fakeGitRepository{publication: domainbranch.PublicationUnpublished}
+		_, err = NewSynchronizer(git, NewService(git, &fakeKeyPolicy{}), &fakeQualityRunner{err: qualityErr}).ResumeSync(context.Background(), request)
 		if !errors.Is(err, qualityErr) {
 			t.Fatalf("quality error = %v, want %v", err, qualityErr)
 		}

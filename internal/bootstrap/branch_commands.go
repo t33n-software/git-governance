@@ -275,6 +275,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 		mergeMessage string
 		mergeFamily  string
 		mergeSubject string
+		resume       bool
 	)
 	command := &cobra.Command{
 		Use:   "sync-base",
@@ -302,40 +303,68 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			strategy := branchapp.SyncStrategy(strategyRaw)
-			var parsedMergeMessage *commitmsg.Message
-			if strategy == branchapp.SyncMerge {
-				message, err := application.resolveCommitMessage(command.Context(), commitMessageInput{
-					Branch:           name,
-					CompleteMessage:  mergeMessage,
-					Family:           mergeFamily,
-					Description:      mergeSubject,
-					RequireFamily:    true,
-					DescriptionLabel: "Merge commit description",
-					Operation:        "the branch-base synchronization merge",
+			var result branchapp.SyncResult
+			if resume {
+				if application.options.dryRun {
+					return invalidOption("resume", "true", "a non-dry-run invocation")
+				}
+				if command.Flags().Changed("strategy") {
+					return invalidOption("strategy", strategyRaw, "omitted; --resume continues the paused Git operation")
+				}
+				if mergeMessage != "" || mergeFamily != "" || mergeSubject != "" {
+					return invalidOption("merge commit input", "configured", "omitted; --resume continues the paused Git operation")
+				}
+				if err := application.confirmMutation(
+					command.Context(),
+					"Resume branch base synchronization",
+					"Continue the resolved rebase or merge on "+name.String()+" if policy permits?",
+				); err != nil {
+					return err
+				}
+				result, err = services.sync.ResumeSync(command.Context(), branchapp.ResumeSyncRequest{
+					Repository: repository,
+					Name:       name,
+					Base:       base,
 				})
 				if err != nil {
 					return err
 				}
-				parsedMergeMessage = &message
-			} else if mergeMessage != "" || mergeFamily != "" || mergeSubject != "" {
-				return invalidOption("merge commit input", "configured", "merge commit inputs are only supported with --strategy merge")
-			}
-			if strategy == branchapp.SyncRebase || strategy == branchapp.SyncMerge {
-				if err := application.confirmMutation(command.Context(), "Synchronize branch base", "Apply "+strategyRaw+" to "+name.String()+" if policy permits?"); err != nil {
+			} else {
+				strategy := branchapp.SyncStrategy(strategyRaw)
+				var parsedMergeMessage *commitmsg.Message
+				if strategy == branchapp.SyncMerge {
+					message, err := application.resolveCommitMessage(command.Context(), commitMessageInput{
+						Branch:           name,
+						CompleteMessage:  mergeMessage,
+						Family:           mergeFamily,
+						Description:      mergeSubject,
+						RequireFamily:    true,
+						DescriptionLabel: "Merge commit description",
+						Operation:        "the branch-base synchronization merge",
+					})
+					if err != nil {
+						return err
+					}
+					parsedMergeMessage = &message
+				} else if mergeMessage != "" || mergeFamily != "" || mergeSubject != "" {
+					return invalidOption("merge commit input", "configured", "merge commit inputs are only supported with --strategy merge")
+				}
+				if strategy == branchapp.SyncRebase || strategy == branchapp.SyncMerge {
+					if err := application.confirmMutation(command.Context(), "Synchronize branch base", "Apply "+strategyRaw+" to "+name.String()+" if policy permits?"); err != nil {
+						return err
+					}
+				}
+				result, err = services.sync.Sync(command.Context(), branchapp.SyncRequest{
+					Repository:   repository,
+					Name:         name,
+					Base:         base,
+					Strategy:     strategy,
+					MergeMessage: parsedMergeMessage,
+					DryRun:       application.options.dryRun,
+				})
+				if err != nil {
 					return err
 				}
-			}
-			result, err := services.sync.Sync(command.Context(), branchapp.SyncRequest{
-				Repository:   repository,
-				Name:         name,
-				Base:         base,
-				Strategy:     strategy,
-				MergeMessage: parsedMergeMessage,
-				DryRun:       application.options.dryRun,
-			})
-			if err != nil {
-				return err
 			}
 			fields := map[string]string{
 				"branch":             result.Name.String(),
@@ -366,6 +395,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 	command.Flags().StringVar(&mergeFamily, "merge-type", "", "commit family for --strategy merge")
 	command.Flags().StringVar(&mergeSubject, "merge-subject", "", "commit description for --strategy merge")
 	command.Flags().StringVar(&mergeMessage, "merge-message", "", "complete merge message compatibility input for --strategy merge")
+	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved rebase or merge")
 	return command
 }
 

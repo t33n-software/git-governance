@@ -52,14 +52,14 @@ does not rely on any external governance repository or unpublished rule set.
 | Base delta, merge, and rebase paths | VERIFIED | real local Git integration test |
 | Scratch-to-official squash transfer | VERIFIED | whitebox, CLI-contract, Git-adapter, and real local Git integration tests |
 | Structured commit-family composition | VERIFIED | canonical commit application module and same-package whitebox tests |
-| Rebase and scratch-squash continuation after conflict resolution | VERIFIED | synchronizer, scratch merger, workflow, CLI interaction, and Git adapter whitebox tests |
+| Rebase, merge, and scratch-squash continuation after conflict resolution | VERIFIED | synchronizer, scratch merger, workflow, CLI interaction, and Git adapter whitebox tests |
 | No automatic amend or force push | VERIFIED | absent from public command tree and application APIs |
 
 ## User-facing commands
 
 | Command area | Status | Notes |
 |---|---|---|
-| `branch list`, `validate`, `create`, `merge-scratch`, `sync-base` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, and structured commit composition |
+| `branch list`, `validate`, `create`, `merge-scratch`, `sync-base` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, structured commit composition, and the governed `sync-base --resume` continuation of conflicted rebase and merge synchronizations |
 | `commit create`, `validate` | IMPLEMENTED | explicit staging, branch-derived ticket context, and canonical family selection are enforced |
 | `workflow ticket start` | IMPLEMENTED | optional scratch branch and provider-neutral PR intent |
 | `workflow ticket publish` | IMPLEMENTED | reports conditional rebase state, runs final local quality only after synchronization, records revision-bound local Git metadata, resumes resolved rebase and scratch-transfer conflicts interactively or with `--resume`, and creates a PR only through an explicit configured provider |
