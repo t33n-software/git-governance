@@ -238,7 +238,7 @@ func (synchronizer *Synchronizer) Sync(ctx context.Context, request SyncRequest)
 		return result, nil
 	}
 	if err := synchronizer.git.Merge(ctx, repository, base, *request.MergeMessage); err != nil {
-		return SyncResult{}, err
+		return SyncResult{}, synchronizer.classifyMergeFailure(ctx, repository, base, err)
 	}
 	result.Mutated = true
 	result.RecommendedAction = "merged"
@@ -339,6 +339,172 @@ func (synchronizer *Synchronizer) ResumeRebase(ctx context.Context, request Resu
 		RecommendedAction: "rebased",
 		Quality:           quality,
 	}, nil
+}
+
+// ResumeSyncRequest describes a previously interrupted policy-approved
+// synchronization started by branch sync-base. It deliberately contains no
+// mutation strategy: the paused Git operation selects whether a rebase or a
+// merge is continued.
+type ResumeSyncRequest struct {
+	Repository               port.RepositoryIdentity
+	Name                     branch.BranchName
+	Base                     *branch.TargetBase
+	WorkflowManaged          bool
+	DeferPostMutationQuality bool
+}
+
+// ResumeSync continues a user-resolved rebase or merge created by branch
+// sync-base, or verifies an externally completed one, then reruns branch and
+// quality validation before any publication can continue.
+func (synchronizer *Synchronizer) ResumeSync(ctx context.Context, request ResumeSyncRequest) (SyncResult, error) {
+	repository, err := normalizeRepository(request.Repository)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if err := contextError(ctx); err != nil {
+		return SyncResult{}, err
+	}
+	if synchronizer.validator == nil {
+		return SyncResult{}, internalDependencyError("branch validator")
+	}
+	if synchronizer.git == nil {
+		return SyncResult{}, internalDependencyError("Git repository")
+	}
+	if _, err := synchronizer.validator.Validate(ctx, ValidateRequest{Repository: repository, Name: request.Name}); err != nil {
+		return SyncResult{}, err
+	}
+	if !request.Name.Family().IsOfficialWorkingBranch() {
+		return SyncResult{}, unsupportedSyncFamily(request.Name)
+	}
+
+	baseInput, err := synchronizer.workflowBase(ctx, repository, request.Name, request.Base)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	base, err := resolveSyncBase(request.Name, repository, baseInput, request.WorkflowManaged)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	publication, err := synchronizer.git.PublicationState(ctx, repository, request.Name)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if publication == branch.PublicationUnknown {
+		return SyncResult{}, problem.New(problem.Details{
+			Code:        problem.CodeBranchPublicationUnknown,
+			Category:    problem.CategoryRepository,
+			Field:       "branch publication state",
+			Actual:      request.Name.String(),
+			Expected:    "a known published or unpublished state",
+			Rule:        "history operations are forbidden when publication state cannot be determined",
+			Remediation: "fetch the remote successfully and resolve the branch tracking state",
+		})
+	}
+
+	operation, active, err := synchronizer.git.ActiveOperation(ctx, repository)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	action := ""
+	switch {
+	case active && operation == "rebase":
+		if publication != branch.PublicationUnpublished {
+			return SyncResult{}, rebaseAfterPublishForbidden(request.Name, base)
+		}
+		if err := synchronizer.git.ContinueRebase(ctx, repository); err != nil {
+			return SyncResult{}, synchronizer.classifyRebaseFailure(ctx, repository, base, err)
+		}
+		action = "rebased"
+	case active && operation == "merge":
+		if publication != branch.PublicationPublished {
+			return SyncResult{}, mergeResumeBeforePublish(request.Name)
+		}
+		if err := synchronizer.continueResolvedMerge(ctx, repository, base); err != nil {
+			return SyncResult{}, err
+		}
+		action = "merged"
+	case active:
+		return SyncResult{}, syncResumeUnavailable(operation)
+	default:
+		if publication == branch.PublicationUnpublished {
+			action = "rebased"
+		} else {
+			action = "merged"
+		}
+	}
+
+	missing, err := synchronizer.git.HasMissingBaseCommits(ctx, repository, base)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	if missing {
+		if action == "merged" {
+			return SyncResult{}, mergeConflict(base, nil)
+		}
+		return SyncResult{}, rebaseConflict(base, nil)
+	}
+	var quality *port.QualityResult
+	if !request.DeferPostMutationQuality {
+		completed, err := synchronizer.validateAfterMutation(ctx, repository, request.Name)
+		if err != nil {
+			return SyncResult{}, err
+		}
+		quality = &completed
+	}
+	return SyncResult{
+		Name:              request.Name,
+		Base:              base,
+		Publication:       publication,
+		Mutated:           true,
+		RecommendedAction: action,
+		Quality:           quality,
+	}, nil
+}
+
+// continueResolvedMerge advances a paused sync-base merge only after every
+// conflict is resolved and staged and the in-progress merge still targets the
+// fetched base revision it was started against.
+func (synchronizer *Synchronizer) continueResolvedMerge(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	base branch.TargetBase,
+) error {
+	conflicts, err := synchronizer.git.HasUnmergedConflicts(ctx, repository)
+	if err != nil {
+		return err
+	}
+	if conflicts {
+		return mergeConflict(base, nil)
+	}
+	if err := synchronizer.git.Fetch(ctx, repository); err != nil {
+		return err
+	}
+	exists, err := synchronizer.git.TargetBaseExists(ctx, repository, base)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return mergeResumeBaseMissing(base)
+	}
+	inspector, ok := synchronizer.git.(port.ActiveMergeTargetInspector)
+	if !ok {
+		return internalDependencyError("merge target inspector")
+	}
+	matches, err := inspector.ActiveMergeTargetMatches(ctx, repository, base)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return mergeResumeTargetStale(base)
+	}
+	continuator, ok := synchronizer.git.(port.MergeContinuator)
+	if !ok {
+		return internalDependencyError("merge continuator")
+	}
+	if err := continuator.ContinueMerge(ctx, repository); err != nil {
+		return synchronizer.classifyMergeFailure(ctx, repository, base, err)
+	}
+	return nil
 }
 
 // PrePushRequest describes the local governance data checked before a push.
@@ -541,6 +707,19 @@ func (synchronizer *Synchronizer) classifyRebaseFailure(
 	return rebaseConflict(base, cause)
 }
 
+func (synchronizer *Synchronizer) classifyMergeFailure(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	base branch.TargetBase,
+	cause error,
+) error {
+	operation, active, err := synchronizer.git.ActiveOperation(ctx, repository)
+	if err != nil || !active || operation != "merge" {
+		return cause
+	}
+	return mergeConflict(base, cause)
+}
+
 func recommendedAction(publication branch.PublicationState) string {
 	if publication == branch.PublicationUnpublished {
 		return "rebase"
@@ -607,9 +786,70 @@ func rebaseConflict(base branch.TargetBase, cause error) error {
 		Actual:      base.String(),
 		Expected:    "a completed rebase without unresolved conflicts",
 		Rule:        "the workflow pauses when Git requires the developer to resolve a rebase conflict",
-		Example:     "resolve conflicts, stage the resolutions, then select Retry",
-		Remediation: "resolve and stage every conflicting file, then select Retry to continue the existing rebase",
+		Example:     "resolve conflicts, stage the resolutions, then run branch sync-base --resume",
+		Remediation: "resolve and stage every conflicting file, then continue the paused rebase with branch sync-base --resume or the owning workflow publish --resume",
 	}, cause)
+}
+
+func mergeConflict(base branch.TargetBase, cause error) error {
+	return problem.Wrap(problem.Details{
+		Code:        problem.CodeMergeConflict,
+		Category:    problem.CategoryGit,
+		Field:       "merge",
+		Actual:      base.String(),
+		Expected:    "a completed merge without unresolved conflicts",
+		Rule:        "the workflow pauses when Git requires the developer to resolve a merge conflict",
+		Example:     "resolve conflicts, stage the resolutions, then run branch sync-base --resume",
+		Remediation: "resolve and stage every conflicting file, then continue the paused merge with branch sync-base --resume",
+	}, cause)
+}
+
+func syncResumeUnavailable(operation string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeInvalidInput,
+		Category:    problem.CategoryGit,
+		Field:       "Git operation state",
+		Actual:      operation,
+		Expected:    "an in-progress rebase or merge created by branch sync-base",
+		Rule:        "a synchronization resume continues only the paused rebase or merge created by branch sync-base",
+		Remediation: "complete or abort the active Git operation, then rerun branch sync-base",
+	})
+}
+
+func mergeResumeBeforePublish(name branch.BranchName) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeBranchBaseInvalid,
+		Category:    problem.CategoryGovernance,
+		Field:       "branch",
+		Actual:      name.String(),
+		Expected:    "a published official branch for a merge synchronization resume",
+		Rule:        "branch sync-base creates merge state only on published branches; a paused merge on an unpublished branch is foreign to this workflow",
+		Remediation: "complete or abort the active merge, then synchronize an unpublished branch with --strategy rebase",
+	})
+}
+
+func mergeResumeBaseMissing(base branch.TargetBase) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeBranchBaseInvalid,
+		Category:    problem.CategoryRepository,
+		Field:       "target base",
+		Actual:      base.String(),
+		Expected:    "an existing fetched target base",
+		Rule:        "a merge resume requires the fetched remote-tracking base it was started against",
+		Remediation: "fetch the selected remote and verify the target base before retrying",
+	})
+}
+
+func mergeResumeTargetStale(base branch.TargetBase) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeMergeConflict,
+		Category:    problem.CategoryGit,
+		Field:       "merge target",
+		Actual:      base.String(),
+		Expected:    "an in-progress merge that still targets the fetched base revision",
+		Rule:        "a synchronization resume never continues a merge whose target moved since the resolution started",
+		Remediation: "abort the stale merge and run branch sync-base --strategy merge against the current base",
+	})
 }
 
 func rebaseResumeUnavailable(operation string) error {

@@ -9,6 +9,10 @@ git governance --yes branch sync-base --strategy rebase
 git governance --yes branch sync-base --strategy merge `
   --merge-type chore `
   --merge-subject "merge origin/develop"
+
+# After resolving and explicitly staging every conflict of a paused
+# rebase or merge:
+git governance --yes branch sync-base --resume
 ```
 
 For automation, make the no-prompt mode explicit:
@@ -35,3 +39,11 @@ Policy:
    `main` for a release promotion. Use
    `workflow release align-promotion-base` so the release provenance,
    quality gate, and release-line PR target remain explicit.
+9. If a rebase or merge pauses on conflicts, resolve the exact conflicted
+   paths, stage them explicitly, and continue with `--resume`. The command
+   revalidates the branch, the base freshness, and the configured quality
+   gates before the branch can be published.
+10. `--resume` accepts no strategy, no dry-run, and no merge commit inputs:
+    it continues only the paused Git operation created by this command. A
+    paused merge is continued only when it still targets the fetched base
+    revision.

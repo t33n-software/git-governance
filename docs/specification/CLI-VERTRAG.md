@@ -351,6 +351,8 @@ Stellt fest, ob der aktuelle offizielle Arbeitsbranch Commits seiner tatsächlic
 ```text
 git governance branch sync-base \
   --strategy check|auto|rebase|merge
+
+git governance branch sync-base --resume
 ```
 
 Für `--strategy merge` erzeugt die interaktive Oberfläche denselben
@@ -358,6 +360,16 @@ strukturierten Commit-Ablauf mit festem Branch-Ticket. Nicht-interaktive Aufrufe
 verwenden `--merge-type <family>` und `--merge-subject <description>`;
 `--merge-message` bleibt ausschließlich als vollständiger
 Kompatibilitätseingang erhalten.
+
+`--resume` setzt einen durch dieses Kommando pausierten Rebase oder Merge fort,
+nachdem alle Konfliktpfade aufgelöst und explizit gestagt wurden. Der
+Wiedereinstieg akzeptiert bewusst keine Strategie, kein Dry-Run und keine
+Merge-Commit-Eingaben: Die aktive Git-Operation bestimmt die Fortsetzung. Vor
+der Fortsetzung prüft das Kommando Branch-Grammatik, Publication State und die
+aktive Operation; ein Merge wird zusätzlich nur fortgesetzt, wenn keine
+unaufgelösten Konflikte mehr offen sind und er noch auf die gefetchte
+Basisrevision zeigt. Nach der Fortsetzung werden Basis-Frische,
+Branch-Validierung und die konfigurierten Quality Checks erneut ausgeführt.
 
 ### 7.2 Entscheidungslogik
 
@@ -382,7 +394,7 @@ Kompatibilitätseingang erhalten.
 - unveröffentlicht: nur bei Delta rebasen
 - veröffentlicht: ohne explizite Merge-Freigabe nur Handlungsplan ausgeben
 
-Nach einer Mutation laufen Governance-Checks und konfigurierte Quality Checks erneut. Schlägt ein direkter `branch sync-base`-Rebase konfliktbedingt fehl, bleibt Git im normalen Rebase-Zustand und wird nicht verborgen. Im `workflow ticket publish` wird derselbe Zustand zusätzlich als Retry-Schritt dargestellt: Nach Auflösung und Staging setzt Retry den bestehenden Rebase fort.
+Nach einer Mutation laufen Governance-Checks und konfigurierte Quality Checks erneut. Schlägt ein direkter `branch sync-base`-Rebase oder -Merge konfliktbedingt fehl, bleibt Git im normalen Rebase- beziehungsweise Merge-Zustand und wird nicht verborgen. Nach Auflösung und explizitem Staging setzt `branch sync-base --resume` die pausierte Operation governet fort. Im `workflow ticket publish` wird derselbe Zustand zusätzlich als Retry-Schritt dargestellt: Nach Auflösung und Staging setzt Retry den bestehenden Rebase fort.
 
 ## 9. `commit create`
 
