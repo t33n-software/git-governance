@@ -27,6 +27,7 @@
         "restricted_file_paths": [
           "**/.env",
           "**/.env.*",
+          "**/.envrc",
           "**/credentials",
           "**/credentials.*",
           "**/*.tfstate",
