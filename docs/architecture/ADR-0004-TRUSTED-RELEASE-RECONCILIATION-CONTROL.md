@@ -74,6 +74,51 @@ Develop-Revision. Erst danach darf CI mit kurzlebigem Broker-Token Quality
 ausführen, die Kandidatenbranch veröffentlichen und den PR nach `develop`
 erstellen.
 
+## Trigger-Grenze und Admission-Act
+
+Die Auslösung des Reconciliation-Controllers ist ein eigener Governance-Act
+und strikt von der privilegierten Ausführungskette getrennt. Der Trigger ist
+eine Admission — die bewusste Anmeldung eines Sachverhalts zur privilegierten
+Prüfung — und nicht das Privileg selbst. Die privilegierte Wirkung entsteht
+ausschließlich hinter der serverseitigen Kette aus Environment-Freigabe,
+OIDC/WIF-Workload-Identität, Publisher-Broker und dediziertem
+Publisher-Token (ADR-0005).
+
+Vier Festlegungen gelten verbindlich:
+
+1. **Trigger-Identitäts-Äquivalenz.** Ob ein Mensch den Dispatch über die
+   GitHub-Oberfläche, ein Mensch oder Agent über `gh` oder ein explizites,
+   separates Kommando auslöst, ist trust-äquivalent, solange der Act separat,
+   bewusst und mit aufgezeichneter Actor-Identität erfolgt. Die Kontrolle
+   trägt die serverseitige Freigabe- und Validierungskette, nicht die
+   auslösende Identität. Ein Dispatch erfordert weder Publisher- noch
+   Shared-Line-Berechtigung, sondern nur eine dispatch-berechtigte
+   Operator-Identität.
+
+2. **Kein automatischer Trigger als Side-Effect.** Die lokale CLI löst den
+   Reconciliation-Controller niemals als automatische Folgewirkung eines
+   Kandidaten-Pushs oder Resume aus. Vorbereitung (nicht-shared, lokal) und
+   Admission (bewusster Act) kollabieren nicht zu einem automatisierten Akt;
+   die lokale CLI erhält kein stehendes Dispatch-Credential für die
+   Reconciliation-Lane.
+
+3. **Automatisierungs-Ort ist serverseitig.** Die reguläre
+   Trigger-Automatisierung gehört ausschließlich in den serverseitigen
+   Delivery-Lifecycle, der nach bestätigter Delivery event-getrieben und
+   idempotent startet. Lokales Tooling ist niemals der
+   Automatisierungs-Ort der Reconciliation-Lane.
+
+4. **Manueller Dispatch als geschützter Recovery-Einstieg.** Der manuelle
+   Dispatch bleibt der vorgesehene Incident-, Retry- und Recovery-Pfad. Er
+   ist eine bewusste Admission-Entscheidung nach einem fail-closed Zustand
+   und durchläuft dieselben Eingabe-, Delivery-, Idempotenz- und
+   Auditprüfungen wie der automatische Pfad.
+
+Diese Grenze begründet sich nicht aus einer fehlenden Fähigkeit der lokalen
+CLI — ein Dispatch benötigt keine Publisher-Rechte —, sondern aus der
+Trennung von Deliberation und Privileg, der Least-Privilege-Hygiene lokaler
+Tooling-Identitäten und dem serverseitigen Automatisierungs-Ort.
+
 ## Invarianten
 
 - `release/<semver>` wird nie durch den Controller aktualisiert, rebased oder
@@ -97,6 +142,15 @@ erstellen.
   Commit.
 - Der Controller erstellt PRs idempotent, merged aber niemals direkt nach
   `develop`; Review und Required Checks bleiben bindend.
+- Der Reconciliation-Trigger ist eine bewusste Admission; Mensch, Agent und
+  UI-Dispatch sind trust-äquivalent, solange der Act separat und auditiert
+  bleibt.
+- Die lokale CLI triggert den Controller niemals als Side-Effect einer
+  lokalen Mutation und hält kein stehendes Dispatch-Credential für die
+  Reconciliation-Lane.
+- Die reguläre Trigger-Automatisierung liegt serverseitig im
+  Delivery-Lifecycle; der manuelle Dispatch bleibt der geschützte
+  Recovery-Einstieg.
 
 ## Konsequenzen
 
@@ -109,3 +163,7 @@ erstellen.
   Release-Lineage zu verändern.
 - Der Normalpfad benötigt keinen manuellen Operatorstart; dessen manueller
   Fallback bleibt für kontrollierte Recovery verfügbar.
+- Die Trigger-Grenze ist als Admission-Act niedergelegt; die Fehllesart, die
+  lokale CLI könne den Dispatch nicht ausführen, weil ihr Publisher-Rechte
+  fehlten, ist ausgeschlossen — ein Dispatch benötigt nur eine
+  dispatch-berechtigte Operator-Identität.
