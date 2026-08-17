@@ -681,7 +681,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `workflow ticket publish` | E1 | Offiziellen Branch validieren, synchronisieren, pushen und PR vorbereiten | Vollständige Publish-Gates; Provider-PR nur bei expliziter Anforderung |
 | `branch create` | E2 | Nur wenn kein vollständiger Workflow diese begrenzte Aktion anbietet; insbesondere reaktive Scratch-Erstellung | Keine Ticket-Branch-Erstellung, kein Ersatz für `workflow ticket start`, kein Reparaturvehikel für Mutation-vor-Workflow |
 | `branch merge-scratch` | E2 | Begrenzte Scratch-Übernahme, wenn der Ticket-Publish-Workflow sie nicht übernimmt | Kontrollierter Squash auf offiziellen Branch |
-| `branch sync-base` | E2 | Bewusste, isolierte Basis-Synchronisation | Nach Mutation Quality erneut prüfen |
+| `branch sync-base` | E2 | Bewusste, isolierte Basis-Synchronisation und governeter Wiedereinstieg in ihre konfliktpausierte Rebase- oder Merge-Operation | Nach Mutation und nach Resume Quality erneut prüfen |
 | `commit create` | E2 | Einen explizit abgegrenzten semantischen Commit erzeugen; nur auf einer verifizierten offiziellen Working-Branch nach freigegebenem Embargo | Nur explizite Pfade, kein implizites Staging |
 | `workflow cleanup` | E1 | Ausschließlich lokal übertragene private Scratch-Branches aufräumen | Löscht keine Remote- oder offiziellen Branches |
 
@@ -813,7 +813,9 @@ Bei Rebase-, Merge-, Scratch-Squash- oder Cherry-Pick-Konflikten:
    ähnliche Seitenwahl.
 5. Stage ausschließlich explizit gelöste Pfade.
 6. Nutze danach den passenden governeden Resume-Endpunkt, den aktuelle Help
-   anbietet.
+   anbietet: bei einer durch `branch sync-base` pausierten Rebase- oder
+   Merge-Operation den Resume-Modus desselben Endpunkts, bei einer durch
+   einen Workflow pausierten Operation den Resume-Einstieg dieses Workflows.
 7. Prüfe Basis, Provenance und Quality erneut.
 
 Das Staging gelöster Konfliktpfade in Schritt 5 ist die einzige zulässige
