@@ -9,3 +9,4 @@
 *.cov
 cover-github
 *.txt
+!LICENSES/**

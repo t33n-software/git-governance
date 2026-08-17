@@ -46,3 +46,12 @@ GitHub API access uses an explicit GitHub App login or a managed credential
 broker; it never accepts a GitHub token as a CLI flag or stores one in user
 preferences. Read the [GitHub App authentication guide](docs/usage/authentication.md)
 before requesting pull-request creation.
+
+## License
+
+This project is source-available under
+`LicenseRef-git-governance-NoRepublish-1.0`: free to use, clone, build, and
+modify for your own use, commercially and non-commercially; republishing the
+project or substantially similar forks is prohibited. The canonical text lives
+in `LICENSE` and `LICENSES/`, rendered from the organization's license hub and
+pinned by `license.lock.json`.
