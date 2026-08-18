@@ -9,11 +9,31 @@ import (
 	"testing"
 )
 
+var (
+	sharedLineRulesetFullFiles = []string{
+		"02-develop.quality-gates-full.json",
+		"03-main.quality-gates-full.json",
+		"04-release.quality-gates-full.json",
+		"05-support.quality-gates-full.json",
+	}
+	sharedLineRulesetLinuxOnlyFiles = []string{
+		"02-develop.quality-gates-linux-only.json",
+		"03-main.quality-gates-linux-only.json",
+		"04-release.quality-gates-linux-only.json",
+		"05-support.quality-gates-linux-only.json",
+	}
+	protectedLineRulesetFiles = []string{
+		"04-release.quality-gates-full.json",
+		"04-release.quality-gates-linux-only.json",
+		"05-support.quality-gates-full.json",
+		"05-support.quality-gates-linux-only.json",
+	}
+)
+
 func TestProtectedLineRulesetsAllowInitialCreation(t *testing.T) {
 	t.Parallel()
 
-	expectedChecks := sharedLineStatusChecks(t)
-	for _, fileName := range []string{"04-release.json", "05-support.json"} {
+	for _, fileName := range protectedLineRulesetFiles {
 		fileName := fileName
 		t.Run(fileName, func(t *testing.T) {
 			t.Parallel()
@@ -22,6 +42,7 @@ func TestProtectedLineRulesetsAllowInitialCreation(t *testing.T) {
 			if !doNotEnforceOnCreate {
 				t.Fatal("required status checks must not be enforced when the protected line is first created")
 			}
+			expectedChecks := expectedSharedLineChecks(t, fileName)
 			if !equalStrings(got, expectedChecks) {
 				t.Fatalf("required status checks = %#v, want %#v", got, expectedChecks)
 			}
@@ -32,18 +53,16 @@ func TestProtectedLineRulesetsAllowInitialCreation(t *testing.T) {
 func TestSharedLineRulesetsMatchRequiredChecks(t *testing.T) {
 	t.Parallel()
 
-	expectedChecks := sharedLineStatusChecks(t)
-	for _, fileName := range []string{
-		"02-develop.json",
-		"03-main.json",
-		"04-release.json",
-		"05-support.json",
-	} {
+	for _, fileName := range append(
+		append([]string{}, sharedLineRulesetFullFiles...),
+		sharedLineRulesetLinuxOnlyFiles...,
+	) {
 		fileName := fileName
 		t.Run(fileName, func(t *testing.T) {
 			t.Parallel()
 
 			_, got := rulesetStatusChecks(t, fileName)
+			expectedChecks := expectedSharedLineChecks(t, fileName)
 			if !equalStrings(got, expectedChecks) {
 				t.Fatalf("required status checks = %#v, want shared-line checks %#v", got, expectedChecks)
 			}
@@ -73,26 +92,18 @@ func TestDependencyAdmissionReviewTargetsEverySharedLine(t *testing.T) {
 func TestPushProtectionsRulesetBlocksCredentialShapedArtifacts(t *testing.T) {
 	t.Parallel()
 
-	contents, err := os.ReadFile(filepath.Join(
-		repositoryRoot(t),
-		"docs",
-		"hosting-platforms",
-		"github",
-		"rulesets",
-		"00-push-protections.json",
-	))
-	if err != nil {
-		t.Fatal(err)
-	}
-	push := string(contents)
+	push := rulesetDocument(t, "00-push-protections.json")
 
 	for _, required := range []string{
-		`"name": "push-protections: block secret and key shaped artifacts"`,
+		`"name": "push-protections: secret artifact boundary"`,
 		`"target": "push"`,
-		`"source": "t33n-software/git-governance"`,
+		`"source": "t33n-software"`,
 		`"enforcement": "active"`,
-		`"conditions": null`,
 		`"bypass_actors": []`,
+		"repository_property",
+		`"name": "visibility"`,
+		`"private"`,
+		`"internal"`,
 		"file_extension_restriction",
 		"restricted_file_extensions",
 		"file_path_restriction",
@@ -118,7 +129,7 @@ func TestPushProtectionsRulesetBlocksCredentialShapedArtifacts(t *testing.T) {
 		}
 	}
 
-	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "hosting-platforms", "github", "rulesets", "README.md")))
+	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("rulesets", "github", "README.md")))
 	for _, required := range []string{"00-push-protections.json", "fork network", "Team plan", "public"} {
 		if !strings.Contains(readme, required) {
 			t.Fatalf("Ruleset README does not document the push protections token %q", required)
@@ -129,12 +140,10 @@ func TestPushProtectionsRulesetBlocksCredentialShapedArtifacts(t *testing.T) {
 func TestSharedLineRulesetsRequireCodeOwnerReview(t *testing.T) {
 	t.Parallel()
 
-	for _, fileName := range []string{
-		"02-develop.json",
-		"03-main.json",
-		"04-release.json",
-		"05-support.json",
-	} {
+	for _, fileName := range append(
+		append([]string{}, sharedLineRulesetFullFiles...),
+		sharedLineRulesetLinuxOnlyFiles...,
+	) {
 		fileName := fileName
 		t.Run(fileName, func(t *testing.T) {
 			t.Parallel()
@@ -144,6 +153,52 @@ func TestSharedLineRulesetsRequireCodeOwnerReview(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRulesetIdentityTripleBindsTitleSelectorAndFile(t *testing.T) {
+	t.Parallel()
+
+	for _, fileName := range append(
+		append([]string{}, sharedLineRulesetFullFiles...),
+		sharedLineRulesetLinuxOnlyFiles...,
+	) {
+		fileName := fileName
+		t.Run(fileName, func(t *testing.T) {
+			t.Parallel()
+
+			class := rulesetClassFromFileName(t, fileName)
+			ruleset := parseRuleset(t, fileName)
+
+			if !strings.HasSuffix(ruleset.Name, "(quality-gates="+class+")") {
+				t.Fatalf("ruleset name %q must declare its class as (quality-gates=%s)", ruleset.Name, class)
+			}
+
+			includes := ruleset.Conditions.RepositoryProperty.Include
+			if len(includes) != 1 {
+				t.Fatalf("shared-line ruleset must bind exactly one repository property selector, got %d", len(includes))
+			}
+			selector := includes[0]
+			if selector.Name != "quality-gates" {
+				t.Fatalf("repository property selector = %q, want %q", selector.Name, "quality-gates")
+			}
+			if len(selector.PropertyValues) != 1 || selector.PropertyValues[0] != class {
+				t.Fatalf("repository property values = %#v, want [%q]", selector.PropertyValues, class)
+			}
+		})
+	}
+
+	t.Run("01-ticket-working-branches.json", func(t *testing.T) {
+		t.Parallel()
+
+		ruleset := parseRuleset(t, "01-ticket-working-branches.json")
+		if strings.Contains(ruleset.Name, "quality-gates") {
+			t.Fatalf("classless ruleset name %q must not declare a quality-gates class", ruleset.Name)
+		}
+		includes := ruleset.Conditions.RepositoryName.Include
+		if len(includes) != 1 || includes[0] != "~ALL" {
+			t.Fatalf("classless ruleset must target ~ALL repositories, got %#v", includes)
+		}
+	})
 }
 
 func TestCodeOwnersContractBindsTheMaintainer(t *testing.T) {
@@ -177,12 +232,39 @@ func TestCodeOwnersContractBindsTheMaintainer(t *testing.T) {
 		t.Fatal("CODEOWNERS must define the default * ownership entry")
 	}
 
-	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "hosting-platforms", "github", "rulesets", "README.md")))
+	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("rulesets", "github", "README.md")))
 	for _, required := range []string{"CODEOWNERS", "require_code_owner_review", "@CyberT33N"} {
 		if !strings.Contains(readme, required) {
 			t.Fatalf("Ruleset README does not document the code owner token %q", required)
 		}
 	}
+}
+
+func rulesetClassFromFileName(t *testing.T, fileName string) string {
+	t.Helper()
+
+	const (
+		fullSuffix      = ".quality-gates-full.json"
+		linuxOnlySuffix = ".quality-gates-linux-only.json"
+	)
+	switch {
+	case strings.HasSuffix(fileName, fullSuffix):
+		return "full"
+	case strings.HasSuffix(fileName, linuxOnlySuffix):
+		return "linux-only"
+	default:
+		t.Fatalf("file name %q does not carry a quality-gates class suffix", fileName)
+		return ""
+	}
+}
+
+func expectedSharedLineChecks(t *testing.T, fileName string) []string {
+	t.Helper()
+
+	if rulesetClassFromFileName(t, fileName) == "linux-only" {
+		return linuxOnlyStatusChecks(t)
+	}
+	return sharedLineStatusChecks(t)
 }
 
 func readRepositoryDocument(t *testing.T, path string) string {
@@ -195,40 +277,55 @@ func readRepositoryDocument(t *testing.T, path string) string {
 	return string(contents)
 }
 
+func rulesetDocument(t *testing.T, fileName string) string {
+	t.Helper()
+
+	return readRepositoryDocument(t, filepath.Join("rulesets", "github", fileName))
+}
+
 func normalizeWhitespace(content string) string {
 	return strings.Join(strings.Fields(content), " ")
+}
+
+type rulesetDefinition struct {
+	Name       string `json:"name"`
+	Conditions struct {
+		RepositoryProperty struct {
+			Include []struct {
+				Name           string   `json:"name"`
+				PropertyValues []string `json:"property_values"`
+			} `json:"include"`
+		} `json:"repository_property"`
+		RepositoryName struct {
+			Include []string `json:"include"`
+		} `json:"repository_name"`
+	} `json:"conditions"`
+	Rules []struct {
+		Type       string `json:"type"`
+		Parameters struct {
+			DoNotEnforceOnCreate bool `json:"do_not_enforce_on_create"`
+			RequiredStatusChecks []struct {
+				Context string `json:"context"`
+			} `json:"required_status_checks"`
+			RequireCodeOwnerReview bool `json:"require_code_owner_review"`
+		} `json:"parameters"`
+	} `json:"rules"`
+}
+
+func parseRuleset(t *testing.T, fileName string) rulesetDefinition {
+	t.Helper()
+
+	var ruleset rulesetDefinition
+	if err := json.Unmarshal([]byte(rulesetDocument(t, fileName)), &ruleset); err != nil {
+		t.Fatal(err)
+	}
+	return ruleset
 }
 
 func rulesetStatusChecks(t *testing.T, fileName string) (bool, []string) {
 	t.Helper()
 
-	contents, err := os.ReadFile(filepath.Join(
-		repositoryRoot(t),
-		"docs",
-		"hosting-platforms",
-		"github",
-		"rulesets",
-		fileName,
-	))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var ruleset struct {
-		Rules []struct {
-			Type       string `json:"type"`
-			Parameters struct {
-				DoNotEnforceOnCreate bool `json:"do_not_enforce_on_create"`
-				RequiredStatusChecks []struct {
-					Context string `json:"context"`
-				} `json:"required_status_checks"`
-			} `json:"parameters"`
-		} `json:"rules"`
-	}
-	if err := json.Unmarshal(contents, &ruleset); err != nil {
-		t.Fatal(err)
-	}
-
+	ruleset := parseRuleset(t, fileName)
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "required_status_checks" {
 			return rule.Parameters.DoNotEnforceOnCreate, statusCheckContexts(rule.Parameters.RequiredStatusChecks)
@@ -241,30 +338,7 @@ func rulesetStatusChecks(t *testing.T, fileName string) (bool, []string) {
 func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 	t.Helper()
 
-	contents, err := os.ReadFile(filepath.Join(
-		repositoryRoot(t),
-		"docs",
-		"hosting-platforms",
-		"github",
-		"rulesets",
-		fileName,
-	))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var ruleset struct {
-		Rules []struct {
-			Type       string `json:"type"`
-			Parameters struct {
-				RequireCodeOwnerReview bool `json:"require_code_owner_review"`
-			} `json:"parameters"`
-		} `json:"rules"`
-	}
-	if err := json.Unmarshal(contents, &ruleset); err != nil {
-		t.Fatal(err)
-	}
-
+	ruleset := parseRuleset(t, fileName)
 	for _, rule := range ruleset.Rules {
 		if rule.Type == "pull_request" {
 			return rule.Parameters.RequireCodeOwnerReview
@@ -280,6 +354,21 @@ func sharedLineStatusChecks(t *testing.T) []string {
 	t.Helper()
 
 	return append(ciQualityStatusChecks(t), dependencyAdmissionReviewStatusCheck)
+}
+
+func linuxOnlyStatusChecks(t *testing.T) []string {
+	t.Helper()
+
+	checks := make([]string, 0)
+	for _, check := range ciQualityStatusChecks(t) {
+		if strings.HasSuffix(check, "(linux-amd64)") {
+			checks = append(checks, check)
+		}
+	}
+	if len(checks) != 1 {
+		t.Fatalf("CI quality matrix must define exactly one linux-amd64 quality gate, got %#v", checks)
+	}
+	return append(checks, dependencyAdmissionReviewStatusCheck)
 }
 
 func ciQualityStatusChecks(t *testing.T) []string {
