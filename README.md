@@ -8,9 +8,10 @@ Start with the [documentation index](docs/index.md), then use the
 [CLI usage guide](docs/usage/index.md) for complete interactive and
 non-interactive command contracts.
 
-Hosting-platform contracts and their importable GitHub rulesets live under
-[docs/hosting-platforms](docs/hosting-platforms/index.md). Do not redefine
-those rules outside that tree.
+The canonical organization-wide GitHub rulesets live under
+[rulesets/github](rulesets/github/README.md). They are managed once for the
+whole organization and imported at organization level; do not redefine those
+rules per repository.
 
 ## Command catalog
 
