@@ -138,7 +138,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Reproducible release configuration | VERIFIED | GoReleaser v2.16.0 installed locally and validated `.goreleaser.yaml` |
 | Controlled Go execution | IMPLEMENTED | CI and release set `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, and `GOVCS=*:off`, then verify Go 1.26.6 before running Go commands |
 | Dependency admission review | IMPLEMENTED | immutable `actions/dependency-review-action` gate blocks dependency changes that introduce low-severity-or-higher findings across all dependency scopes |
-| Dependency-review merge enforcement | VERIFIED | `Dependency admission review` is a required status check for `develop`, `main`, `release/*`, and `support/*`; the repository contract test binds the workflow name and all four ruleset arrays |
+| Dependency-review merge enforcement | VERIFIED | `Dependency admission review` is a required status check for `develop`, `main`, `release/*`, and `support/*`; the repository contract test binds the workflow name and every shared-line ruleset class variant |
 | Periodic dependency re-evaluation | IMPLEMENTED | the CI workflow runs daily in addition to pull-request, push, and manual triggers |
 | Dependency update intake | IMPLEMENTED | Dependabot opens daily reviewable update pull requests for the application module, the tools module, and GitHub Actions |
 | Hosted runner major-version pinning | IMPLEMENTED | GitHub workflows use concrete Ubuntu and Windows runner labels rather than `*-latest` labels |
@@ -152,7 +152,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Platform-native signing and notarization | BLOCKED | Authenticode and Apple credentials are external publisher prerequisites; checksum Cosign signing remains configured |
 | Internal Approved Proxy and registry admission | BLOCKED | intentionally deferred until the artifact-registry platform is provisioned; the repository does not change its current Go proxy configuration |
 | Hermetic release build enclave | BLOCKED | requires the deferred Approved Proxy plus an immutable, pre-provisioned build image and network isolation outside repository configuration |
-| Code owner review on shared lines | IMPLEMENTED / PROVISIONING REQUIRED | `.github/CODEOWNERS` binds the default owner and the four shared-line ruleset sources set `require_code_owner_review: true`; re-importing the updated rulesets through the GitHub UI remains an external prerequisite |
+| Code owner review on shared lines | IMPLEMENTED / PROVISIONING REQUIRED | `.github/CODEOWNERS` binds the default owner and every shared-line ruleset class variant sets `require_code_owner_review: true`; importing the canonical organization rulesets remains an external prerequisite |
 
 ## Confirmed remediation work
 

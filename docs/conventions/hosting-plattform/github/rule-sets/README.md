@@ -4,12 +4,11 @@
 ## Kanonische Quelle
 
 Die GitHub-Rule-Sets für die Organisation `t33n-software` werden einmalig und
-zentral im Repository
-[`git-governance`](https://github.com/t33n-software/git-governance) unter
-`rulesets/github/` definiert und verwaltet. Dieses Repository ist die
-kanonische Quelle der Wahrheit für die JSON-Definitionen: Es erklärt die
-Architektur, setzt die Definitionen und liefert die versionierten,
-importierbaren Artefakte.
+zentral in diesem Repository unter
+[`rulesets/github/`](../../../../../rulesets/github/README.md) definiert und
+verwaltet. Dieses Repository ist die kanonische Quelle der Wahrheit für die
+JSON-Definitionen: Es erklärt die Architektur, setzt die Definitionen und
+liefert die versionierten, importierbaren Artefakte.
 
 Eine lokale Kopie, Neudefinition oder Abweichung in einem anderen Repository
 ist ein Anti-Pattern und verboten (Redundanz- und Drift-Verbot). Erlaubt sind
@@ -27,16 +26,17 @@ Dieses Projekt (`git-governance`) verwendet die Familie
   verifiziert wird; die Auslieferung für alle Betriebssysteme erfordert die
   vollständige Quality-Gate-Matrix.
 
-## Gebundene Rule-Sets
+## Dokumentation der Konventionen
 
-| Rule-Set | Klasse |
+| Dokument | Inhalt |
 |---|---|
-| `push-protections: secret artifact boundary` | klassenlos (private/interne Sichtbarkeit) |
-| `branch-governance: ticket working branches` | klassenlos (`~ALL`) |
-| `branch-governance: develop shared line (quality-gates=full)` | full |
-| `branch-governance: main shared line (quality-gates=full)` | full |
-| `branch-governance: release shared lines (quality-gates=full)` | full |
-| `branch-governance: support shared lines (quality-gates=full)` | full |
+| [Organisation als Verwaltungsebene](organisation.md) | Warum eine Organisation existieren MUSS; Organisations-Verwaltung; Anti-Pattern einzelner Repository-Rule-Sets |
+| [Branch-Governance](branch-governance.md) | Aufbau und Begründung jedes Shared-Line- und Working-Branch-Rule-Sets; Namens-Triple |
+| [Push-Protections](push-protections.md) | Grenze gegen secret-förmige Artefakte; Verfügbarkeit; Template-Architektur |
+| [Klassen und Selektoren](klassen-und-selektoren.md) | `quality-gates`-Klassenmodell, gegenseitiger Ausschluss, Selektor-Formen, `~ALL` |
+| [Code-Quality und Coverage](code-quality-und-coverage.md) | Organisations-eigene, sprachagnostische Gates; Ausschluss der Hosting-Controls |
+| [Merge-Strategie](merge-strategie.md) | Merge-Methoden-Matrix, Update-branch-Grenze, globale Repository-Einstellungen |
+| [Import und Verifikation](import-und-verifikation.md) | Voraussetzungen, Import-Reihenfolge, Evaluate→Active, Verifikations-Checkliste |
 
 ## Verwaltung
 
@@ -44,6 +44,5 @@ Dieses Projekt (`git-governance`) verwendet die Familie
   einzelne Repository-Ebene.
 - Klassenmitgliedschaft dieses Repositorys: Custom Property
   `quality-gates=full`.
-- Änderungen an den Rule-Sets erfolgen ausschließlich im kanonischen
-  Repository und werden danach auf Organisationsebene re-importiert
-  (Organisation Settings → Repository → Rulesets).
+- Änderungen an den Rule-Sets erfolgen ausschließlich in diesem kanonischen
+  Repository und werden danach auf Organisationsebene re-importiert.
