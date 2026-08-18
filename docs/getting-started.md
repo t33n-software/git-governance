@@ -55,8 +55,9 @@ git governance --help
 ## GitHub App login
 
 Pull-request publication uses a GitHub App, not a static personal token. Run
-the explicit browser-assisted Device Flow and enter the public App client ID
-when the command prompts for it — once per host, never again afterwards:
+the explicit browser-assisted Device Flow from the project directory — or
+pass it with `--repo` — and enter the public App client ID when the command
+prompts for it, once per repository tenant, never again afterwards:
 
 ```powershell
 git governance --interactive always auth login github
@@ -64,8 +65,10 @@ git governance auth status github
 ```
 
 The client ID is stored with the protected session in the native operating
-system secret store. No environment variable and no flag is required at login
-or at publication time.
+system secret store, and the session is bound to the canonical repository
+identity of the selected remote. Switching between projects selects each
+project's session automatically; no environment variable and no flag is
+required at login or at publication time.
 
 The complete prerequisite, secret-store, broker, logout, and Git transport
 readiness contract is in [GitHub App authentication](usage/authentication.md).

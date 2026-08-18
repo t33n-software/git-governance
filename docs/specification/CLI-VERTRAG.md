@@ -172,10 +172,15 @@ Betriebssystem-Tresor; Access-Tokens, Refresh-Tokens, Private Keys und
 Client-Secrets werden nie angezeigt, persistiert oder als Flag akzeptiert.
 
 `auth status github` ist nicht interaktiv und gibt nur Host, Account,
-Credential-Quelle sowie den Refresh-Ablaufstatus aus. `auth logout github`
-löscht die lokale Tresor-Sitzung. Eine Gerätefluss-Sitzung wird nicht remote
-widerrufen, weil ein lokaler Client keinen GitHub-App-Client-Secret besitzen
-darf. Der vollständige Ablauf und der Brokervertrag stehen in
+Credential-Quelle, das gebundene Repository des Arbeitskontexts sowie den
+Refresh-Ablaufstatus aus. Die Sitzungsauswahl folgt der kanonischen
+Repository-Identität des Arbeitsverzeichnisses oder `--repo`; außerhalb eines
+auflösbaren GitHub-Repository-Kontexts gilt die zuletzt verwendete
+Host-Sitzung. `auth logout github` löscht die für den ausgewählten
+Repository-Kontext gebundene lokale Tresor-Sitzung samt Bindung. Eine
+Gerätefluss-Sitzung wird nicht remote widerrufen, weil ein lokaler Client
+keinen GitHub-App-Client-Secret besitzen darf. Der vollständige Ablauf, das
+Bindungs- und Discovery-Modell sowie der Brokervertrag stehen in
 [`docs/usage/authentication.md`](../usage/authentication.md).
 
 ## 5. `branch list`

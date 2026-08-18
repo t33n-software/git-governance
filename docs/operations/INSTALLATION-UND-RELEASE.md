@@ -105,7 +105,8 @@ user enters the public GitHub App client ID once at the interactive
 `auth login github` prompt in a real terminal; no environment variable or flag
 is involved at any point. The refresh session — including the public client
 ID — is protected by DPAPI on Windows, Keychain on macOS, or Secret Service on
-Linux; no plaintext fallback is permitted.
+Linux and is bound to the canonical repository identity of the login's working
+context; no plaintext fallback is permitted.
 
 Managed CI does not reuse a developer refresh session. It supplies a
 workload-identity token and a HTTPS credential-broker endpoint at deployment
