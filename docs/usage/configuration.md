@@ -42,9 +42,10 @@ number.
 GitHub authentication is not stored in this preference file. The non-secret
 GitHub App client ID is entered once at the interactive `git governance auth
 login github` prompt and is stored with the protected refresh session in the
-operating system's native secret store. It is never stored in this file and
-never required again — not as an environment variable, not as a flag. API
-access tokens remain in memory and are renewed just in time.
+operating system's native secret store, bound to the canonical repository
+identity of the working directory or `--repo`. It is never stored in this
+file and never required again — not as an environment variable, not as a
+flag. API access tokens remain in memory and are renewed just in time.
 
 Managed CI uses a broker endpoint and workload identity supplied by its
 deployment environment, not by this file:

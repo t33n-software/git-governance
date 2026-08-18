@@ -32,8 +32,9 @@ following before a user runs the CLI:
    the intersection of the App's installation access and the user's access.
 6. Have the App's public client ID ready for the first login. It is not a
    secret. The user enters it once when `auth login github` prompts for it;
-   the CLI stores it with the protected session and never asks for it again
-   on that host.
+   the CLI stores it with the protected session, binds the session to the
+   repository selected by the working directory or `--repo`, and never asks
+   for it again for that repository.
 
 The local CLI never receives the App ID, private key, or client secret. The
 Authorization Code Flow is therefore not used locally: GitHub requires a
@@ -51,44 +52,72 @@ Every protected local session record is scoped by:
 GitHub host + GitHub account + GitHub App client ID
 ```
 
-Exactly one session is active per host. The session that completes
-`auth login github` becomes the active session for its host and carries the
-public client ID inside the protected record. From that point on, no
-environment variable, flag, or repeated input is involved:
+Sessions are selected by the canonical repository identity of the working
+context, derived from its Git remote:
 
-- `auth status github` reads the active session for the host.
-- `auth logout github` removes the active session for the host.
-- Credential refresh and pull-request publication resolve the active session
-  for the host and verify repository authorization against the actual target
-  repository immediately before every GitHub API call.
+```text
+GitHub host + repository owner + repository name
+```
 
-Logging in to a second GitHub App on the same host moves the active marker to
-the new session. The previous session record remains stored under its own
-scope but is no longer selected; logging in again with the first client ID
-makes it active again. Logout removes only the active session.
+A developer authenticates once per repository tenant — typically one GitHub
+App per project — and the CLI keeps every tenant session stored side by side.
+The session that completes `auth login github` is bound to the repository
+selected by the working directory or `--repo` at login time. From that point
+on, no environment variable, flag, or repeated input is involved:
+
+- `auth status github` reads the session bound to the repository selected by
+  the working directory or `--repo`. Outside a resolvable GitHub repository
+  context it reports the most recently used host session.
+- `auth logout github` removes the session bound to the selected repository
+  together with its binding; outside a resolvable repository context it
+  removes the most recently used host session.
+- Credential refresh and pull-request publication resolve the session bound
+  to the actual target repository and verify repository authorization against
+  that repository immediately before every GitHub API call.
+
+The local filesystem path of a project is never part of the selection. Moving
+or re-cloning a repository keeps its tenant binding, because the binding key
+is the remote identity, not the path.
+
+## Capability discovery and rebinding
+
+When no binding exists for the target repository — for example after a login
+outside a repository context — credential resolution probes the stored
+sessions of the target host in deterministic client-ID order and selects the
+first session whose GitHub App installation covers the target repository. The
+successful session is then bound to the repository, so later resolutions are
+direct lookups without additional GitHub API calls.
+
+The same discovery runs when a stored binding goes stale, for example when
+the App installation no longer covers the repository. A session that lost
+coverage is skipped, the covering session is rebound, and only a target that
+no stored session can cover fails closed with an actionable authorization
+error. A repository whose sessions all fail token refresh reports the
+re-login remediation instead.
 
 ## Multiple projects on one workstation
 
 The session is a machine- and user-level credential, not a per-project file.
-A developer authenticates once per host and then works across any number of
-local repositories:
+A developer authenticates once per repository tenant and then works across
+any number of local projects:
 
 1. The CLI discovers the current repository from the working directory, or
    from `--repo` when another project is explicitly selected, and derives
    host, owner, and repository from its remote.
-2. Credential resolution loads the active session for that host from the
-   native secret store. No project-specific client ID, environment variable,
-   or flag exists.
+2. Credential resolution loads the session bound to that repository identity
+   from the native secret store. No project path, environment variable, or
+   flag participates in the selection.
 3. Immediately before a pull-request API call, the CLI verifies that the
    GitHub App installation and the authenticated user both cover exactly that
-   repository. A session whose App is not installed for the current
-   repository fails closed with an actionable authorization error.
+   repository. A repository that no stored session covers fails closed with
+   an actionable authorization error.
 
-This makes cross-project drift structurally impossible: the binding check is
-evaluated per target repository at call time, not per value configured in a
-shell. Working on project A and then project B requires no re-login and no
-reconfiguration; publishing into a repository the App does not cover is
-rejected regardless of which session is active.
+This makes cross-project drift structurally impossible: selection follows the
+target repository identity at call time, not a value configured in a shell.
+Working on project A and then project B requires no re-login once each
+project completed its own login; publishing into a repository no stored
+session covers is rejected regardless of which session was used most
+recently.
 
 Host-and-account-only legacy session storage is deliberately not supported.
 The canonical client-ID-scoped layout keeps the standard native-store names;
@@ -96,9 +125,10 @@ it does not create a versioned parallel store. Delete any old local session
 entries before upgrading, then run `auth login github` for each GitHub App
 that needs a local session. Legacy data is never selected, transformed,
 migrated, or assigned to another App; an undeleted incompatible DPAPI document
-is rejected fail-closed. Sessions stored before the host-pointer layout also
-do not carry the active-session marker; one fresh `auth login github` per host
-rebinds them.
+is rejected fail-closed. Sessions stored before repository bindings exist
+simply have no binding; the first publication discovers and binds the
+covering session, and one fresh `auth login github` per repository context
+writes the binding immediately.
 
 The local operating-system secret store must also be available:
 
@@ -187,7 +217,7 @@ The command performs this sequence:
 
 1. It prompts for the public GitHub App client ID exactly once. The value is
    public configuration, not a secret; it is stored with the protected session
-   and never requested again on that host.
+   and never requested again for that repository.
 2. It sends the public client ID to GitHub's Device Authorization endpoint.
 3. It prints the HTTPS verification URL and one-time user code, then attempts
    to open that URL in the native browser. If opening the browser fails, the
@@ -201,9 +231,11 @@ The command performs this sequence:
    The CLI uses the access token only in memory to identify the account.
 7. Only the host-, account-, and client-ID-bound refresh session, public client
    ID, account name, and refresh expiry are persisted in the native secret
-   store. The access token, device code, authorization header, and refresh
-   token are never written to preferences, logs, JSON output, errors, or
-   command arguments.
+   store. When the login runs in a resolvable GitHub repository context —
+   the working directory or `--repo` — the session is additionally bound to
+   that canonical repository identity. The access token, device code,
+   authorization header, and refresh token are never written to preferences,
+   logs, JSON output, errors, or command arguments.
 
 Check the non-sensitive result afterwards:
 
@@ -211,8 +243,9 @@ Check the non-sensitive result afterwards:
 git governance auth status github
 ```
 
-Status reports host, account, native-store source, and refresh-session expiry.
-It deliberately does not display an access token or refresh token.
+Status reports host, account, native-store source, the bound repository when
+the working context resolves to one, and refresh-session expiry. It
+deliberately does not display an access token or refresh token.
 
 To remove the local session:
 
@@ -229,19 +262,24 @@ required.
 ## Pull-request publication after login
 
 With `--pull-request-provider github`, the publisher resolves credentials
-from the active stored session immediately before every GitHub API call. No
-environment variable, flag, or repeated client-ID input participates:
+from the stored session bound to the target repository immediately before
+every GitHub API call. No environment variable, flag, or repeated client-ID
+input participates:
 
-1. It parses the selected Git remote into host, owner, and repository.
+1. It parses the selected Git remote into host, owner, and repository — the
+   canonical repository identity that keys the tenant binding.
 2. For a local session, it accepts only `github.com`; a session for one host
    cannot be sent to another host.
-3. It refreshes an expired or near-expiry access token exactly once per
+3. It loads the session bound to that repository identity; without a binding,
+   capability discovery selects and binds the stored session whose App
+   installation covers the repository.
+4. It refreshes an expired or near-expiry access token exactly once per
    host/account/client-ID profile while concurrent calls wait for the same
    result.
-4. It checks the GitHub App installations and repositories visible to the
+5. It checks the GitHub App installations and repositories visible to the
    authenticated user and rejects a repository that is not in that
    intersection.
-5. It uses the in-memory token for the specific HTTPS request, then returns no
+6. It uses the in-memory token for the specific HTTPS request, then returns no
    credential value in the publication result.
 
 The explicit publish command remains unchanged:

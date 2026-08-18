@@ -290,10 +290,16 @@ löst seine Credentials unmittelbar vor REST-Aufrufen selbst auf.
 - Der lokale Client besitzt weder GitHub-App-Private-Key noch Client-Secret.
   Deshalb ist der Device Flow der korrekte native Client Flow; PKCE ersetzt bei
   GitHubs Authorization-Code-Austausch kein Client-Secret.
-- Persistiert wird ausschließlich eine host-/accountgebundene Refresh-Sitzung
-  im nativen OS-Tresor. Access-Tokens verbleiben im Prozessspeicher.
-- Der Resolver rotiert Access-/Refresh-Tokens kontrolliert, isoliert Hosts und
-  prüft die konkrete App-/Benutzer-/Repository-Schnittmenge.
+- Persistiert wird ausschließlich eine host-/account-/client-ID-gebundene
+  Refresh-Sitzung im nativen OS-Tresor, ergänzt um ihre Bindung an die
+  kanonische Repository-Identität (Host/Owner/Repository) des
+  Anmelde-Arbeitskontexts. Access-Tokens verbleiben im Prozessspeicher.
+  Lokale Dateipfade sind niemals Teil der Sitzungsschlüssel.
+- Der Resolver rotiert Access-/Refresh-Tokens kontrolliert, isoliert Hosts,
+  wählt die Sitzung über die Repository-Bindung des Ziel-Repositories,
+  fällt ohne Bindung auf Capability-Discovery über die gespeicherten
+  Host-Sitzungen zurück und prüft abschließend immer die konkrete
+  App-/Benutzer-/Repository-Schnittmenge.
 - Verwaltete CI-Workloads verwenden einen zentralen Broker. Der Broker hält
   den Private Key außerhalb des Clients und mintet repositorygebundene,
   kurzlebige Installation-Tokens nach Workload-Policy-Prüfung.
