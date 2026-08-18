@@ -1,0 +1,34 @@
+{
+  "name": "branch-governance: ticket working branches",
+  "target": "branch",
+  "source": "t33n-software",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/feature/*",
+        "refs/heads/fix/*",
+        "refs/heads/docs/*",
+        "refs/heads/refactor/*",
+        "refs/heads/chore/*",
+        "refs/heads/test/*",
+        "refs/heads/perf/*",
+        "refs/heads/hotfix/*"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "~ALL"
+      ],
+      "exclude": [],
+      "protected": false
+    }
+  },
+  "rules": [
+    {
+      "type": "non_fast_forward"
+    }
+  ]
+}
