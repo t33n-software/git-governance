@@ -559,6 +559,38 @@ func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
 		if err := store.SaveActive(context.Background(), session); err == nil {
 			t.Fatal("SaveActive accepted a scope-index store failure")
 		}
+
+		scope := nativeSessionScope("github.com", session.ClientID)
+		store, runner = newFakeMacOSStore()
+		runner.values[runner.key("github.com", scopeIndexAccount)] = []byte(`["` + session.ClientID + `"]`)
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.values[runner.key(scope, session.Account)] = []byte("{")
+		if _, err := store.ListForHost(context.Background(), "github.com"); err == nil {
+			t.Fatal("ListForHost accepted a malformed session behind the index")
+		}
+
+		store, runner = newFakeMacOSStore()
+		runner.fail = func(command, _, account string, _ int) error {
+			if command == "find-generic-password" && account == scopeIndexAccount {
+				return errSessionStoreUnavailable
+			}
+			return nil
+		}
+		if err := store.SaveActive(context.Background(), session); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("SaveActive scope-index lookup failure = %v", err)
+		}
+
+		store, runner = newFakeMacOSStore()
+		runner.values[runner.key(scope, macOSKeychainActiveAccount)] = []byte(session.Account)
+		runner.fail = func(command, _, account string, _ int) error {
+			if command == "find-generic-password" && account == scopeIndexAccount {
+				return errSessionStoreUnavailable
+			}
+			return nil
+		}
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("DeleteActive scope-index lookup failure = %v", err)
+		}
 	})
 }
 
