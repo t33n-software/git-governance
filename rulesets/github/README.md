@@ -23,7 +23,10 @@ The fleet is partitioned by the repository custom property `quality-gates`:
 Class membership is assigned through the repository custom property, never by
 editing a ruleset. The two class rulesets of the same shared line use mutually
 exclusive selectors; organization rulesets aggregate and can only become more
-restrictive, so a repository must never carry both classes.
+restrictive, so a repository must never carry both classes. The property
+definition itself is governed as a canonical artifact in
+[`properties/github/`](../../properties/github/README.md) and is assigned per
+repository only through the platform-instance bindings.
 
 The classless rulesets apply to every governed repository:
 
@@ -52,9 +55,14 @@ Classless rulesets carry no class suffix and apply to the whole fleet.
 
 ## Import and activation order
 
-1. Create the organization custom property `quality-gates` with the allowed
-   values `full` and `linux-only`, then assign the class to each governed
-   repository.
+1. Project the organization custom property `quality-gates` from its
+   canonical definition artifact
+   [`properties/github/quality-gates.json`](../../properties/github/README.md)
+   (allowed values `full` and `linux-only` plus the onboarding value
+   `pending`; `values_editable_by: org_actors`) and assign the class to each
+   governed repository through the platform-instance bindings. A class
+   ruleset whose selector property is missing or unassigned binds zero
+   repositories — never activate the class rulesets before this step.
 2. Import `00-push-protections.json` first, then
    `01-ticket-working-branches.json`, then the shared-line class variants in
    numeric order.

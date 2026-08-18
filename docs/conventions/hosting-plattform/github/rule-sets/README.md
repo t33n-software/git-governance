@@ -37,6 +37,7 @@ Dieses Projekt (`git-governance`) verwendet die Familie
 | [Code-Quality und Coverage](code-quality-und-coverage.md) | Organisations-eigene, sprachagnostische Gates; Ausschluss der Hosting-Controls |
 | [Merge-Strategie](merge-strategie.md) | Merge-Methoden-Matrix, Update-branch-Grenze, globale Repository-Einstellungen |
 | [Import und Verifikation](import-und-verifikation.md) | Voraussetzungen, Import-Reihenfolge, Evaluate→Active, Verifikations-Checkliste |
+| [Custom Properties](../custom-properties/README.md) | Positive-List-Konvention, Drei-Schichten-Vertrag, `org_actors`-Grenze, `pending`-Onboarding, Aktivierungssequenz |
 
 ## Verwaltung
 
@@ -44,5 +45,9 @@ Dieses Projekt (`git-governance`) verwendet die Familie
   einzelne Repository-Ebene.
 - Klassenmitgliedschaft dieses Repositorys: Custom Property
   `quality-gates=full`.
+- Die Custom-Property-Definition liegt kanonisch in
+  [`properties/github/`](../../../../../properties/github/README.md); ihre
+  Projektion und Zuweisung folgen der
+  [Custom-Properties-Konvention](../custom-properties/README.md).
 - Änderungen an den Rule-Sets erfolgen ausschließlich in diesem kanonischen
   Repository und werden danach auf Organisationsebene re-importiert.
