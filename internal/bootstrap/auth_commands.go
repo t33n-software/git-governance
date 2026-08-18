@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -54,12 +55,12 @@ func newGitHubLoginCommand(application *application) *cobra.Command {
 				command.Context(),
 				"",
 				"GitHub App client ID",
-				"The public client ID of the GitHub App used for the device-flow login. It is stored with the protected session and never required again for this host.",
+				"The public client ID of the GitHub App used for the device-flow login. It is stored with the protected session and bound to the repository selected by the working directory or --repo.",
 			)
 			if err != nil {
 				return err
 			}
-			result, err := services.githubAuth.Login(command.Context(), github.LoginRequest{
+			request := github.LoginRequest{
 				ClientID: clientID,
 				OnDeviceAuthorization: func(device github.DeviceAuthorization) error {
 					writeDeviceAuthorizationInstructions(command, device)
@@ -68,7 +69,11 @@ func newGitHubLoginCommand(application *application) *cobra.Command {
 					}
 					return nil
 				},
-			})
+			}
+			if target, ok := application.repositoryCredentialTarget(command.Context(), services.git); ok {
+				request.Repository = target
+			}
+			result, err := services.githubAuth.Login(command.Context(), request)
 			if err != nil {
 				return err
 			}
@@ -91,7 +96,8 @@ func newGitHubStatusCommand(application *application) *cobra.Command {
 			if services.githubAuth == nil {
 				return githubAuthenticationUnavailable()
 			}
-			result, err := services.githubAuth.Status(command.Context())
+			target, _ := application.repositoryCredentialTarget(command.Context(), services.git)
+			result, err := services.githubAuth.Status(command.Context(), target)
 			if err != nil {
 				return err
 			}
@@ -114,7 +120,8 @@ func newGitHubLogoutCommand(application *application) *cobra.Command {
 			if services.githubAuth == nil {
 				return githubAuthenticationUnavailable()
 			}
-			result, err := services.githubAuth.Logout(command.Context())
+			target, _ := application.repositoryCredentialTarget(command.Context(), services.git)
+			result, err := services.githubAuth.Logout(command.Context(), target)
 			if err != nil {
 				return err
 			}
@@ -128,6 +135,30 @@ func newGitHubLogoutCommand(application *application) *cobra.Command {
 			})
 		},
 	}
+}
+
+// repositoryCredentialTarget derives the canonical repository identity of the
+// selected working context (--repo or the working directory) from its remote.
+// The zero target and false are returned when the context has no resolvable
+// GitHub remote; callers then use the host-level recency session.
+func (application *application) repositoryCredentialTarget(
+	ctx context.Context,
+	git port.GitRepository,
+) (github.CredentialTarget, bool) {
+	identity, err := git.Discover(ctx, application.options.repository)
+	if err != nil {
+		return github.CredentialTarget{}, false
+	}
+	identity.Remote = application.options.remote
+	remoteURL, err := git.RemoteURL(ctx, identity)
+	if err != nil {
+		return github.CredentialTarget{}, false
+	}
+	target, err := github.ParseCredentialTarget(remoteURL)
+	if err != nil {
+		return github.CredentialTarget{}, false
+	}
+	return target, true
 }
 
 func (application *application) requireInteractiveAuthentication() error {
@@ -153,7 +184,7 @@ func writeDeviceAuthorizationInstructions(command *cobra.Command, device github.
 }
 
 func githubSessionFields(status github.SessionStatus) map[string]string {
-	return map[string]string{
+	fields := map[string]string{
 		"host":                  status.Host,
 		"account":               status.Account,
 		"source":                status.Source,
@@ -161,6 +192,10 @@ func githubSessionFields(status github.SessionStatus) map[string]string {
 		"refreshTokenExpiresAt": status.RefreshTokenExpiresAt.UTC().Format(time.RFC3339),
 		"accessToken":           "not persisted; resolved on demand",
 	}
+	if status.Repository != "" {
+		fields["repository"] = status.Repository
+	}
+	return fields
 }
 
 func githubAuthenticationUnavailable() error {

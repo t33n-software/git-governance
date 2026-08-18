@@ -220,6 +220,164 @@ func TestDPAPISessionStoreResolvesActiveSessionByHost(t *testing.T) {
 	})
 }
 
+func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("round trips repository bindings and removes them with the session", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		tenantA := testStoredSession("github.com", "octocat")
+		tenantA.ClientID = "tenant-a-client-id"
+		platform := testStoredSession("github.com", "octocat")
+		platform.ClientID = "platform-client-id"
+		if err := store.SaveActive(ctx, tenantA); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveActive(ctx, platform); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("unbound LoadActiveForRepository() error = %v", err)
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", tenantA.ClientID); err != nil {
+			t.Fatalf("BindRepository() error = %v", err)
+		}
+		if err := store.BindRepository(ctx, "GitHub.COM", "ACME", "Governance", platform.ClientID); err != nil {
+			t.Fatalf("rebinding with different casing error = %v", err)
+		}
+		loaded, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance")
+		if err != nil || loaded != platform {
+			t.Fatalf("rebound LoadActiveForRepository() = (%#v, %v)", loaded, err)
+		}
+
+		if err := store.BindRepository(ctx, "github.com", "acme", "license-hub", tenantA.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.DeleteActive(ctx, platform.Host, platform.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("binding of the deleted session survived: %v", err)
+		}
+		if loaded, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "license-hub"); err != nil || loaded != tenantA {
+			t.Fatalf("unrelated binding = (%#v, %v)", loaded, err)
+		}
+	})
+
+	t.Run("rejects incomplete bindings and unknown scopes", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		if err := store.SaveActive(ctx, testStoredSession("github.com", "octocat")); err != nil {
+			t.Fatal(err)
+		}
+		for _, binding := range []struct{ host, owner, repository, clientID string }{
+			{host: "github.com", owner: "", repository: "governance", clientID: "public-client-id"},
+			{host: "github.com", owner: "acme", repository: "", clientID: "public-client-id"},
+			{host: "github.com", owner: "acme", repository: "governance", clientID: " "},
+		} {
+			if err := store.BindRepository(ctx, binding.host, binding.owner, binding.repository, binding.clientID); err == nil {
+				t.Fatalf("BindRepository(%#v) unexpectedly succeeded", binding)
+			}
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", "unknown-client-id"); err == nil {
+			t.Fatal("BindRepository accepted an unknown session scope")
+		}
+	})
+
+	t.Run("fails closed when the bound session was removed", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		session := testStoredSession("github.com", "octocat")
+		if err := store.SaveActive(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		document, err := store.load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		delete(document.Sessions, sessionKey(session.Host, session.Account, session.ClientID))
+		if err := store.save(document); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("dangling binding LoadActiveForRepository() error = %v", err)
+		}
+	})
+
+	t.Run("lists host sessions in deterministic scope order", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		platform := testStoredSession("github.com", "octocat")
+		platform.ClientID = "platform-client-id"
+		tenantA := testStoredSession("github.com", "octocat")
+		tenantA.ClientID = "tenant-a-client-id"
+		enterprise := testStoredSession("github.enterprise.example", "hubot")
+		for _, session := range []Session{platform, tenantA, enterprise} {
+			if err := store.SaveActive(ctx, session); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sessions, err := store.ListForHost(ctx, "GitHub.COM")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != 2 || sessions[0].ClientID != "platform-client-id" || sessions[1].ClientID != "tenant-a-client-id" {
+			t.Fatalf("ListForHost() = %#v", sessions)
+		}
+		enterpriseSessions, err := store.ListForHost(ctx, "github.enterprise.example")
+		if err != nil || len(enterpriseSessions) != 1 || enterpriseSessions[0] != enterprise {
+			t.Fatalf("enterprise ListForHost() = (%#v, %v)", enterpriseSessions, err)
+		}
+		empty, err := store.ListForHost(ctx, "unknown.example")
+		if err != nil || len(empty) != 0 {
+			t.Fatalf("unknown host ListForHost() = (%#v, %v)", empty, err)
+		}
+
+		document, err := store.load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		document.ActiveByScope[sessionScopeKey("github.com", "missing-client-id")] = "octocat"
+		if err := store.save(document); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ListForHost(ctx, "github.com"); err == nil {
+			t.Fatal("ListForHost accepted an inconsistent session index")
+		}
+	})
+
+	t.Run("propagates cancellation and read failures through repository operations", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled LoadActiveForRepository() error = %v", err)
+		}
+		if _, err := store.ListForHost(ctx, "github.com"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled ListForHost() error = %v", err)
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", "public-client-id"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled BindRepository() error = %v", err)
+		}
+
+		preserveWindowsStoreHooks(t)
+		readErr := errors.New("read failed")
+		readSessionFile = func(string) ([]byte, error) {
+			return nil, readErr
+		}
+		store = newDPAPISessionStore("session.dpapi")
+		if _, err := store.LoadActiveForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, readErr) {
+			t.Fatalf("LoadActiveForRepository read error = %v", err)
+		}
+		if _, err := store.ListForHost(context.Background(), "github.com"); !errors.Is(err, readErr) {
+			t.Fatalf("ListForHost read error = %v", err)
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", "public-client-id"); !errors.Is(err, readErr) {
+			t.Fatalf("BindRepository read error = %v", err)
+		}
+	})
+}
+
 func TestDPAPISessionStoreScopedFailurePaths(t *testing.T) {
 	t.Run("rejects incomplete and mismatched scoped sessions", func(t *testing.T) {
 		for _, session := range []Session{
@@ -297,7 +455,7 @@ func TestDPAPISessionStoreScopedFailurePaths(t *testing.T) {
 			}
 			loaded, err := store.load()
 			if document.SchemaVersion == sessionStoreSchemaVersion {
-				if err != nil || loaded.ActiveByScope == nil || loaded.Sessions == nil {
+				if err != nil || loaded.ActiveByScope == nil || loaded.Sessions == nil || loaded.ScopeByRepository == nil {
 					t.Fatalf("load initialized version-two document = (%#v, %v)", loaded, err)
 				}
 				continue
@@ -369,7 +527,7 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 		t.Fatal(err)
 	}
 	document, err := store.load()
-	if err != nil || document.ActiveByScope == nil || document.Sessions == nil {
+	if err != nil || document.ActiveByScope == nil || document.Sessions == nil || document.ScopeByRepository == nil {
 		t.Fatalf("load initialized nil maps = (%#v, %v)", document, err)
 	}
 
@@ -393,7 +551,7 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 		t.Fatal("normalizeHost did not canonicalize the host")
 	}
 	if document := emptySessionDocument(); document.SchemaVersion != sessionStoreSchemaVersion ||
-		len(document.ActiveByScope) != 0 || len(document.Sessions) != 0 {
+		len(document.ActiveByScope) != 0 || len(document.Sessions) != 0 || len(document.ScopeByRepository) != 0 {
 		t.Fatalf("empty session document = %#v", document)
 	}
 	if path, err := defaultDPAPISessionStorePath(); err != nil || !strings.HasSuffix(path, "github-app-sessions.dpapi") {

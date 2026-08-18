@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,12 @@ const (
 
 var errSessionNotFound = errors.New("GitHub App session not found")
 
+// errRepositoryNotCovered marks the fail-closed coverage verdict of a session
+// whose GitHub App installation does not include the requested repository.
+// Discovery uses it to skip candidates; callers always see the wrapped
+// problem, never the sentinel itself.
+var errRepositoryNotCovered = errors.New("GitHub App installation does not cover the repository")
+
 // CredentialTarget identifies the exact GitHub repository for which an API
 // credential is requested. A resolver must reject a host mismatch rather than
 // attempting to reuse a credential for another GitHub host.
@@ -35,6 +42,21 @@ type CredentialTarget struct {
 	Host       string
 	Owner      string
 	Repository string
+}
+
+// ParseCredentialTarget derives the canonical repository identity from a Git
+// remote URL. It is the single entry point that turns a working-context
+// remote into the tenant key used for session selection.
+func ParseCredentialTarget(remoteURL string) (CredentialTarget, error) {
+	reference, err := parseRepositoryRemote(remoteURL)
+	if err != nil {
+		return CredentialTarget{}, err
+	}
+	return CredentialTarget{
+		Host:       reference.host,
+		Owner:      reference.owner,
+		Repository: reference.name,
+	}, nil
 }
 
 // CredentialResolver obtains a short-lived API token immediately before a
@@ -50,12 +72,26 @@ type SessionStore interface {
 	// LoadActive returns the active session for exactly one host and client
 	// ID pair.
 	LoadActive(context.Context, string, string) (Session, error)
-	// LoadActiveForHost returns the active session for a host without
-	// requiring the caller to know its client ID. Exactly one session is
-	// active per host; a missing pointer fails closed with
+	// LoadActiveForHost returns the most recently used session for a host
+	// without requiring the caller to know its client ID. It is a recency
+	// pointer for status, logout, and discovery ordering, never the
+	// publication selection path. A missing pointer fails closed with
 	// errSessionNotFound.
 	LoadActiveForHost(context.Context, string) (Session, error)
+	// LoadActiveForRepository returns the session bound to exactly one
+	// canonical repository identity. A missing binding or a binding whose
+	// session was removed fails closed with errSessionNotFound.
+	LoadActiveForRepository(ctx context.Context, host, owner, repository string) (Session, error)
+	// ListForHost returns every active session scope stored for a host in
+	// deterministic order.
+	ListForHost(ctx context.Context, host string) ([]Session, error)
+	// BindRepository binds exactly one canonical repository identity to the
+	// session scope of the given client ID. Binding an unknown scope fails
+	// closed.
+	BindRepository(ctx context.Context, host, owner, repository, clientID string) error
 	SaveActive(context.Context, Session) error
+	// DeleteActive removes the active session for one host and client ID
+	// pair together with its repository bindings.
 	DeleteActive(context.Context, string, string) error
 }
 
@@ -79,19 +115,26 @@ type DeviceAuthorization struct {
 	Interval        time.Duration
 }
 
-// LoginRequest contains the non-secret GitHub App client ID and a callback
-// used by the CLI to display the user verification instructions.
+// LoginRequest contains the non-secret GitHub App client ID, the optional
+// repository binding of the selected working context, and a callback used by
+// the CLI to display the user verification instructions.
 type LoginRequest struct {
-	ClientID              string
+	ClientID string
+	// Repository binds the new session to the canonical repository identity
+	// of the working context the login runs in. The zero value skips the
+	// binding; capability discovery rebinds on first publication.
+	Repository            CredentialTarget
 	OnDeviceAuthorization func(DeviceAuthorization) error
 }
 
 // SessionStatus contains only non-sensitive session metadata suitable for
-// human and JSON reports.
+// human and JSON reports. Repository names the bound canonical repository
+// identity and stays empty for host-level recency results.
 type SessionStatus struct {
 	Host                  string    `json:"host"`
 	Account               string    `json:"account"`
 	Source                string    `json:"source"`
+	Repository            string    `json:"repository,omitempty"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 	RefreshState          string    `json:"refreshState"`
 }
@@ -102,8 +145,12 @@ type SessionStatus struct {
 type AuthProvider interface {
 	CredentialResolver
 	Login(context.Context, LoginRequest) (SessionStatus, error)
-	Status(context.Context) (SessionStatus, error)
-	Logout(context.Context) (SessionStatus, error)
+	// Status reports the session bound to the given repository target. The
+	// zero target reports the most recently used host session.
+	Status(context.Context, CredentialTarget) (SessionStatus, error)
+	// Logout removes the session bound to the given repository target. The
+	// zero target removes the most recently used host session.
+	Logout(context.Context, CredentialTarget) (SessionStatus, error)
 }
 
 // AuthOptions provides injectable seams for the GitHub OAuth and API client.
@@ -234,13 +281,18 @@ func NewAuthService(options AuthOptions) *AuthService {
 // Login starts an explicit Device Flow login, waits for user authorization,
 // validates the user identity, and persists only the refresh session. The
 // public GitHub App client ID is supplied with the request; the persisted
-// session becomes the active session for the host and the authority for all
-// later credential resolution.
+// session becomes the most recently used session for the host and, when the
+// request carries a repository target, the bound session for that canonical
+// repository identity.
 func (service *AuthService) Login(ctx context.Context, request LoginRequest) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App login"); err != nil {
 		return SessionStatus{}, err
 	}
 	requestClientID, err := validateClientID(request.ClientID)
+	if err != nil {
+		return SessionStatus{}, err
+	}
+	repository, bindRepository, err := service.validateLoginRepository(request.Repository)
 	if err != nil {
 		return SessionStatus{}, err
 	}
@@ -271,31 +323,50 @@ func (service *AuthService) Login(ctx context.Context, request LoginRequest) (Se
 	if err := service.store.SaveActive(ctx, session); err != nil {
 		return SessionStatus{}, sessionStoreProblem("save", err)
 	}
+	if bindRepository {
+		if err := service.store.BindRepository(
+			ctx, repository.Host, repository.Owner, repository.Repository, session.ClientID,
+		); err != nil {
+			return SessionStatus{}, sessionStoreProblem("bind", err)
+		}
+	}
 	service.forgetSession(session)
-	return sessionStatus(session, service.now()), nil
+	status := sessionStatus(session, service.now())
+	if bindRepository {
+		status.Repository = repository.Owner + "/" + repository.Repository
+	}
+	return status, nil
 }
 
 // Status reads protected session metadata without resolving an access token or
-// making a GitHub API call.
-func (service *AuthService) Status(ctx context.Context) (SessionStatus, error) {
+// making a GitHub API call. A complete repository target selects the session
+// bound to that canonical repository identity; the zero target selects the
+// most recently used host session.
+func (service *AuthService) Status(ctx context.Context, repository CredentialTarget) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App status"); err != nil {
 		return SessionStatus{}, err
 	}
-	session, err := service.loadActiveSession(ctx)
+	session, bound, err := service.selectStoredSession(ctx, repository)
 	if err != nil {
 		return SessionStatus{}, err
 	}
-	return sessionStatus(session, service.now()), nil
+	status := sessionStatus(session, service.now())
+	if bound {
+		status.Repository = repository.Owner + "/" + repository.Repository
+	}
+	return status, nil
 }
 
-// Logout removes the protected local refresh session. Device-flow refresh
-// tokens cannot be revoked by this client without a GitHub App client secret,
-// which is intentionally never present on developer machines.
-func (service *AuthService) Logout(ctx context.Context) (SessionStatus, error) {
+// Logout removes the protected local refresh session selected by the given
+// repository target, or the most recently used host session for the zero
+// target. Device-flow refresh tokens cannot be revoked by this client without
+// a GitHub App client secret, which is intentionally never present on
+// developer machines.
+func (service *AuthService) Logout(ctx context.Context, repository CredentialTarget) (SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App logout"); err != nil {
 		return SessionStatus{}, err
 	}
-	session, err := service.loadActiveSession(ctx)
+	session, bound, err := service.selectStoredSession(ctx, repository)
 	if err != nil {
 		return SessionStatus{}, err
 	}
@@ -303,12 +374,19 @@ func (service *AuthService) Logout(ctx context.Context) (SessionStatus, error) {
 		return SessionStatus{}, sessionStoreProblem("delete", err)
 	}
 	service.forgetSession(session)
-	return sessionStatus(session, service.now()), nil
+	status := sessionStatus(session, service.now())
+	if bound {
+		status.Repository = repository.Owner + "/" + repository.Repository
+	}
+	return status, nil
 }
 
 // Resolve returns a valid process-memory access token for exactly one
-// GitHub.com repository and verifies that the active App/user session can
-// access that repository. It never starts an interactive login.
+// GitHub.com repository and verifies that the selected App/user session can
+// access that repository. It never starts an interactive login. Session
+// selection is bound to the canonical repository identity: a stored
+// repository binding wins, otherwise capability discovery selects the stored
+// session whose GitHub App installation covers the target and binds it.
 func (service *AuthService) Resolve(ctx context.Context, target CredentialTarget) (string, error) {
 	if err := service.contextError(ctx, "GitHub credential resolution"); err != nil {
 		return "", err
@@ -317,10 +395,32 @@ func (service *AuthService) Resolve(ctx context.Context, target CredentialTarget
 	if err != nil {
 		return "", err
 	}
-	session, err := service.loadActiveSession(ctx)
-	if err != nil {
-		return "", err
+	session, err := service.store.LoadActiveForRepository(ctx, target.Host, target.Owner, target.Repository)
+	if err == nil {
+		token, err := service.authorizeSession(ctx, session, target)
+		if err == nil {
+			return token, nil
+		}
+		if !errors.Is(err, errRepositoryNotCovered) {
+			return "", err
+		}
+		// A bound session that lost coverage is a stale binding: fall through
+		// to capability discovery and rebind instead of failing on the
+		// outdated pointer.
+	} else if !errors.Is(err, errSessionNotFound) {
+		return "", sessionStoreProblem("load", err)
 	}
+	return service.discoverToken(ctx, target)
+}
+
+// authorizeSession returns a valid process-memory access token for the
+// session and verifies the repository authorization as the terminal
+// fail-closed invariant of every selection path.
+func (service *AuthService) authorizeSession(
+	ctx context.Context,
+	session Session,
+	target CredentialTarget,
+) (string, error) {
 	token, err := service.accessToken(ctx, session)
 	if err != nil {
 		return "", err
@@ -329,6 +429,66 @@ func (service *AuthService) Resolve(ctx context.Context, target CredentialTarget
 		return "", err
 	}
 	return token.value, nil
+}
+
+// discoverToken probes the stored sessions of the configured host in
+// deterministic client-ID and account order, selects the first session whose
+// GitHub App installation covers the target repository, binds it for later
+// resolutions, and returns its access token. Candidates whose refresh fails
+// are skipped; a candidate that does not cover the target is skipped; the
+// first infrastructure failure is reported when no candidate covers the
+// target.
+func (service *AuthService) discoverToken(ctx context.Context, target CredentialTarget) (string, error) {
+	sessions, err := service.store.ListForHost(ctx, target.Host)
+	if err != nil {
+		return "", sessionStoreProblem("load", err)
+	}
+	if len(sessions) == 0 {
+		return "", sessionStoreProblem("load", errSessionNotFound)
+	}
+	// Client IDs are unique per host scope by store construction, so the sort
+	// key is total and the probe order deterministic.
+	ordered := append([]Session(nil), sessions...)
+	sort.Slice(ordered, func(left, right int) bool {
+		return ordered[left].ClientID < ordered[right].ClientID
+	})
+	var hardErr error
+	tokenFailures := 0
+	for _, candidate := range ordered {
+		token, err := service.accessToken(ctx, candidate)
+		if err != nil {
+			if value, ok := problem.As(err); ok && value.Category == problem.CategoryExternal {
+				if hardErr == nil {
+					hardErr = err
+				}
+			} else {
+				tokenFailures++
+			}
+			continue
+		}
+		if err := service.ensureRepositoryAuthorization(ctx, candidate, token, target); err != nil {
+			if errors.Is(err, errRepositoryNotCovered) {
+				continue
+			}
+			if hardErr == nil {
+				hardErr = err
+			}
+			continue
+		}
+		if err := service.store.BindRepository(
+			ctx, target.Host, target.Owner, target.Repository, candidate.ClientID,
+		); err != nil {
+			return "", sessionStoreProblem("bind", err)
+		}
+		return token.value, nil
+	}
+	if hardErr != nil {
+		return "", hardErr
+	}
+	if tokenFailures == len(ordered) {
+		return "", oauthProblem("refresh_token_expired", "run auth login github again")
+	}
+	return "", repositoryCoverageProblem(target)
 }
 
 func (service *AuthService) requestDeviceAuthorization(
@@ -532,14 +692,22 @@ func (service *AuthService) repositoryIsInstalledAndAuthorized(
 			page++
 		}
 	}
-	return problem.New(problem.Details{
+	return repositoryCoverageProblem(target)
+}
+
+// repositoryCoverageProblem is the fail-closed verdict for a session whose
+// GitHub App installation does not cover the requested repository. The
+// wrapped sentinel lets capability discovery distinguish the coverage verdict
+// from infrastructure failures without changing the reported problem.
+func repositoryCoverageProblem(target CredentialTarget) error {
+	return problem.Wrap(problem.Details{
 		Code:        problem.CodeConfigurationInvalid,
 		Category:    problem.CategoryConfig,
 		Field:       "GitHub repository authorization",
 		Expected:    "a GitHub App installation and user access for " + target.Owner + "/" + target.Repository,
 		Rule:        "GitHub App credentials must be authorized for the exact remote repository",
 		Remediation: "install the GitHub App for the repository and authorize an account that can access it",
-	})
+	}, errRepositoryNotCovered)
 }
 
 func (service *AuthService) lookupAccount(ctx context.Context, token string) (string, error) {
@@ -703,36 +871,47 @@ func validateClientID(value string) (string, error) {
 	return value, nil
 }
 
-// loadActiveSession resolves the single active session for the configured
-// host from the protected store. The stored session, not an ambient
-// environment value, is the authority for the GitHub App client ID.
-func (service *AuthService) loadActiveSession(ctx context.Context) (Session, error) {
-	session, err := service.store.LoadActiveForHost(ctx, service.host)
+// validateLoginRepository validates the optional login repository binding. A
+// complete target must address the configured host; a partially filled target
+// is rejected instead of silently ignored.
+func (service *AuthService) validateLoginRepository(repository CredentialTarget) (CredentialTarget, bool, error) {
+	if repository.Host == "" && repository.Owner == "" && repository.Repository == "" {
+		return CredentialTarget{}, false, nil
+	}
+	validated, err := service.validateTarget(repository)
 	if err != nil {
-		return Session{}, sessionStoreProblem("load", err)
+		return CredentialTarget{}, false, err
 	}
-	if err := validateSession(session, service.host, session.ClientID); err != nil {
-		return Session{}, err
-	}
-	return session, nil
+	return validated, true, nil
 }
 
-func validateSession(session Session, expectedHost, expectedClientID string) error {
-	if !strings.EqualFold(strings.TrimSpace(session.Host), expectedHost) ||
-		strings.TrimSpace(session.Account) == "" ||
-		strings.TrimSpace(session.ClientID) != expectedClientID ||
-		strings.TrimSpace(session.RefreshToken) == "" ||
-		session.RefreshTokenExpiresAt.IsZero() {
-		return problem.New(problem.Details{
-			Code:        problem.CodeConfigurationInvalid,
-			Category:    problem.CategoryConfig,
-			Field:       "GitHub App session",
-			Expected:    "a complete protected refresh session for the configured GitHub App",
-			Rule:        "GitHub App sessions must be isolated by host, account, and configured client ID",
-			Remediation: "run auth logout github, then run auth login github again",
-		})
+// selectStoredSession resolves a stored session for status and logout without
+// any network call: the repository binding when the target is complete,
+// otherwise the most recently used host session. Store implementations
+// validate completeness and scope consistency on load, so the resolved
+// session is already the validated record for the requested scope.
+func (service *AuthService) selectStoredSession(
+	ctx context.Context,
+	repository CredentialTarget,
+) (Session, bool, error) {
+	if repository.Host != "" || repository.Owner != "" || repository.Repository != "" {
+		validated, err := service.validateTarget(repository)
+		if err != nil {
+			return Session{}, false, err
+		}
+		session, err := service.store.LoadActiveForRepository(
+			ctx, validated.Host, validated.Owner, validated.Repository,
+		)
+		if err != nil {
+			return Session{}, false, sessionStoreProblem("load", err)
+		}
+		return session, true, nil
 	}
-	return nil
+	session, err := service.store.LoadActiveForHost(ctx, service.host)
+	if err != nil {
+		return Session{}, false, sessionStoreProblem("load", err)
+	}
+	return session, false, nil
 }
 
 func validateStoredSession(session Session) error {
@@ -777,6 +956,16 @@ func sessionKey(host, account, clientID string) string {
 
 func sessionScopeKey(host, clientID string) string {
 	return normalizeHost(host) + "\x00" + strings.TrimSpace(clientID)
+}
+
+// repositoryScopeKey is the canonical tenant key for session selection. It is
+// derived from the repository identity of the selected remote, never from a
+// local filesystem path, so repository moves and additional clones keep the
+// same binding.
+func repositoryScopeKey(host, owner, repository string) string {
+	return normalizeHost(host) + "\x00" +
+		strings.ToLower(strings.TrimSpace(owner)) + "\x00" +
+		strings.ToLower(strings.TrimSpace(repository))
 }
 
 func nativeSessionScope(host, clientID string) string {

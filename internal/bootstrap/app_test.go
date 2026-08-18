@@ -589,6 +589,9 @@ type commandGit struct {
 	current       branch.BranchName
 	messages      []string
 	workflowBases map[string]branch.TargetBase
+	remoteURL     string
+	remoteURLErr  error
+	discoverErr   error
 }
 
 func newCommandGit(t *testing.T, current string, messages []string) *commandGit {
@@ -603,7 +606,10 @@ func newCommandGit(t *testing.T, current string, messages []string) *commandGit 
 	}
 }
 
-func (*commandGit) Discover(context.Context, string) (port.RepositoryIdentity, error) {
+func (git *commandGit) Discover(context.Context, string) (port.RepositoryIdentity, error) {
+	if git.discoverErr != nil {
+		return port.RepositoryIdentity{}, git.discoverErr
+	}
 	return port.RepositoryIdentity{Root: "C:/repo", Remote: "origin"}, nil
 }
 
@@ -611,7 +617,13 @@ func (*commandGit) Version(context.Context) (string, error) {
 	return "git version test", nil
 }
 
-func (*commandGit) RemoteURL(context.Context, port.RepositoryIdentity) (string, error) {
+func (git *commandGit) RemoteURL(context.Context, port.RepositoryIdentity) (string, error) {
+	if git.remoteURLErr != nil {
+		return "", git.remoteURLErr
+	}
+	if git.remoteURL != "" {
+		return git.remoteURL, nil
+	}
 	return "https://example.invalid/repo.git", nil
 }
 
