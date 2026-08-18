@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"unsafe"
 
@@ -44,11 +45,15 @@ var (
 
 type sessionDocument struct {
 	SchemaVersion int `json:"schemaVersion"`
-	// ActiveScopeByHost maps a normalized host to the scope key of the
-	// currently active session. It lets the store resolve the active session
-	// without an ambient client-ID value.
-	ActiveScopeByHost map[string]string  `json:"activeScopeByHost,omitempty"`
-	ActiveByScope     map[string]string  `json:"activeByScope,omitempty"`
+	// ActiveScopeByHost maps a normalized host to the scope key of the most
+	// recently used session. It is a recency pointer for status, logout, and
+	// discovery ordering, never the publication selection path.
+	ActiveScopeByHost map[string]string `json:"activeScopeByHost,omitempty"`
+	ActiveByScope     map[string]string `json:"activeByScope,omitempty"`
+	// ScopeByRepository maps a canonical repository identity to the client ID
+	// of the session scope bound to it. It is the primary selection path for
+	// credential resolution.
+	ScopeByRepository map[string]string  `json:"scopeByRepository,omitempty"`
 	Sessions          map[string]Session `json:"sessions"`
 }
 
@@ -118,6 +123,82 @@ func loadScopedSession(document sessionDocument, host, clientID string) (Session
 	return session, nil
 }
 
+// LoadActiveForRepository resolves the session bound to the canonical
+// repository identity. A missing binding or a binding whose session was
+// removed fails closed with errSessionNotFound so discovery can rebind.
+func (store *dpapiSessionStore) LoadActiveForRepository(
+	ctx context.Context,
+	host, owner, repository string,
+) (Session, error) {
+	if err := contextFailure(ctx); err != nil {
+		return Session{}, err
+	}
+	document, err := store.load()
+	if err != nil {
+		return Session{}, err
+	}
+	clientID, found := document.ScopeByRepository[repositoryScopeKey(host, owner, repository)]
+	if !found || strings.TrimSpace(clientID) == "" {
+		return Session{}, errSessionNotFound
+	}
+	return loadScopedSession(document, host, clientID)
+}
+
+// ListForHost returns every active session scope stored for the host in
+// deterministic scope order.
+func (store *dpapiSessionStore) ListForHost(ctx context.Context, host string) ([]Session, error) {
+	if err := contextFailure(ctx); err != nil {
+		return nil, err
+	}
+	document, err := store.load()
+	if err != nil {
+		return nil, err
+	}
+	prefix := normalizeHost(host) + "\x00"
+	scopes := make([]string, 0, len(document.ActiveByScope))
+	for scope := range document.ActiveByScope {
+		if strings.HasPrefix(scope, prefix) {
+			scopes = append(scopes, scope)
+		}
+	}
+	sort.Strings(scopes)
+	sessions := make([]Session, 0, len(scopes))
+	for _, scope := range scopes {
+		account := document.ActiveByScope[scope]
+		clientID := strings.TrimPrefix(scope, prefix)
+		session, found := document.Sessions[sessionKey(host, account, clientID)]
+		if !found {
+			return nil, errors.New("protected GitHub App session index is inconsistent")
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
+}
+
+// BindRepository binds the canonical repository identity to the session scope
+// of the given client ID. Binding an unknown scope fails closed.
+func (store *dpapiSessionStore) BindRepository(
+	ctx context.Context,
+	host, owner, repository, clientID string,
+) error {
+	if err := contextFailure(ctx); err != nil {
+		return err
+	}
+	clientID = strings.TrimSpace(clientID)
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(repository) == "" || clientID == "" {
+		return errors.New("protected GitHub App repository binding is incomplete")
+	}
+	document, err := store.load()
+	if err != nil {
+		return err
+	}
+	if _, found := document.ActiveByScope[sessionScopeKey(host, clientID)]; !found {
+		return errors.New("protected GitHub App repository binding references an unknown session scope")
+	}
+	document.ScopeByRepository[repositoryScopeKey(host, owner, repository)] = clientID
+	return store.save(document)
+}
+
 func (store *dpapiSessionStore) SaveActive(ctx context.Context, session Session) error {
 	if err := contextFailure(ctx); err != nil {
 		return err
@@ -158,6 +239,12 @@ func (store *dpapiSessionStore) DeleteActive(ctx context.Context, host, clientID
 	if document.ActiveScopeByHost[normalizeHost(host)] == scope {
 		delete(document.ActiveScopeByHost, normalizeHost(host))
 	}
+	bindingPrefix := normalizeHost(host) + "\x00"
+	for repositoryKey, boundClientID := range document.ScopeByRepository {
+		if strings.HasPrefix(repositoryKey, bindingPrefix) && boundClientID == strings.TrimSpace(clientID) {
+			delete(document.ScopeByRepository, repositoryKey)
+		}
+	}
 	return store.save(document)
 }
 
@@ -195,6 +282,9 @@ func (store *dpapiSessionStore) load() (sessionDocument, error) {
 	}
 	if document.ActiveScopeByHost == nil {
 		document.ActiveScopeByHost = make(map[string]string)
+	}
+	if document.ScopeByRepository == nil {
+		document.ScopeByRepository = make(map[string]string)
 	}
 	return document, nil
 }
@@ -257,6 +347,7 @@ func emptySessionDocument() sessionDocument {
 		SchemaVersion:     sessionStoreSchemaVersion,
 		ActiveScopeByHost: make(map[string]string),
 		ActiveByScope:     make(map[string]string),
+		ScopeByRepository: make(map[string]string),
 		Sessions:          make(map[string]Session),
 	}
 }

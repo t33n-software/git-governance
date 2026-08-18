@@ -101,6 +101,85 @@ func TestGitHubAuthStatusAndLogoutContracts(t *testing.T) {
 	}
 }
 
+func TestGitHubAuthCommandsBindTheWorkingContextRepository(t *testing.T) {
+	expiresAt := time.Date(2026, time.December, 31, 12, 0, 0, 0, time.UTC)
+	status := github.SessionStatus{
+		Host:                  "github.com",
+		Account:               "octocat",
+		Source:                "native-secret-store",
+		Repository:            "acme/governance",
+		RefreshTokenExpiresAt: expiresAt,
+		RefreshState:          "active",
+	}
+	git := &commandGit{remoteURL: "https://github.com/acme/governance.git"}
+	provider := &bootstrapAuthProvider{loginStatus: status, statusValue: status, logoutStatus: status}
+	application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{inputValue: "public-client-id"}, git)
+
+	if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "login", "github"); err != nil {
+		t.Fatalf("login error = %v", err)
+	}
+	if provider.loginRepository != (github.CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}) {
+		t.Fatalf("login repository binding = %#v", provider.loginRepository)
+	}
+
+	if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "status", "github"); err != nil {
+		t.Fatalf("status error = %v", err)
+	}
+	if provider.statusTarget != (github.CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}) {
+		t.Fatalf("status target = %#v", provider.statusTarget)
+	}
+
+	if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github"); err != nil {
+		t.Fatalf("logout error = %v", err)
+	}
+	if provider.logoutTarget != (github.CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}) {
+		t.Fatalf("logout target = %#v", provider.logoutTarget)
+	}
+
+	fields := githubSessionFields(status)
+	if fields["repository"] != "acme/governance" {
+		t.Fatalf("session fields = %#v", fields)
+	}
+}
+
+func TestGitHubAuthCommandsFallBackToHostLevelWithoutResolvableRemote(t *testing.T) {
+	expiresAt := time.Date(2026, time.December, 31, 12, 0, 0, 0, time.UTC)
+	status := github.SessionStatus{
+		Host:                  "github.com",
+		Account:               "octocat",
+		Source:                "native-secret-store",
+		RefreshTokenExpiresAt: expiresAt,
+		RefreshState:          "active",
+	}
+	for _, git := range []*commandGit{
+		{remoteURL: "https://example.invalid/repo.git"},
+		{remoteURL: "not-a-url"},
+		{discoverErr: errors.New("not a repository")},
+		{remoteURLErr: errors.New("remote unavailable")},
+	} {
+		provider := &bootstrapAuthProvider{loginStatus: status, statusValue: status, logoutStatus: status}
+		application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{inputValue: "public-client-id"}, git)
+		if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "login", "github"); err != nil {
+			t.Fatalf("login error = %v", err)
+		}
+		if provider.loginRepository != (github.CredentialTarget{}) {
+			t.Fatalf("unresolvable context bound a repository: %#v", provider.loginRepository)
+		}
+		if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "status", "github"); err != nil {
+			t.Fatalf("status error = %v", err)
+		}
+		if provider.statusTarget != (github.CredentialTarget{}) {
+			t.Fatalf("unresolvable context selected a status target: %#v", provider.statusTarget)
+		}
+		if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github"); err != nil {
+			t.Fatalf("logout error = %v", err)
+		}
+		if provider.logoutTarget != (github.CredentialTarget{}) {
+			t.Fatalf("unresolvable context selected a logout target: %#v", provider.logoutTarget)
+		}
+	}
+}
+
 func TestGitHubAuthCommandsRejectUnsafeExecutionAndProviderFailures(t *testing.T) {
 	t.Run("requires a human interactive terminal for login", func(t *testing.T) {
 		provider := &bootstrapAuthProvider{}
@@ -204,9 +283,18 @@ func newAuthCommandApplication(
 	opener browser.Opener,
 	prompt port.Prompt,
 ) *application {
+	return newAuthCommandApplicationWithGit(provider, opener, prompt, newCommandGitForAuth())
+}
+
+func newAuthCommandApplicationWithGit(
+	provider github.AuthProvider,
+	opener browser.Opener,
+	prompt port.Prompt,
+	git port.GitRepository,
+) *application {
 	return newApplication(Runtime{
 		GitFactory: func(time.Duration) port.GitRepository {
-			return newCommandGitForAuth()
+			return git
 		},
 		StoreFactory: func(string) port.PreferencesStore {
 			return &commandStore{}
@@ -267,17 +355,20 @@ func mapValues(values map[string]string) []string {
 }
 
 type bootstrapAuthProvider struct {
-	loginStatus   github.SessionStatus
-	statusValue   github.SessionStatus
-	logoutStatus  github.SessionStatus
-	loginErr      error
-	statusErr     error
-	logoutErr     error
-	resolveErr    error
-	loginCalls    int
-	statusCalls   int
-	logoutCalls   int
-	loginClientID string
+	loginStatus     github.SessionStatus
+	statusValue     github.SessionStatus
+	logoutStatus    github.SessionStatus
+	loginErr        error
+	statusErr       error
+	logoutErr       error
+	resolveErr      error
+	loginCalls      int
+	statusCalls     int
+	logoutCalls     int
+	loginClientID   string
+	loginRepository github.CredentialTarget
+	statusTarget    github.CredentialTarget
+	logoutTarget    github.CredentialTarget
 }
 
 func (provider *bootstrapAuthProvider) Resolve(context.Context, github.CredentialTarget) (string, error) {
@@ -290,6 +381,7 @@ func (provider *bootstrapAuthProvider) Resolve(context.Context, github.Credentia
 func (provider *bootstrapAuthProvider) Login(_ context.Context, request github.LoginRequest) (github.SessionStatus, error) {
 	provider.loginCalls++
 	provider.loginClientID = request.ClientID
+	provider.loginRepository = request.Repository
 	if provider.loginErr != nil {
 		return github.SessionStatus{}, provider.loginErr
 	}
@@ -304,13 +396,15 @@ func (provider *bootstrapAuthProvider) Login(_ context.Context, request github.L
 	return provider.loginStatus, nil
 }
 
-func (provider *bootstrapAuthProvider) Status(context.Context) (github.SessionStatus, error) {
+func (provider *bootstrapAuthProvider) Status(_ context.Context, target github.CredentialTarget) (github.SessionStatus, error) {
 	provider.statusCalls++
+	provider.statusTarget = target
 	return provider.statusValue, provider.statusErr
 }
 
-func (provider *bootstrapAuthProvider) Logout(context.Context) (github.SessionStatus, error) {
+func (provider *bootstrapAuthProvider) Logout(_ context.Context, target github.CredentialTarget) (github.SessionStatus, error) {
 	provider.logoutCalls++
+	provider.logoutTarget = target
 	return provider.logoutStatus, provider.logoutErr
 }
 

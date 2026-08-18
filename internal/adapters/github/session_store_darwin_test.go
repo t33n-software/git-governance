@@ -411,6 +411,157 @@ func TestMacOSKeychainRunnerProcess(t *testing.T) {
 	}
 }
 
+func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
+	session := testStoredSession("github.com", "octocat")
+
+	t.Run("round trips repository bindings and self-heals dangling pointers", func(t *testing.T) {
+		store, runner := newFakeMacOSStore()
+		if _, err := store.LoadActiveForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("unbound LoadActiveForRepository() error = %v", err)
+		}
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatalf("BindRepository() error = %v", err)
+		}
+		loaded, err := store.LoadActiveForRepository(context.Background(), "GitHub.COM", "ACME", "Governance")
+		if err != nil || loaded != session {
+			t.Fatalf("LoadActiveForRepository() = (%#v, %v)", loaded, err)
+		}
+		bindingKey := runner.key("github.com", repositoryBindingAccount("github.com", "acme", "governance"))
+		if got := string(runner.values[bindingKey]); got != session.ClientID {
+			t.Fatalf("binding record = %q, want %q", got, session.ClientID)
+		}
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.LoadActiveForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("dangling binding LoadActiveForRepository() error = %v", err)
+		}
+	})
+
+	t.Run("rejects incomplete bindings and unknown scopes", func(t *testing.T) {
+		store, _ := newFakeMacOSStore()
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		for _, binding := range []struct{ owner, repository, clientID string }{
+			{owner: "", repository: "governance", clientID: session.ClientID},
+			{owner: "acme", repository: "", clientID: session.ClientID},
+			{owner: "acme", repository: "governance", clientID: " "},
+		} {
+			if err := store.BindRepository(context.Background(), "github.com", binding.owner, binding.repository, binding.clientID); err == nil {
+				t.Fatalf("BindRepository(%#v) unexpectedly succeeded", binding)
+			}
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", "unknown-client-id"); !errors.Is(err, errSessionNotFound) {
+			t.Fatalf("unknown scope BindRepository() error = %v", err)
+		}
+	})
+
+	t.Run("lists host sessions through the scope index", func(t *testing.T) {
+		store, runner := newFakeMacOSStore()
+		if sessions, err := store.ListForHost(context.Background(), "github.com"); err != nil || len(sessions) != 0 {
+			t.Fatalf("empty ListForHost() = (%#v, %v)", sessions, err)
+		}
+		platform := testStoredSession("github.com", "octocat")
+		platform.ClientID = "platform-client-id"
+		platform.RefreshToken = "ghr-platform"
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveActive(context.Background(), platform); err != nil {
+			t.Fatal(err)
+		}
+		indexKey := runner.key("github.com", scopeIndexAccount)
+		var index []string
+		if err := json.Unmarshal(runner.values[indexKey], &index); err != nil {
+			t.Fatal(err)
+		}
+		if len(index) != 2 {
+			t.Fatalf("scope index = %#v", index)
+		}
+		sessions, err := store.ListForHost(context.Background(), "github.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != 2 || sessions[0].ClientID != "platform-client-id" || sessions[1].ClientID != session.ClientID {
+			t.Fatalf("ListForHost() = %#v", sessions)
+		}
+
+		runner.values[indexKey] = []byte(`["ghost-client-id","platform-client-id","` + session.ClientID + `"]`)
+		sessions, err = store.ListForHost(context.Background(), "github.com")
+		if err != nil || len(sessions) != 2 {
+			t.Fatalf("ListForHost() with stale entry = (%#v, %v)", sessions, err)
+		}
+
+		runner.values[indexKey] = []byte("{")
+		if _, err := store.ListForHost(context.Background(), "github.com"); err == nil {
+			t.Fatal("ListForHost accepted a malformed scope index")
+		}
+	})
+
+	t.Run("maintains the scope index across save and delete", func(t *testing.T) {
+		store, runner := newFakeMacOSStore()
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		indexKey := runner.key("github.com", scopeIndexAccount)
+		var index []string
+		if err := json.Unmarshal(runner.values[indexKey], &index); err != nil {
+			t.Fatal(err)
+		}
+		if len(index) != 1 || index[0] != session.ClientID {
+			t.Fatalf("idempotent scope index = %#v", index)
+		}
+		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if _, found := runner.values[indexKey]; found {
+			t.Fatal("scope index survived the deletion of its last scope")
+		}
+	})
+
+	t.Run("propagates cancellation and store failures through repository operations", func(t *testing.T) {
+		store, _ := newFakeMacOSStore()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled LoadActiveForRepository() error = %v", err)
+		}
+		if _, err := store.ListForHost(ctx, "github.com"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled ListForHost() error = %v", err)
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", session.ClientID); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled BindRepository() error = %v", err)
+		}
+
+		store, runner := newFakeMacOSStore()
+		runner.err = errSessionStoreUnavailable
+		if _, err := store.ListForHost(context.Background(), "github.com"); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("unavailable ListForHost() error = %v", err)
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("unavailable BindRepository() error = %v", err)
+		}
+
+		store, runner = newFakeMacOSStore()
+		runner.fail = func(command, _, _ string, call int) error {
+			if command == "add-generic-password" && call == 4 {
+				return errors.New("scope index store failed")
+			}
+			return nil
+		}
+		if err := store.SaveActive(context.Background(), session); err == nil {
+			t.Fatal("SaveActive accepted a scope-index store failure")
+		}
+	})
+}
+
 func newFakeMacOSStore() (*macOSKeychainStore, *fakeMacOSKeychainRunner) {
 	runner := &fakeMacOSKeychainRunner{values: make(map[string][]byte)}
 	return &macOSKeychainStore{runner: runner}, runner
