@@ -119,5 +119,5 @@ Provenance.
 - `docs/specification/POLICY-UND-VALIDIERUNG.md`
 - `docs/usage/workflows/release.md`
 - `docs/specification/CLI-VERTRAG.md`
-- `docs/hosting-platforms/github/rulesets/04-release.json`
-- `docs/hosting-platforms/github/rulesets/README.md`
+- `rulesets/github/04-release.quality-gates-full.json`
+- `rulesets/github/README.md`
