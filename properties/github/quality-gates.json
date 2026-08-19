@@ -2,7 +2,7 @@
   "value_type": "single_select",
   "required": true,
   "default_value": "pending",
-  "description": "Ruleset class partition for the shared-line quality gates. full: quality gates run on Linux, macOS, and Windows. linux-only: Linux quality gate only. pending: onboarding state until the repository workflows provably emit the class check contexts. Assigned only through the platform-instance bindings; values are editable by organization actors only.",
+  "description": "Quality-gate class partition for the organization ruleset selectors. full: repositories shipping per-OS binaries; linux-only: repositories shipping Linux/Docker artifacts only; pending: workflows not yet aligned with a class.",
   "allowed_values": [
     "full",
     "linux-only",
