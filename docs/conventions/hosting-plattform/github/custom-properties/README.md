@@ -6,7 +6,7 @@
 Die Organisations-Custom-Properties für `t33n-software` werden einmalig und
 zentral in diesem Repository unter
 [`properties/github/`](../../../../../properties/github/README.md) definiert
-und verwaltet. Rule-Sets **referenzieren** Properties über den
+und verwaltet. rulesets **referenzieren** Properties über den
 `repository_property`-Selektor; sie definieren sie niemals. Die Definition ist
 ein eigenes, versioniertes Artefakt und wird über denselben signierten und
 attestierten Release-Kanal wie die Rule-Set-Familie verteilt.
@@ -77,14 +77,14 @@ Check-Kontexte seiner Klasse noch nicht nachweislich emittieren, wird
 `pending` zugewiesen, statt property-los zu bleiben: Der
 Klassifizierungszustand ist explizit, auditierbar und durchsetzbar statt
 implizit abwesend. Kein Shared-Line-Rule-Set targetet `pending`; solche
-Repositories bleiben nur an die klassenlosen Rule-Sets `00` und `01` gebunden,
+Repositories bleiben nur an die klassenlosen rulesets `00` und `01` gebunden,
 bis ihre Workflows aligned sind.
 
 ## Aktivierungssequenz
 [INTENT: ANWEISUNG]
 
 Das Property-Schema und die initialen Zuweisungen MÜSSEN projiziert werden,
-bevor die klassen-partitionierten Shared-Line-Rule-Sets `02`–`05` auf aktiv
+bevor die klassen-partitionierten Shared-Line-rulesets `02`–`05` auf aktiv
 geschaltet werden. Ein Klassen-Rule-Set, dessen Selektor eine fehlende oder
 unzugewiesene Property referenziert, bindet null Repositories — ein stilles
 Fail-open der gesamten Shared-Line-Fläche.

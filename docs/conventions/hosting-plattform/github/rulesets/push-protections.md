@@ -8,7 +8,7 @@ Fork-Netzwerk; es gibt keine Branch-Bindung.
 
 ## Verfügbarkeitsgrenze
 
-Push-Rule-Sets existieren nur für **private und interne** Repositories und
+Push-rulesets existieren nur für **private und interne** Repositories und
 erfordern den Team-Plan. Öffentliche Repositories können dieses Rule-Set
 nicht tragen; ihre Grenze ist Secret-Scanning mit Push-Protection plus die
 lokalen Quality-Gates. Der Selektor bindet deshalb über die

@@ -20,8 +20,8 @@ die Container- und Delivery-Artefakte entstehen.
 
 ## Gegenseitiger Ausschluss (harte Korrektheitsregel)
 
-Organisations-Rule-Sets aggregieren untereinander und mit
-Repository-Rule-Sets; das Aggregat kann nur restriktiver werden, niemals
+Organisations-rulesets aggregieren untereinander und mit
+Repository-rulesets; das Aggregat kann nur restriktiver werden, niemals
 schwächer. Ein „allgemeines `~ALL`-Rule-Set plus ein zusätzliches schwächeres
 Klassen-Rule-Set" würde deshalb auf den Klassen-Repositories fail-closed
 scheitern, weil die allgemeine Variante sie weiterhin bindet.
@@ -53,7 +53,7 @@ künftige Repository ab dessen Erstellung, ohne Re-Import.
 ## Selektor der Push-Protections
 
 Das Push-Rule-Set verwendet die System-Property `visibility` mit den Werten
-`private` und `internal`, weil Push-Rule-Sets nur dort existieren. Vor dem
+`private` und `internal`, weil Push-rulesets nur dort existieren. Vor dem
 Import MUSS die Selektierbarkeit dieser System-Property im Ziel-Account
 verifiziert werden; andernfalls ist die dokumentierte Fallback-Form die
 explizite `repository_name`-Selektion der privaten Repositories.
