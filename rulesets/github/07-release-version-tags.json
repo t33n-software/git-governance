@@ -1,0 +1,43 @@
+{
+  "name": "tag-governance: release version tags",
+  "target": "tag",
+  "source": "t33n-software",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/tags/v*"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "~ALL"
+      ],
+      "exclude": [],
+      "protected": false
+    }
+  },
+  "rules": [
+    {
+      "type": "creation"
+    },
+    {
+      "type": "update"
+    },
+    {
+      "type": "deletion"
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": 4327738,
+      "actor_type": "Integration",
+      "bypass_mode": "always"
+    },
+    {
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always"
+    }
+  ]
+}

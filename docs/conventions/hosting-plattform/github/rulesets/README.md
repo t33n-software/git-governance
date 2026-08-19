@@ -37,6 +37,7 @@ Dieses Projekt (`git-governance`) verwendet die Familie
 | [Code-Quality und Coverage](code-quality-und-coverage.md) | Organisations-eigene, sprachagnostische Gates; Ausschluss der Hosting-Controls |
 | [Merge-Strategie](merge-strategie.md) | Merge-Methoden-Matrix, Update-branch-Grenze, globale Repository-Einstellungen |
 | [Import und Verifikation](import-und-verifikation.md) | Voraussetzungen, Import-Reihenfolge, Evaluate→Active, Verifikations-Checkliste |
+| [Tag-Governance](tag-governance.md) | Version-Tag-Namespace an die Release-Automation-Identität, Namespace-Floor, Aktivierungsvorbedingung |
 | [Custom Properties](../custom-properties/README.md) | Positive-List-Konvention, Drei-Schichten-Vertrag, `org_actors`-Grenze, `pending`-Onboarding, Aktivierungssequenz |
 
 ## Verwaltung

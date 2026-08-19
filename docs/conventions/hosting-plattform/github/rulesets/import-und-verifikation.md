@@ -25,6 +25,10 @@
 4. `03-main.*` (beide Klassen)
 5. `04-release.*` (beide Klassen; `do_not_enforce_on_create: true` prüfen)
 6. `05-support.*` (beide Klassen; `do_not_enforce_on_create: true` prüfen)
+7. `08-tag-namespace-floor.json` (aktiv; keine Delivery-Lane betroffen)
+8. `07-release-version-tags.json` (zunächst `disabled`; Aktivierung erst nach
+   verifizierter Tag-Erstellung über die Release-Automation-Identität, siehe
+   [Tag-Governance](tag-governance.md))
 
 Grafisch über **Organization Settings → Repository → Rulesets → New ruleset
 → Import a ruleset**, oder programmatisch über `POST /orgs/{org}/rulesets`
@@ -33,9 +37,19 @@ Projektdateien, Kommando-Historie oder Quellcode weitergegeben.
 
 ## Aktivierung
 
-- Neue oder geänderte Organisations-rulesets starten im Status
-  **Evaluate**; die Rule-Insights-Auswertung zeigt, was passiert wäre.
-- Erst nach sauberer Evaluation wird auf **Active** umgeschaltet.
+- Auf **Enterprise Cloud** starten neue oder geänderte
+  Organisations-rulesets im Status **Evaluate**; die
+  Rule-Insights-Auswertung zeigt, was passiert wäre. Erst nach sauberer
+  Evaluation wird auf **Active** umgeschaltet.
+- Auf dem **Team-Plan** existiert der Status **Evaluate** nicht
+  (Enterprise-only): Der Import erfolgt nach bestandenen Contract-Tests und
+  Selektor-Review direkt als **Active** in einem kontrollierten
+  Änderungsfenster; das Monitoring läuft über die Rule Insights
+  (Organisations-Dashboard oder Rule-Suites-API), und **Disabled** ist der
+  dokumentierte Rollback-Zustand. Ein Rule-Set mit offener
+  Aktivierungsvorbedingung — etwa `07-release-version-tags.json` vor der
+  verifizierten App-Identität — wird als **Disabled** importiert und erst
+  nach erfüllter Vorbedingung aktiviert.
 - Ein Import allein mutiert keinen Bestand: Bereits aktive rulesets werden
   über die UI oder die REST-API aktualisiert; nach jeder gemergten Änderung
   an den kanonischen Quellen wird re-importiert.
@@ -62,3 +76,10 @@ Projektdateien, Kommando-Historie oder Quellcode weitergegeben.
   genau einmal auf Organisationsebene.
 - Die Sichtbarkeits-Selektion des Push-rulesets und die
   Klassen-Selektoren adressieren exakt die vorgesehenen Repositories.
+- Ein manueller Push von `refs/tags/v0.0.0-test` wird nach der Aktivierung
+  von `07` abgelehnt; die Release-Automation-Identität erstellt weiterhin
+  `v*`-Tags.
+- `08` lehnt die Erstellung eines Nicht-`v*`-Tags durch eine
+  Nicht-Owner-Identität ab; ein bestehender Nicht-`v*`-Tag bleibt löschbar.
+- Jeder Bypass in den Rule Insights erzeugt einen Audit-Eintrag (nirgends
+  `bypass_mode: exempt`).
