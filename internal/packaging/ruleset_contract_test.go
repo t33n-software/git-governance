@@ -137,6 +137,61 @@ func TestPushProtectionsRulesetBlocksCredentialShapedArtifacts(t *testing.T) {
 	}
 }
 
+func TestTagRulesetsBindTheVersionTagNamespace(t *testing.T) {
+	t.Parallel()
+
+	versionTags := rulesetDocument(t, "07-release-version-tags.json")
+	for _, required := range []string{
+		`"name": "tag-governance: release version tags"`,
+		`"target": "tag"`,
+		`"source": "t33n-software"`,
+		`"refs/tags/v*"`,
+		`"type": "creation"`,
+		`"type": "update"`,
+		`"type": "deletion"`,
+		`"actor_type": "Integration"`,
+		`"actor_type": "OrganizationAdmin"`,
+		`"bypass_mode": "always"`,
+	} {
+		if !strings.Contains(versionTags, required) {
+			t.Fatalf("07-release-version-tags.json does not contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{"exempt", "required_status_checks", "pull_request", "quality-gates"} {
+		if strings.Contains(versionTags, forbidden) {
+			t.Fatalf("07-release-version-tags.json unexpectedly contains %q", forbidden)
+		}
+	}
+
+	floor := rulesetDocument(t, "08-tag-namespace-floor.json")
+	for _, required := range []string{
+		`"name": "tag-governance: tag namespace floor"`,
+		`"target": "tag"`,
+		`"refs/tags/*"`,
+		`"refs/tags/v*"`,
+		`"type": "creation"`,
+		`"type": "update"`,
+		`"actor_type": "OrganizationAdmin"`,
+		`"bypass_mode": "always"`,
+	} {
+		if !strings.Contains(floor, required) {
+			t.Fatalf("08-tag-namespace-floor.json does not contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{`"type": "deletion"`, "exempt", "Integration", "quality-gates"} {
+		if strings.Contains(floor, forbidden) {
+			t.Fatalf("08-tag-namespace-floor.json unexpectedly contains %q", forbidden)
+		}
+	}
+
+	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("rulesets", "github", "README.md")))
+	for _, required := range []string{"07-release-version-tags.json", "08-tag-namespace-floor.json", "disabled", "break-glass"} {
+		if !strings.Contains(readme, required) {
+			t.Fatalf("Ruleset README does not document the tag governance token %q", required)
+		}
+	}
+}
+
 func TestSharedLineRulesetsRequireCodeOwnerReview(t *testing.T) {
 	t.Parallel()
 

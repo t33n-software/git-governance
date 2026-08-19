@@ -38,6 +38,28 @@ The classless rulesets apply to every governed repository:
 - `01-ticket-working-branches.json` binds every repository (`~ALL`) and
   protects published working-branch history (append-only after first push).
 
+The classless tag rulesets (target `tag`) bind every repository (`~ALL`),
+including public repositories — tag rulesets are not visibility-gated:
+
+- `07-release-version-tags.json` binds the `refs/tags/v*` namespace to the
+  release-automation GitHub App: creation, update, and deletion of version
+  tags are restricted to that bypass identity, with the organization owner
+  role as the named, audited break-glass path. Both bypass entries use
+  `bypass_mode: always`, never `exempt`, so every bypass produces an audit
+  entry. The bypass list is constitutive: without it the ruleset would block
+  the governed release automation itself. The concrete app ID is this
+  organization's reference binding of the logical release-automation
+  identity; adopters substitute their own app ID exactly like `source`, and
+  the steady-state projection binds the concrete ID from the instance
+  bindings. Import it with `enforcement: disabled` until the governed tag
+  workflows authenticate as the release-automation app; a tag push made with
+  the repository `GITHUB_TOKEN` is rejected once the ruleset is active.
+- `08-tag-namespace-floor.json` restricts creation and update of every
+  non-`v*` tag (`refs/tags/*` minus `refs/tags/v*`) to the organization owner
+  break-glass role, so no new ungoverned tag namespace can appear or move.
+  It deliberately carries no `deletion` rule: existing non-`v*` tags remain
+  cleanable, and the namespace can only shrink.
+
 The shared-line rulesets `02-develop.*`, `03-main.*`, `04-release.*`, and
 `05-support.*` require pull requests with `require_code_owner_review` against
 `.github/CODEOWNERS` (default owner `@CyberT33N`), resolved review threads,
@@ -65,9 +87,13 @@ Classless rulesets carry no class suffix and apply to the whole fleet.
    repositories — never activate the class rulesets before this step.
 2. Import `00-push-protections.json` first, then
    `01-ticket-working-branches.json`, then the shared-line class variants in
-   numeric order.
+   numeric order, then `08-tag-namespace-floor.json`, and finally
+   `07-release-version-tags.json` (initially `disabled`; see above).
 3. Start with **Evaluate** enforcement and review Rule Insights; switch to
-   **Active** once the evaluation is clean.
+   **Active** once the evaluation is clean. On the Team plan the `evaluate`
+   status does not exist: import `active` in a controlled change window after
+   the contract tests and selector review pass, monitor Rule Insights, and
+   keep `disabled` as the documented rollback state.
 4. A required status-check context may only be enforced on a repository whose
    workflows provably report that context on the exact target line; a
    repository that cannot emit a context must not carry the class property

@@ -1,0 +1,37 @@
+{
+  "name": "tag-governance: tag namespace floor",
+  "target": "tag",
+  "source": "t33n-software",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/tags/*"
+      ],
+      "exclude": [
+        "refs/tags/v*"
+      ]
+    },
+    "repository_name": {
+      "include": [
+        "~ALL"
+      ],
+      "exclude": [],
+      "protected": false
+    }
+  },
+  "rules": [
+    {
+      "type": "creation"
+    },
+    {
+      "type": "update"
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_type": "OrganizationAdmin",
+      "bypass_mode": "always"
+    }
+  ]
+}
