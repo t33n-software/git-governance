@@ -5,7 +5,7 @@
 - [CLI usage guide](usage/index.md)
 - [GitHub App authentication](usage/authentication.md)
 - [Release reconciliation](usage/workflows/release-reconciliation.md)
-- [GitHub ruleset conventions](conventions/hosting-plattform/github/rule-sets/README.md)
+- [GitHub ruleset conventions](conventions/hosting-plattform/github/rulesets/README.md)
 - [Development verification](development/verification.md)
 - [Build and release artifact ownership](conventions/BUILD-UND-RELEASE-ARTEFAKT-OWNERSHIP.md)
 - [Architecture decision record](architecture/ADR-0001-GO-CLI-ZIELARCHITEKTUR.md)

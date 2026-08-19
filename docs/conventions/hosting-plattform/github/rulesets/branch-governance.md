@@ -1,4 +1,4 @@
-# Branch-Governance: Aufbau der Shared-Line- und Working-Branch-Rule-Sets
+# Branch-Governance: Aufbau der Shared-Line- und Working-Branch-rulesets
 [INTENT: SPEZIFIKATION]
 
 Dieses Dokument beschreibt eigenständig, was jedes Rule-Set der Familie
@@ -51,7 +51,7 @@ Merge-Methoden je Linie:
 
 ## Erstellungsausnahme `do_not_enforce_on_create`
 
-Nur `release/*`- und `support/*`-Rule-Sets tragen
+Nur `release/*`- und `support/*`-rulesets tragen
 `do_not_enforce_on_create: true`: Eine neu erzeugte geschützte Linie kann vor
 ihrer Existenz keine branch-bezogenen Check-Ergebnisse besitzen; ohne die
 Ausnahme wäre die governete Erzeugung per Definition unmöglich. `develop` und
@@ -65,7 +65,7 @@ Erstellungsereignis und lockert kein anderes Rule.
 Titel, Selektor und Dateiname bilden ein maschinell prüfbares Triple:
 `<kontext>: <aggregat> [(quality-gates=<klasse>)]` ↔
 `repository_property`-Wert ↔ `<nn>-<linie>[.quality-gates-<klasse>].json`.
-Klassenlose Rule-Sets tragen bewusst keine Klasse.
+Klassenlose rulesets tragen bewusst keine Klasse.
 
 ## Bewusst nicht angelegt
 

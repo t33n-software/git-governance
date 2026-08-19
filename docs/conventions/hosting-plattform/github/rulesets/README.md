@@ -1,9 +1,9 @@
-# Hosting-Plattform: GitHub — Rule-Sets
+# Hosting-Plattform: GitHub — rulesets
 [INTENT: REFERENZ]
 
 ## Kanonische Quelle
 
-Die GitHub-Rule-Sets für die Organisation `t33n-software` werden einmalig und
+Die GitHub-rulesets für die Organisation `t33n-software` werden einmalig und
 zentral in diesem Repository unter
 [`rulesets/github/`](../../../../../rulesets/github/README.md) definiert und
 verwaltet. Dieses Repository ist die kanonische Quelle der Wahrheit für die
@@ -30,8 +30,8 @@ Dieses Projekt (`git-governance`) verwendet die Familie
 
 | Dokument | Inhalt |
 |---|---|
-| [Organisation als Verwaltungsebene](organisation.md) | Warum eine Organisation existieren MUSS; Organisations-Verwaltung; Anti-Pattern einzelner Repository-Rule-Sets |
-| [Branch-Governance](branch-governance.md) | Aufbau und Begründung jedes Shared-Line- und Working-Branch-Rule-Sets; Namens-Triple |
+| [Organisation als Verwaltungsebene](organisation.md) | Warum eine Organisation existieren MUSS; Organisations-Verwaltung; Anti-Pattern einzelner Repository-rulesets |
+| [Branch-Governance](branch-governance.md) | Aufbau und Begründung jedes Shared-Line- und Working-Branch-rulesets; Namens-Triple |
 | [Push-Protections](push-protections.md) | Grenze gegen secret-förmige Artefakte; Verfügbarkeit; Template-Architektur |
 | [Klassen und Selektoren](klassen-und-selektoren.md) | `quality-gates`-Klassenmodell, gegenseitiger Ausschluss, Selektor-Formen, `~ALL` |
 | [Code-Quality und Coverage](code-quality-und-coverage.md) | Organisations-eigene, sprachagnostische Gates; Ausschluss der Hosting-Controls |
@@ -49,5 +49,5 @@ Dieses Projekt (`git-governance`) verwendet die Familie
   [`properties/github/`](../../../../../properties/github/README.md); ihre
   Projektion und Zuweisung folgen der
   [Custom-Properties-Konvention](../custom-properties/README.md).
-- Änderungen an den Rule-Sets erfolgen ausschließlich in diesem kanonischen
+- Änderungen an den rulesets erfolgen ausschließlich in diesem kanonischen
   Repository und werden danach auf Organisationsebene re-importiert.

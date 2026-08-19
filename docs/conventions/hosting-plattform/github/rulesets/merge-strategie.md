@@ -4,7 +4,7 @@
 ## Merge-Methoden je Ziel-Linie
 
 Die Merge-Strategie ist eine bewusste, zielabhängige Governance-Entscheidung,
-kein generischer Plattform-Default. Rule-Sets wirken auf die Ziel-Branch,
+kein generischer Plattform-Default. rulesets wirken auf die Ziel-Branch,
 nicht auf die Quell-Familie; die Auswahl trifft die merge-berechtigte Person
 zum Merge-Zeitpunkt nach dieser Matrix:
 
@@ -26,7 +26,7 @@ nach dem ersten Push bleibt die offizielle Branch append-only.
 
 GitHubs **Update branch**-Aktion mutiert die PR-Head-Ref; sie ist keine
 Metadaten-Auffrischung. Bei einem PR mit einer Shared Line als Head wäre das
-eine direkte Mutation einer geschützten Linie — die Rule-Sets lehnen das
+eine direkte Mutation einer geschützten Linie — die rulesets lehnen das
 zugrunde liegende Update ab. Eine erforderliche Basis-Ausrichtung einer
 veralteten Promotion oder Reconciliation erfolgt ausschließlich über eine
 ticketgebundene Preparation-Working-Branch mit vollständigen Gates und
@@ -46,4 +46,4 @@ Plattform-Oberfläche aktualisiert.
 | Release immutability | aktiviert, bevor die erste Produktions-Release veröffentlicht | Veröffentlichte Releases und Tags bleiben unveränderliche Evidenz |
 
 Die effektive Merge-Methode ist die Schnittmenge aus global aktivierter
-Fähigkeit und den `allowed_merge_methods` des Ziel-Rule-Sets.
+Fähigkeit und den `allowed_merge_methods` des Ziel-rulesets.

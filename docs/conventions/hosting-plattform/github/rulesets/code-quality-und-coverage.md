@@ -12,7 +12,7 @@ Rule-Set-Quellen erscheinen noch Organisations-Default werden.
 
 ## Die vier Schichten der Konvention
 
-1. **Vertragsoberfläche (sprachagnostisch).** Die Organisations-Rule-Sets
+1. **Vertragsoberfläche (sprachagnostisch).** Die Organisations-rulesets
    fordern nur stabile, identische Check-Kontexte — zum Beispiel
    `Quality gates (linux-amd64)` und `Dependency admission review`. Jedes
    Repository — Go, Python, Node.js oder ein künftiges Ökosystem — emittiert
