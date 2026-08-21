@@ -1,5 +1,6 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "toolchain": { "goVersion": "1.26.6" },
   "defaults": {
     "includeFamilies": [
       "feature",
@@ -23,5 +24,40 @@
       ],
       "timeout": "15m"
     }
-  ]
+  ],
+  "project": {
+    "binaries": [
+      {
+        "package": "./cmd/git-governance",
+        "smoke": ["--version"]
+      }
+    ],
+    "fuzz": [
+      {
+        "package": "./internal/domain/ticket",
+        "target": "FuzzParseTicketValues",
+        "time": "50000x"
+      },
+      {
+        "package": "./internal/domain/branch",
+        "target": "FuzzParseBranchValues",
+        "time": "50000x"
+      },
+      {
+        "package": "./internal/domain/commitmsg",
+        "target": "FuzzParseCommitMessage",
+        "time": "50000x"
+      },
+      {
+        "package": "./internal/adapters/configfs",
+        "target": "FuzzDecodePreferences",
+        "time": "50000x"
+      },
+      {
+        "package": "./internal/adapters/quality",
+        "target": "FuzzDecodeQualityConfiguration",
+        "time": "50000x"
+      }
+    ]
+  }
 }

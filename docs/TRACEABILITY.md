@@ -128,6 +128,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Native primary-OS full-quality matrix | IMPLEMENTED | CI runs `cmd/build` natively on Linux, macOS, and Windows; each OS independently enforces lint, tests, uncached 100%-coverage, race, fuzz, and security gates |
 | Native ARM64 smoke tests | IMPLEMENTED | CI matrix contains Ubuntu ARM64, Windows ARM64, and macOS ARM64 runners; remote execution requires the first push |
 | macOS/Linux native smoke tests | IMPLEMENTED | CI executes native smoke tests; local Windows execution is intentionally not a prerequisite |
+| Quality configuration schema v3 | VERIFIED | the quality runner strictly decodes schemaVersion 3 with the required pinned toolchain block and the optional project block (binary smoke contracts, fuzz budgets); schemaVersion 2 and unknown fields fail closed |
 
 ## Delivery and operations
 
