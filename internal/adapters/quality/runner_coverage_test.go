@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,7 +21,8 @@ func TestRunnerCoverageNormalizesNilContextAndAppliesDefaultExclusions(t *testin
 
 	root := t.TempDir()
 	writeConfig(t, filepath.Join(root, defaultConfigName), `{
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "toolchain": {"goVersion":"1.26.6"},
   "defaults": {"excludeFamilies": ["docs"]},
   "gates": [
     {"name":"default","command":"default"},
@@ -59,6 +61,7 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 	arguments := make([]string, maxArgumentCount+1)
 	tooManyArguments, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{GoVersion: "1.26.6"},
 		Gates: []gate{{
 			Name:    "many-arguments",
 			Command: "tool",
@@ -69,6 +72,45 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 		t.Fatalf("marshal argument-limit configuration: %v", err)
 	}
 
+	binaries := make([]projectBinary, maxBinaryCount+1)
+	for index := range binaries {
+		binaries[index] = projectBinary{Package: fmt.Sprintf("./cmd/tool-%d", index)}
+	}
+	tooManyBinaries, err := json.Marshal(config{
+		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Gates:         []gate{{Name: "build", Command: "go"}},
+		Project:       projectScope{Binaries: binaries},
+	})
+	if err != nil {
+		t.Fatalf("marshal binary-limit configuration: %v", err)
+	}
+
+	smoke := make([]string, maxSmokeCount+1)
+	tooMuchSmoke, err := json.Marshal(config{
+		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Gates:         []gate{{Name: "build", Command: "go"}},
+		Project:       projectScope{Binaries: []projectBinary{{Package: "./cmd/tool", Smoke: smoke}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal smoke-limit configuration: %v", err)
+	}
+
+	targets := make([]projectFuzz, maxFuzzCount+1)
+	for index := range targets {
+		targets[index] = projectFuzz{Package: "./internal/boundary", Target: fmt.Sprintf("Fuzz%d", index), Time: "50000x"}
+	}
+	tooManyFuzzTargets, err := json.Marshal(config{
+		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Gates:         []gate{{Name: "build", Command: "go"}},
+		Project:       projectScope{Fuzz: targets},
+	})
+	if err != nil {
+		t.Fatalf("marshal fuzz-limit configuration: %v", err)
+	}
+
 	testCases := []struct {
 		name string
 		raw  []byte
@@ -77,7 +119,8 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 		{
 			name: "duplicate gate name",
 			raw: []byte(`{
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "toolchain": {"goVersion":"1.26.6"},
   "gates": [
     {"name":"same","command":"first"},
     {"name":"same","command":"second"}
@@ -89,6 +132,21 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 			name: "too many arguments",
 			raw:  tooManyArguments,
 			rule: "each gate may contain at most 64 arguments",
+		},
+		{
+			name: "too many project binaries",
+			raw:  tooManyBinaries,
+			rule: "project binaries must contain at most 32 entries",
+		},
+		{
+			name: "too many smoke arguments",
+			raw:  tooMuchSmoke,
+			rule: "project binaries may contain at most 16 smoke arguments",
+		},
+		{
+			name: "too many fuzz targets",
+			raw:  tooManyFuzzTargets,
+			rule: "project fuzz must contain at most 64 entries",
 		},
 	}
 
@@ -220,7 +278,7 @@ func TestRunnerCoverageDistinguishesQualityStatuses(t *testing.T) {
 	t.Run("skipped", func(t *testing.T) {
 		runner := New(Options{
 			ReadFile: func(string) ([]byte, error) {
-				return []byte(`{"schemaVersion":2,"gates":[{"name":"docs","command":"docs","includeFamilies":["docs"]}]}`), nil
+				return []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"docs","command":"docs","includeFamilies":["docs"]}]}`), nil
 			},
 			Run: func(context.Context, string, string, ...string) error {
 				t.Fatal("a skipped quality gate must not run")
@@ -239,7 +297,7 @@ func TestRunnerCoverageDistinguishesQualityStatuses(t *testing.T) {
 		var calls int
 		runner := New(Options{
 			ReadFile: func(string) ([]byte, error) {
-				return []byte(`{"schemaVersion":2,"gates":[{"name":"verified","command":"tool","args":["verify"]}]}`), nil
+				return []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"verified","command":"tool","args":["verify"]}]}`), nil
 			},
 			Run: func(_ context.Context, directory, executable string, arguments ...string) error {
 				calls++
@@ -263,7 +321,7 @@ func TestRunnerCoverageHonorsTimeoutAndCancellation(t *testing.T) {
 	t.Run("configured timeout reaches command context", func(t *testing.T) {
 		runner := New(Options{
 			ReadFile: func(string) ([]byte, error) {
-				return []byte(`{"schemaVersion":2,"gates":[{"name":"deadline","command":"tool","timeout":"10ms"}]}`), nil
+				return []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"deadline","command":"tool","timeout":"10ms"}]}`), nil
 			},
 			Run: func(ctx context.Context, _ string, _ string, _ ...string) error {
 				<-ctx.Done()
@@ -300,6 +358,7 @@ func TestRunnerCoverageWrapsExecutableFailure(t *testing.T) {
 	missingExecutable := filepath.Join(root, "missing-quality-executable")
 	contents, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{GoVersion: "1.26.6"},
 		Gates: []gate{{
 			Name:    "missing-executable",
 			Command: missingExecutable,
@@ -320,6 +379,7 @@ func TestRunnerCoverageRoutesChildOutputAwayFromJSONResult(t *testing.T) {
 	root := t.TempDir()
 	contents, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{GoVersion: "1.26.6"},
 		Gates: []gate{{
 			Name:    "output-routing",
 			Command: "go",

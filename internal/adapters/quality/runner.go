@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -24,16 +25,22 @@ import (
 
 const (
 	defaultConfigName = "git-governance.quality.json"
-	currentSchema     = 2
+	currentSchema     = 3
 	maxConfigBytes    = 1 << 20
 	maxGateCount      = 32
 	maxArgumentCount  = 64
+	maxBinaryCount    = 32
+	maxSmokeCount     = 16
+	maxFuzzCount      = 64
 	defaultTimeout    = 5 * time.Minute
 )
 
 var (
-	gateNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	defaultFamilies = []branch.Family{
+	gateNamePattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+	goVersionPattern      = regexp.MustCompile(`^(go)?[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+	projectPackagePattern = regexp.MustCompile(`^\.?/[A-Za-z0-9_./-]+$`)
+	fuzzTargetPattern     = regexp.MustCompile(`^Fuzz[A-Za-z0-9_]*$`)
+	defaultFamilies       = []branch.Family{
 		branch.FamilyFeature,
 		branch.FamilyFix,
 		branch.FamilyDocs,
@@ -269,9 +276,31 @@ func (runner *Runner) configPath(root string) string {
 }
 
 type config struct {
-	SchemaVersion int         `json:"schemaVersion"`
-	Defaults      familyScope `json:"defaults,omitempty"`
-	Gates         []gate      `json:"gates"`
+	SchemaVersion int          `json:"schemaVersion"`
+	Toolchain     toolchain    `json:"toolchain"`
+	Defaults      familyScope  `json:"defaults,omitempty"`
+	Gates         []gate       `json:"gates"`
+	Project       projectScope `json:"project,omitempty"`
+}
+
+type toolchain struct {
+	GoVersion string `json:"goVersion"`
+}
+
+type projectScope struct {
+	Binaries []projectBinary `json:"binaries,omitempty"`
+	Fuzz     []projectFuzz   `json:"fuzz,omitempty"`
+}
+
+type projectBinary struct {
+	Package string   `json:"package"`
+	Smoke   []string `json:"smoke,omitempty"`
+}
+
+type projectFuzz struct {
+	Package string `json:"package"`
+	Target  string `json:"target"`
+	Time    string `json:"time"`
 }
 
 type familyScope struct {
@@ -301,7 +330,10 @@ func decode(path string, contents []byte) (config, error) {
 		return config{}, invalid(path, "quality configuration must contain exactly one JSON document", nil)
 	}
 	if value.SchemaVersion != currentSchema {
-		return config{}, invalid(path, "schemaVersion must equal 2", nil)
+		return config{}, invalid(path, "schemaVersion must equal 3", nil)
+	}
+	if !goVersionPattern.MatchString(value.Toolchain.GoVersion) {
+		return config{}, invalid(path, "toolchain goVersion must be a pinned Go version such as 1.26.6", nil)
 	}
 	if len(value.Gates) == 0 || len(value.Gates) > maxGateCount {
 		return config{}, invalid(path, "gates must contain between 1 and 32 entries", nil)
@@ -339,6 +371,9 @@ func decode(path string, contents []byte) (config, error) {
 			return config{}, err
 		}
 	}
+	if err := validateProject(path, value.Project); err != nil {
+		return config{}, err
+	}
 	return value, nil
 }
 
@@ -373,6 +408,73 @@ func validateScope(path, label string, scope familyScope) error {
 			return invalid(path, label+" cannot both include and exclude "+family.String(), nil)
 		}
 		excluded[family] = struct{}{}
+	}
+	return nil
+}
+
+func validateProject(path string, project projectScope) error {
+	if len(project.Binaries) > maxBinaryCount {
+		return invalid(path, "project binaries must contain at most 32 entries", nil)
+	}
+	seenBinaries := make(map[string]struct{}, len(project.Binaries))
+	for _, binary := range project.Binaries {
+		if !projectPackagePattern.MatchString(binary.Package) {
+			return invalid(path, "project binaries package must be a repository-relative package path", nil)
+		}
+		if _, found := seenBinaries[binary.Package]; found {
+			return invalid(path, "project binaries package must be unique", nil)
+		}
+		seenBinaries[binary.Package] = struct{}{}
+		if len(binary.Smoke) > maxSmokeCount {
+			return invalid(path, "project binaries may contain at most 16 smoke arguments", nil)
+		}
+		for _, argument := range binary.Smoke {
+			if strings.ContainsAny(argument, "\x00\r\n") {
+				return invalid(path, "project binary smoke arguments cannot contain NUL or line-control characters", nil)
+			}
+		}
+	}
+	if len(project.Fuzz) > maxFuzzCount {
+		return invalid(path, "project fuzz must contain at most 64 entries", nil)
+	}
+	seenFuzz := make(map[string]struct{}, len(project.Fuzz))
+	for _, target := range project.Fuzz {
+		if !projectPackagePattern.MatchString(target.Package) {
+			return invalid(path, "project fuzz package must be a repository-relative package path", nil)
+		}
+		if !fuzzTargetPattern.MatchString(target.Target) {
+			return invalid(path, "project fuzz target must be a Fuzz function name", nil)
+		}
+		key := target.Package + "|" + target.Target
+		if _, found := seenFuzz[key]; found {
+			return invalid(path, "project fuzz target must be unique", nil)
+		}
+		seenFuzz[key] = struct{}{}
+		if err := fuzzTime(target.Time); err != nil {
+			return invalid(path, "project fuzz "+target.Target+" has an invalid time budget", err)
+		}
+	}
+	return nil
+}
+
+func fuzzTime(raw string) error {
+	if raw == "" {
+		return errors.New("fuzz time budget must not be empty")
+	}
+	if strings.HasSuffix(raw, "x") {
+		count := strings.TrimSuffix(raw, "x")
+		if count == "" {
+			return errors.New("fuzz execution count must not be empty")
+		}
+		for _, r := range count {
+			if r < '0' || r > '9' {
+				return fmt.Errorf("fuzz execution count must be numeric: %q", raw)
+			}
+		}
+		return nil
+	}
+	if _, err := time.ParseDuration(raw); err != nil {
+		return fmt.Errorf("fuzz time budget must be a positive Go duration or an execution count: %q", raw)
 	}
 	return nil
 }
@@ -523,7 +625,7 @@ func invalid(path, rule string, cause error) error {
 		Actual:      path,
 		Expected:    "a valid git-governance.quality.json document",
 		Rule:        rule,
-		Example:     `{"schemaVersion":2,"defaults":{"includeFamilies":["feature","fix"]},"gates":[{"name":"unit-tests","command":"go","args":["test","./..."],"timeout":"2m"}]}`,
+		Example:     `{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"unit-tests","command":"go","args":["test","./..."],"timeout":"2m"}]}`,
 		Remediation: "correct the repository-local quality configuration",
 	}, cause)
 }
