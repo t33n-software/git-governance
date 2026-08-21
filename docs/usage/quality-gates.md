@@ -11,7 +11,8 @@ array; no shell command string is interpreted.
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
+  "toolchain": { "goVersion": "1.26.6" },
   "defaults": {
     "includeFamilies": [
       "feature", "fix", "docs", "refactor",
@@ -46,6 +47,11 @@ Each gate uses a repository-relative working directory and a positive Go
 duration timeout. Paths that escape the repository, shell control characters,
 unknown JSON fields, duplicate gate names, and unbounded configuration are
 rejected.
+
+The `toolchain` block is required and pins the Go toolchain identity
+(`goVersion`, for example `1.26.6`); a missing or unpinned version is
+rejected. The optional `project` block declares binary smoke contracts and
+fuzz execution budgets as data; both are strictly validated.
 
 If no configuration exists, the workflow reports `qualityStatus:
 unconfigured`; it does not claim that project-specific checks passed. The
