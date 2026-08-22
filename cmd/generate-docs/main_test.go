@@ -70,11 +70,23 @@ func TestRunUsesBuildGeneratedDirectoryByDefault(t *testing.T) {
 		return nil
 	}
 
-	if code := run(nil, &bytes.Buffer{}); code != 0 {
+	if code := run(nil, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("run() exit code = %d", code)
 	}
 	if outputDirectory != ".build/generated" {
 		t.Fatalf("default output directory = %q, want %q", outputDirectory, ".build/generated")
+	}
+}
+
+func TestRunPrintsTheToolVersion(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+	if code := run([]string{"--version"}, stdout, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("run --version exit code = %d", code)
+	}
+	if !strings.Contains(stdout.String(), "generate-docs") {
+		t.Fatalf("run --version output = %q", stdout.String())
 	}
 }
 
@@ -138,7 +150,7 @@ func TestGenerateReportsManpageFailure(t *testing.T) {
 
 func TestRunAndMainExitContracts(t *testing.T) {
 	output := &bytes.Buffer{}
-	if code := run([]string{"--unknown"}, output); code != 2 {
+	if code := run([]string{"--unknown"}, &bytes.Buffer{}, output); code != 2 {
 		t.Fatalf("run unknown flag code = %d", code)
 	}
 	if output.Len() == 0 {
@@ -153,7 +165,7 @@ func TestRunAndMainExitContracts(t *testing.T) {
 		return errors.New("generation failed")
 	}
 	output.Reset()
-	if code := run(nil, output); code != 1 || !strings.Contains(output.String(), "generation failed") {
+	if code := run(nil, &bytes.Buffer{}, output); code != 1 || !strings.Contains(output.String(), "generation failed") {
 		t.Fatalf("run generation failure = (%d, %q)", code, output.String())
 	}
 

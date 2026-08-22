@@ -16,6 +16,7 @@ var (
 	exitProcess = os.Exit
 	commandArgs = os.Args
 	runCommand  = runGoCommand
+	version     = "devel"
 )
 
 func main() {
@@ -29,6 +30,10 @@ func run(
 	stderr io.Writer,
 	execute commandRunner,
 ) int {
+	if len(arguments) == 1 && arguments[0] == "--version" {
+		fmt.Fprintf(stdout, "check-coverage %s\n", version)
+		return 0
+	}
 	if len(arguments) != 0 {
 		fmt.Fprintln(stderr, "usage: check-coverage")
 		return 2

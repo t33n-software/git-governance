@@ -17,18 +17,24 @@ var (
 	commandArgs   = os.Args
 	generateFiles = generate
 	generateMan   = doc.GenManTree
+	version       = "devel"
 )
 
 func main() {
-	exitProcess(run(commandArgs[1:], os.Stderr))
+	exitProcess(run(commandArgs[1:], os.Stdout, os.Stderr))
 }
 
-func run(arguments []string, stderr io.Writer) int {
+func run(arguments []string, stdout io.Writer, stderr io.Writer) int {
 	flags := flag.NewFlagSet("generate-docs", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	output := flags.String("out", ".build/generated", "output directory for completions and manpages")
+	showVersion := flags.Bool("version", false, "print the tool version and exit")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
+	}
+	if *showVersion {
+		fmt.Fprintf(stdout, "generate-docs %s\n", version)
+		return 0
 	}
 	if err := generateFiles(*output); err != nil {
 		fmt.Fprintln(stderr, "generate documentation:", err)

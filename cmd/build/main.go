@@ -31,6 +31,7 @@ var (
 	runExternalCommand = runCommand
 	findGoFiles        = goFiles
 	createDirectory    = os.MkdirAll
+	version            = "devel"
 	dependencySteps    = []step{
 		{
 			name:       "download module dependencies",
@@ -158,6 +159,10 @@ func run(
 	locateGoFiles goFileFinder,
 	makeDirectory directoryCreator,
 ) int {
+	if len(arguments) == 1 && arguments[0] == "--version" {
+		fmt.Fprintf(stdout, "build %s\n", version)
+		return 0
+	}
 	if len(arguments) != 0 {
 		fmt.Fprintln(stderr, "usage: build")
 		return 2
