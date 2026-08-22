@@ -41,6 +41,14 @@ promotion and backmerge do not.
 
 ## Protected-line request, execution, and finalization
 
+The release and hotfix lifecycle lanes are thin, hash-verified callers of the
+centralized reusable payload family owned by this repository: the payloads
+live at `.github/workflows/reusable-<capability>.yml`, and the canonical
+caller masters live at
+[`workflows/github/callers/release-lifecycle/`](../../../workflows/github/CONTRACT.md).
+The lifecycle exists exactly once; every tenant adopts it by reference, never
+by copy.
+
 `workflow release cut` and `workflow release support` prepare only a local
 intent. A normal local `--dispatch` is rejected: the protected executor must
 never receive an unbound version or branch input.
@@ -69,9 +77,10 @@ The automatic finalizer validates the correlated executor job and the actual
 remote ref before writing that status. It does not promote, tag, deliver, or
 reconcile the line.
 
-`recover-protected-line-request.yml` is a read-only recovery path for a
-record already in `verification_pending`. It cannot dispatch another executor
-or mutate a ref. It is not the normal human verification step.
+The read-only recovery path for a record already in `verification_pending` is
+a bound mode of the executor: dispatch `execute-protected-line-request.yml`
+with the `recovery` input set. It cannot dispatch another executor or mutate a
+ref. It is not the normal human verification step.
 
 The request and execution jobs are separate from the non-mutating
 `release-credential-verification` lane. Broker smoke consumes only the
