@@ -169,6 +169,54 @@ func TestLifecyclePayloadsBindTheDeliveryVariant(t *testing.T) {
 	}
 }
 
+func TestLifecyclePayloadsBindTheGovernanceCLIWithoutMigrationSeams(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{
+		"reusable-release-control.yml",
+		"reusable-execute-protected-line-request.yml",
+		"reusable-release-reconciliation.yml",
+		"reusable-hotfix-delivery.yml",
+		"reusable-hotfix-propagation.yml",
+	} {
+		workflow := readWorkflow(t, name)
+		for _, expected := range []string{
+			"name: Bind the governance CLI",
+			`"github.com/${GOVERNANCE_REPOSITORY}/cmd/git-governance"`,
+			"go build -mod=readonly -trimpath",
+			"go build -modfile tools/go.mod -trimpath",
+		} {
+			if !strings.Contains(workflow, expected) {
+				t.Fatalf("%s does not bind the governance CLI with %q", name, expected)
+			}
+		}
+		for _, forbidden := range []string{
+			"Build trusted governance CLI",
+			"Check out the pinned governance",
+			"governance_ref",
+			"GOVERNANCE_REF",
+			"GIT_GOVERNANCE_SOURCE_REF",
+		} {
+			if strings.Contains(workflow, forbidden) {
+				t.Fatalf("%s must not carry the removed migration seam %q", name, forbidden)
+			}
+		}
+	}
+
+	for _, name := range lifecyclePayloads {
+		workflow := readWorkflow(t, name)
+		for _, forbidden := range []string{
+			"source_gate",
+			"SOURCE_GATE",
+			"GIT_GOVERNANCE_SOURCE_GATE",
+		} {
+			if strings.Contains(workflow, forbidden) {
+				t.Fatalf("%s must not carry the removed source-gate seam %q", name, forbidden)
+			}
+		}
+	}
+}
+
 func TestTagPromotionPayloadDispatchesReleaseArtifacts(t *testing.T) {
 	t.Parallel()
 
@@ -200,7 +248,7 @@ func TestTagPromotionPayloadDispatchesReleaseArtifacts(t *testing.T) {
 	for _, expected := range []string{
 		"name: Reusable Publish Release Artifacts",
 		"tag:",
-		"source_gate:",
+		"go tool -modfile tools/go.mod quality-gate",
 		"environment: ${{ inputs.delivery_environment }}",
 	} {
 		if !strings.Contains(releasePayload, expected) {
