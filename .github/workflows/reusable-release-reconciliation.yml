@@ -4,12 +4,9 @@ on:
   workflow_call:
     inputs:
       operation:
-        description: Align a delivered release or publish a validated reconciliation resolution.
+        description: Align a delivered release or publish a validated reconciliation resolution (one of reconciliation-align or reconciliation-resume).
         required: true
-        type: choice
-        options:
-          - reconciliation-align
-          - reconciliation-resume
+        type: string
       release:
         description: Delivered release/<semver> line.
         required: true
@@ -31,12 +28,9 @@ on:
         required: false
         type: string
       delivery_variant:
-        description: The bound delivery variant of the tenant.
+        description: The bound delivery variant of the tenant (one of cloud or github-only).
         required: true
-        type: choice
-        options:
-          - cloud
-          - github-only
+        type: string
       reconciliation_environment:
         description: Protected environment of the release-reconciliation lane.
         required: true

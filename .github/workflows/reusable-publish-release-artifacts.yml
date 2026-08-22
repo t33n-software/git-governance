@@ -8,12 +8,9 @@ on:
         required: true
         type: string
       delivery_variant:
-        description: The bound delivery variant of the tenant.
+        description: The bound delivery variant of the tenant (one of cloud or github-only).
         required: true
-        type: choice
-        options:
-          - cloud
-          - github-only
+        type: string
       delivery_environment:
         description: Protected environment of the release-delivery lane.
         required: true
