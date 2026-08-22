@@ -86,6 +86,33 @@ func TestRunRejectsArguments(t *testing.T) {
 	}
 }
 
+func TestRunPrintsTheToolVersion(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+	exitCode := run(
+		context.Background(),
+		[]string{"--version"},
+		stdout,
+		&bytes.Buffer{},
+		func(context.Context, string, ...string) ([]byte, error) {
+			t.Fatal("runner must not execute for the version flag")
+			return nil, nil
+		},
+		func(string) ([]string, error) {
+			t.Fatal("file finder must not execute for the version flag")
+			return nil, nil
+		},
+		func(string, os.FileMode) error {
+			t.Fatal("directory creator must not execute for the version flag")
+			return nil
+		},
+	)
+	if exitCode != 0 || !strings.Contains(stdout.String(), "build devel") {
+		t.Fatalf("run --version = (%d, %q)", exitCode, stdout.String())
+	}
+}
+
 func TestRunNormalizesNilContext(t *testing.T) {
 	t.Parallel()
 

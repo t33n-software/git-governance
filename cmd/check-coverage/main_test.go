@@ -169,6 +169,19 @@ func TestRun(t *testing.T) {
 	})
 }
 
+func TestRunPrintsTheToolVersion(t *testing.T) {
+	t.Parallel()
+
+	stdout := &bytes.Buffer{}
+	exitCode := run(context.Background(), []string{"--version"}, stdout, &bytes.Buffer{}, func(context.Context, string, ...string) ([]byte, error) {
+		t.Fatal("runner must not execute for the version flag")
+		return nil, nil
+	})
+	if exitCode != 0 || !strings.Contains(stdout.String(), "check-coverage devel") {
+		t.Fatalf("run --version = (%d, %q)", exitCode, stdout.String())
+	}
+}
+
 func TestMainDelegatesToRun(t *testing.T) {
 	originalArgs := commandArgs
 	originalExit := exitProcess
