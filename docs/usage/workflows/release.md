@@ -93,9 +93,10 @@ finalizer independently checks the executor job and the real remote ref, then
 writes `verified`, `failed`, or `verification_pending`. Only `verified`
 completes a release cut.
 
-`recover-protected-line-request.yml` is a read-only recovery path for an
-existing `verification_pending` record. It cannot dispatch an executor, push a
-ref, promote a release, tag, publish artifacts, or reconcile branches.
+The read-only recovery path for an existing `verification_pending` record is a
+bound mode of the executor: dispatch `execute-protected-line-request.yml` with
+the `recovery` input set. It cannot dispatch an executor, push a ref, promote
+a release, tag, publish artifacts, or reconcile branches.
 
 ### Required GitHub environments
 
@@ -157,10 +158,10 @@ and only then creates or validates the non-shared `chore/*` preparation
 candidate. It never mutates `release/<semver>` or `develop` directly.
 
 For a delivered release whose Backmerge target requires a current PR head,
-dispatch `reconciliation-align` from the workflow on `main` with `release`,
-`ticket_key`, `ticket`, and `slug`. The workflow builds the trusted
-control-plane binary before it switches the repository to the release-derived
-preparation branch. It obtains a masked, short-lived installation token for the
+dispatch `reconciliation-align` from `release-reconciliation.yml` on `main`
+with `release`, `ticket_key`, `ticket`, and `slug`. The workflow builds the
+trusted control-plane binary before it switches the repository to the
+release-derived preparation branch. It obtains a masked, short-lived installation token for the
 ephemeral Git transport, removes that transport configuration before job exit,
 and uses the binary to create, align, validate, push, and publish the reviewed
 Preparation-Branch PR to `develop`.
@@ -323,11 +324,11 @@ quality gates, and opens a merge-commit PR from that branch to Develop. It
 never updates `release/2.8.0`.
 
 For the protected production path, dispatch `reconciliation-align` from
-`release-control.yml` on `main`. The workflow builds the trusted control-plane
-binary before it creates the release-derived preparation branch, then aligns
-that branch and opens the reviewed PR to Develop. Do not use a local Device
-Flow session, GitHub **Update branch**, or a direct Develop-to-Release merge
-as a substitute.
+`release-reconciliation.yml` on `main`. The workflow builds the trusted
+control-plane binary before it creates the release-derived preparation branch,
+then aligns that branch and opens the reviewed PR to Develop. Do not use a
+local Device Flow session, GitHub **Update branch**, or a direct
+Develop-to-Release merge as a substitute.
 
 See [release reconciliation](release-reconciliation.md) for the complete
 state and evidence contract.

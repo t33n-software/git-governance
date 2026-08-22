@@ -50,9 +50,9 @@ merged, rebased, or otherwise written back into the delivered
 When the Develop protection policy accepts the release head, the controlled
 direct pull request `release/<semver> -> develop` remains valid. When the
 policy requires a current pull-request head, the protected
-`reconciliation-align` operation in `release-control.yml` builds a trusted
-binary from `main`, creates a ticket-bound release-preparation branch, and
-executes `workflow release align-reconciliation-base` there. The operation
+`reconciliation-align` operation in `release-reconciliation.yml` builds a
+trusted binary from `main`, creates a ticket-bound release-preparation branch,
+and executes `workflow release align-reconciliation-base` there. The operation
 merges current Develop only into the preparation branch and opens the reviewed
 merge-commit PR to Develop. It never updates the release ref.
 
@@ -103,8 +103,8 @@ git governance --interactive never --output json --yes `
 
 The local workspace may prepare and push the non-shared candidate branch, but
 it must not create the Develop PR or receive release-automation credentials.
-Dispatch `reconciliation-resume` from `release-control.yml` on `main` with the
-same release, ticket, slug, and the exact candidate branch. This dispatch is a
+Dispatch `reconciliation-resume` from `release-reconciliation.yml` on `main`
+with the same release, ticket, slug, and the exact candidate branch. This dispatch is a
 deliberate admission act: whoever triggers it — a human in the GitHub UI, a
 human or agent through `gh`, or a separate explicit command — is
 trust-equivalent, because the protected environment, the server-side
@@ -138,7 +138,7 @@ workflow release align-reconciliation-base --resume
 ```
 
 The server-side recovery route uses the protected `reconciliation-resume`
-operation in `release-control.yml`. It validates the ticket-bound
+operation in `release-reconciliation.yml`. It validates the ticket-bound
 `resolution_branch`, exact two-parent release/develop merge provenance,
 delivery, quality, and the current Develop revision before publishing a
 preparation-branch PR. The local resolution workspace never receives the
