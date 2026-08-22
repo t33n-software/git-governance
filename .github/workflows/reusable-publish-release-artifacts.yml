@@ -22,13 +22,6 @@ on:
         description: The bound repository the delivery lane is authorized to publish; validated fail-closed.
         required: true
         type: string
-      source_gate:
-        description: The canonical source-verification gate of the tenant.
-        required: true
-        type: choice
-        options:
-          - build
-          - quality-gate
 
 permissions: {}
 
@@ -97,22 +90,9 @@ jobs:
 
       - name: Verify release source
         shell: bash
-        env:
-          SOURCE_GATE: ${{ inputs.source_gate }}
         run: |
           set -euo pipefail
-          case "$SOURCE_GATE" in
-            build)
-              go run -mod=readonly ./cmd/build
-              ;;
-            quality-gate)
-              go tool -modfile tools/go.mod quality-gate
-              ;;
-            *)
-              echo "unknown source gate: $SOURCE_GATE" >&2
-              exit 1
-              ;;
-          esac
+          go tool -modfile tools/go.mod quality-gate
 
       - name: Install Syft for GoReleaser SBOM generation
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
@@ -224,22 +204,9 @@ jobs:
 
       - name: Verify release source
         shell: bash
-        env:
-          SOURCE_GATE: ${{ inputs.source_gate }}
         run: |
           set -euo pipefail
-          case "$SOURCE_GATE" in
-            build)
-              go run -mod=readonly ./cmd/build
-              ;;
-            quality-gate)
-              go tool -modfile tools/go.mod quality-gate
-              ;;
-            *)
-              echo "unknown source gate: $SOURCE_GATE" >&2
-              exit 1
-              ;;
-          esac
+          go tool -modfile tools/go.mod quality-gate
 
       - name: Write the release source manifest
         shell: bash
