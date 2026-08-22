@@ -1,0 +1,97 @@
+name: Reusable Tag Promoted Release
+
+on:
+  workflow_call:
+    inputs:
+      release_branch:
+        description: The merged release/<semver> source branch of the controlled promotion.
+        required: true
+        type: string
+      merge_sha:
+        description: The pull-request merge commit of the controlled promotion into the main line.
+        required: true
+        type: string
+      delivery_environment:
+        description: Protected environment of the release-delivery lane.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  tag:
+    name: Tag merged release branch
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.delivery_environment }}
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - name: Check out main with complete history
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+          ref: main
+
+      - name: Validate promotion and derive immutable tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch }}
+          MERGE_SHA: ${{ inputs.merge_sha }}
+          DELIVERY_ENVIRONMENT: ${{ inputs.delivery_environment }}
+        run: |
+          set -euo pipefail
+          test -n "$DELIVERY_ENVIRONMENT" || { echo "tag-promoted-release requires delivery_environment" >&2; exit 1; }
+
+          version="${RELEASE_BRANCH#release/}"
+          if [[ "${RELEASE_BRANCH}" == "${version}" ]] || ! [[ "${version}" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Merged source branch is not a canonical release/<semver> branch: ${RELEASE_BRANCH}" >&2
+            exit 1
+          fi
+          if ! git cat-file -e "${MERGE_SHA}^{commit}"; then
+            echo "The pull-request merge SHA is not an available commit: ${MERGE_SHA}" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${MERGE_SHA}" "origin/main"; then
+            echo "The release merge commit is not contained in origin/main." >&2
+            exit 1
+          fi
+
+          tag="v${version}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "Release tag ${tag} already exists; refusing to replace an immutable release." >&2
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create annotated tag at the release merge commit
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+          MERGE_SHA: ${{ inputs.merge_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "${TAG}" "${MERGE_SHA}" --message "Release ${VERSION}"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Dispatch artifact workflow for immutable tag
+        shell: bash
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --request POST \
+            --url "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/publish-release-artifacts.yml/dispatches" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --header "Content-Type: application/json" \
+            --data "{\"ref\":\"main\",\"inputs\":{\"tag\":\"${TAG}\"}}"
