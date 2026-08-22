@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -672,6 +673,15 @@ func TestLifecycleCallersPinTheBoundPayloadCommit(t *testing.T) {
 		if !strings.Contains(caller, payloadName+"@"+record.Home.SHA) {
 			t.Fatalf("caller %s does not pin the payload at the recorded home SHA", name)
 		}
+	}
+}
+
+func TestLifecycleCallerPinIsOnTheMergedDevelopLine(t *testing.T) {
+	record := readLifecycleCallerHashRecord(t)
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", record.Home.SHA, "origin/develop")
+	cmd.Dir = repositoryRoot(t)
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("the pinned home SHA %q is not reachable from origin/develop; the payload pin must bind a commit on the merged develop line, never a pull-request-only commit that the cross-repo resolver cannot find", record.Home.SHA)
 	}
 }
 
