@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "home": {
+    "repository": "t33n-software/git-governance",
+    "sha": "4573d36bbf928221e6d38e151e68aec6c168bb04"
+  },
+  "callers": [
+    {
+      "master": "workflows/github/callers/release-lifecycle/release-control.yml",
+      "tenantFile": ".github/workflows/release-control.yml",
+      "class": "",
+      "sha256": "d19c25a3cf952a0de0dfbf03bbaa2eeed6e09714a34dd9d25f7946cc7f85eb8c"
+    },
+    {
+      "master": "workflows/github/callers/release-lifecycle/release-reconciliation.yml",
+      "tenantFile": ".github/workflows/release-reconciliation.yml",
+      "class": "",
+      "sha256": "0f5f82cc3e8ead34ff3ae8d0c60b0615f62f70a5c555f20b877af8214ee683d5"
+    },
+    {
+      "master": "workflows/github/callers/release-lifecycle/execute-protected-line-request.yml",
+      "tenantFile": ".github/workflows/execute-protected-line-request.yml",
+      "class": "",
+      "sha256": "85753f450554ae3da6dbc226bd981d8094b8ed90fb7434bd4798ca7dfd84ae52"
+    },
+    {
+      "master": "workflows/github/callers/release-lifecycle/tag-promoted-release.yml",
+      "tenantFile": ".github/workflows/tag-promoted-release.yml",
+      "class": "",
+      "sha256": "d64031d97136548bbeae06786523a854e667b60dfcba16c7a39b2d786bfc5191"
+    },
+    {
+      "master": "workflows/github/callers/release-lifecycle/publish-release-artifacts.yml",
+      "tenantFile": ".github/workflows/publish-release-artifacts.yml",
+      "class": "",
+      "sha256": "8c58370bf6cd57622384dabd3fe5506c32c8dead6199115e5c7c8aba9f772a9c"
+    },
+    {
+      "master": "workflows/github/callers/release-lifecycle/hotfix-delivery.yml",
+      "tenantFile": ".github/workflows/hotfix-delivery.yml",
+      "class": "",
+      "sha256": "194f1fb05a94bf3e8e5d122f64c2b1b9c9a949bce7a485349647bcad85685a19"
+    },
+    {
+      "master": "workflows/github/callers/release-lifecycle/hotfix-propagation.yml",
+      "tenantFile": ".github/workflows/hotfix-propagation.yml",
+      "class": "",
+      "sha256": "560dc034276745e8aba41f556b8903705bdeffbee7264f90cf1db57cd1fecc36"
+    }
+  ]
+}
