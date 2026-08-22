@@ -26,6 +26,7 @@ const (
 	protectedLineRequestEnvironment = "release-request"
 	protectedLineRequestWorkflow    = "release-control.yml"
 	protectedLineExecutorWorkflow   = "execute-protected-line-request.yml"
+	protectedLineExecutorJobName    = "Execute bound protected-line request"
 	protectedLineRequestTTL         = 4 * time.Hour
 	protectedLineDeploymentPageSize = 100
 	protectedLineDeploymentMaxPages = 10
@@ -779,7 +780,7 @@ func (publisher *Publisher) protectedLineExecutorSucceeded(
 		return false, decodeErr
 	}
 	for _, job := range jobs.Jobs {
-		if job.Name == "Execute bound protected-line request" {
+		if isProtectedLineExecutorJob(job.Name) {
 			return job.Status == "completed" && job.Conclusion == "success", nil
 		}
 	}
@@ -788,6 +789,15 @@ func (publisher *Publisher) protectedLineExecutorSucceeded(
 		"a completed correlated executor job",
 		"wait for the bound execution job to complete before finalization",
 	)
+}
+
+// isProtectedLineExecutorJob binds the executor job of the reusable payload.
+// A reusable-workflow call surfaces the callee job under the composite
+// "<caller job name> / <callee job name>" identity, so the check accepts the
+// bare payload job name and the composite form.
+func isProtectedLineExecutorJob(name string) bool {
+	return name == protectedLineExecutorJobName ||
+		strings.HasSuffix(name, " / "+protectedLineExecutorJobName)
 }
 
 func (publisher *Publisher) validateProtectedLineWorkflowRun(
