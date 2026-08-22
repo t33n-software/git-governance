@@ -105,9 +105,11 @@ A tenant adopts the lifecycle by carrying the byte-identical callers from
 `workflows/github/callers/release-lifecycle/`; each caller references its
 payload by full-length commit SHA. Any deviation from the canonical caller is
 a hash mismatch against `caller-hashes.json` and blocks fail-closed in the
-fleet's conformance proof. A tenant carries only the callers for the lanes it
-runs; a lane the tenant does not run has no caller — the state is a named
-class, never a renamed or disabled file.
+fleet's conformance proof. Every caller hash is computed over the
+LF-normalized form (CRLF folds to LF before hashing), so the proof is stable
+regardless of a platform's checkout line endings. A tenant carries only the
+callers for the lanes it runs; a lane the tenant does not run has no caller —
+the state is a named class, never a renamed or disabled file.
 
 ## Dogfooding
 

@@ -620,6 +620,42 @@ func TestLifecycleCallerHashRecordIsConsistent(t *testing.T) {
 	}
 }
 
+func TestNormalizeLineEndings(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "crlf folds to lf", input: "a\r\nb\r\n", expected: "a\nb\n"},
+		{name: "lf unchanged", input: "a\nb\n", expected: "a\nb\n"},
+		{name: "empty", input: "", expected: ""},
+		{name: "lone carriage return preserved", input: "a\rb\n", expected: "a\rb\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if got := normalizeLineEndings(testCase.input); got != testCase.expected {
+				t.Fatalf("normalizeLineEndings(%q) = %q, want %q", testCase.input, got, testCase.expected)
+			}
+		})
+	}
+}
+
+func TestLifecycleCallerHashProofIsLineEndingStable(t *testing.T) {
+	t.Parallel()
+
+	record := readLifecycleCallerHashRecord(t)
+	for _, entry := range record.Callers {
+		master := readLifecycleCallerMaster(t, filepath.Base(entry.Master))
+		crlfCheckout := strings.ReplaceAll(master, "\n", "\r\n")
+		sum := sha256.Sum256([]byte(normalizeLineEndings(crlfCheckout)))
+		if fmt.Sprintf("%x", sum) != entry.SHA256 {
+			t.Fatalf("the hash proof of %s is not stable across checkout line endings", entry.Master)
+		}
+	}
+}
+
 func TestWorkflowFilesUseBoundedLifecycleNames(t *testing.T) {
 	t.Parallel()
 
@@ -711,7 +747,7 @@ func readLifecycleCallerMaster(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(contents)
+	return normalizeLineEndings(string(contents))
 }
 
 func readLifecycleCallerHashRecord(t *testing.T) lifecycleCallerHashRecord {
@@ -729,6 +765,12 @@ func readLifecycleCallerHashRecord(t *testing.T) lifecycleCallerHashRecord {
 	return record
 }
 
+// normalizeLineEndings folds CRLF into LF so the content, hash, and identity
+// proofs stay stable regardless of the platform's checkout line endings.
+func normalizeLineEndings(contents string) string {
+	return strings.ReplaceAll(contents, "\r\n", "\n")
+}
+
 func readWorkflow(t *testing.T, name string) string {
 	t.Helper()
 
@@ -737,5 +779,5 @@ func readWorkflow(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(contents)
+	return normalizeLineEndings(string(contents))
 }
