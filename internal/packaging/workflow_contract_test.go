@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 var lifecyclePayloads = []string{
@@ -136,9 +138,8 @@ func TestLifecyclePayloadsBindTheDeliveryVariant(t *testing.T) {
 		workflow := readWorkflow(t, name)
 		for _, expected := range []string{
 			"delivery_variant:",
-			"type: choice",
-			"- cloud",
-			"- github-only",
+			"type: string",
+			"(one of cloud or github-only)",
 		} {
 			if !strings.Contains(workflow, expected) {
 				t.Fatalf("%s does not bind the delivery variant with %q", name, expected)
@@ -165,6 +166,39 @@ func TestLifecyclePayloadsBindTheDeliveryVariant(t *testing.T) {
 	} {
 		if !strings.Contains(publish, expected) {
 			t.Fatalf("publish payload does not contain %q", expected)
+		}
+	}
+}
+
+func TestLifecycleWorkflowFilesAreWellFormedYAML(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range lifecyclePayloads {
+		var document any
+		if err := yaml.Unmarshal([]byte(readWorkflow(t, name)), &document); err != nil {
+			t.Fatalf("payload %s is not well-formed YAML: %v", name, err)
+		}
+	}
+	for _, name := range lifecycleCallers {
+		var document any
+		if err := yaml.Unmarshal([]byte(readLifecycleCallerMaster(t, name)), &document); err != nil {
+			t.Fatalf("caller master %s is not well-formed YAML: %v", name, err)
+		}
+	}
+}
+
+func TestLifecyclePayloadsUseOnlyWorkflowCallInputTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range lifecyclePayloads {
+		workflow := readWorkflow(t, name)
+		for _, forbidden := range []string{
+			"type: choice",
+			"options:",
+		} {
+			if strings.Contains(workflow, forbidden) {
+				t.Fatalf("%s carries %q, which workflow_call inputs do not support (only string, number, and boolean are valid)", name, forbidden)
+			}
 		}
 	}
 }
