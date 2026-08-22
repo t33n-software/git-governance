@@ -26,6 +26,11 @@ by a fleet pin bump through a reviewed pull request. No payload carries an
 organization name, a tenant name, a hard-coded repository guard, an endpoint,
 or a credential.
 
+Every payload input uses only the `workflow_call` types `string`, `number`, and
+`boolean`; `choice` and `options` belong to the caller's `workflow_dispatch`
+surface, never to a payload. The allowed values of a string input are named in
+its description and validated fail-closed by the payload at runtime.
+
 ## The trigger surface
 
 The callers own the trigger surface: `release-control.yml`,
