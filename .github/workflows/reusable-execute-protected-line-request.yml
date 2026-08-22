@@ -24,10 +24,6 @@ on:
         description: The canonical governance home repository that carries the CLI source.
         required: true
         type: string
-      governance_ref:
-        description: Full commit SHA of the governance home to build the CLI from; empty builds the running checkout.
-        required: false
-        type: string
 
 permissions: {}
 
@@ -71,35 +67,18 @@ jobs:
           check-latest: false
           cache: false
 
-      - name: Check out the pinned governance CLI source
-        if: ${{ inputs.governance_ref != '' }}
-        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
-        with:
-          repository: ${{ inputs.governance_repository }}
-          ref: ${{ inputs.governance_ref }}
-          path: .build/governance
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Build trusted governance CLI
+      - name: Bind the governance CLI
         shell: bash
         env:
           GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
-          GOVERNANCE_REF: ${{ inputs.governance_ref }}
         run: |
           set -euo pipefail
-          if test -n "$GOVERNANCE_REF"; then
-            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
-            source_dir=".build/governance"
-          else
-            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
-              echo "governance_ref is required when the running repository is not the governance home" >&2
-              exit 1
-            }
-            source_dir="."
-          fi
           mkdir -p "$GITHUB_WORKSPACE/.build/bin"
-          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          if test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY"; then
+            go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance
+          else
+            go build -modfile tools/go.mod -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" "github.com/${GOVERNANCE_REPOSITORY}/cmd/git-governance"
+          fi
           "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
 
       - name: Authorize bound protected-line execution
@@ -170,35 +149,18 @@ jobs:
           check-latest: false
           cache: false
 
-      - name: Check out the pinned governance CLI source
-        if: ${{ inputs.governance_ref != '' }}
-        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
-        with:
-          repository: ${{ inputs.governance_repository }}
-          ref: ${{ inputs.governance_ref }}
-          path: .build/governance
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Build trusted governance CLI
+      - name: Bind the governance CLI
         shell: bash
         env:
           GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
-          GOVERNANCE_REF: ${{ inputs.governance_ref }}
         run: |
           set -euo pipefail
-          if test -n "$GOVERNANCE_REF"; then
-            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
-            source_dir=".build/governance"
-          else
-            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
-              echo "governance_ref is required when the running repository is not the governance home" >&2
-              exit 1
-            }
-            source_dir="."
-          fi
           mkdir -p "$GITHUB_WORKSPACE/.build/bin"
-          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          if test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY"; then
+            go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance
+          else
+            go build -modfile tools/go.mod -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" "github.com/${GOVERNANCE_REPOSITORY}/cmd/git-governance"
+          fi
           "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
 
       - name: Independently finalize the bound request
@@ -255,35 +217,18 @@ jobs:
           check-latest: false
           cache: false
 
-      - name: Check out the pinned governance CLI source
-        if: ${{ inputs.governance_ref != '' }}
-        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
-        with:
-          repository: ${{ inputs.governance_repository }}
-          ref: ${{ inputs.governance_ref }}
-          path: .build/governance
-          persist-credentials: false
-          fetch-depth: 0
-
-      - name: Build trusted governance CLI
+      - name: Bind the governance CLI
         shell: bash
         env:
           GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
-          GOVERNANCE_REF: ${{ inputs.governance_ref }}
         run: |
           set -euo pipefail
-          if test -n "$GOVERNANCE_REF"; then
-            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
-            source_dir=".build/governance"
-          else
-            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
-              echo "governance_ref is required when the running repository is not the governance home" >&2
-              exit 1
-            }
-            source_dir="."
-          fi
           mkdir -p "$GITHUB_WORKSPACE/.build/bin"
-          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          if test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY"; then
+            go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance
+          else
+            go build -modfile tools/go.mod -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" "github.com/${GOVERNANCE_REPOSITORY}/cmd/git-governance"
+          fi
           "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
 
       - name: Read-only recover the verification-pending request
