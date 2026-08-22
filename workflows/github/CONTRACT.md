@@ -74,14 +74,18 @@ bound as data through the `delivery_variant` input — never a forked payload:
   never as repository secrets and never embedded in a payload. The environment
   names are canonical lane identities and bind through typed caller inputs.
 - **Repository variables** carry the tenant bindings with a named consumer:
-  `GIT_GOVERNANCE_DELIVERY_VARIANT` (the bound delivery variant),
-  `GIT_GOVERNANCE_SOURCE_GATE` (the source-verification gate form), and
-  `GIT_GOVERNANCE_SOURCE_REF` (the pinned governance-home commit for tenant
-  lanes; empty in this home, whose lanes build the CLI from the running
-  checkout).
-- **The governance CLI source** binds through `governance_repository` and
-  `governance_ref`: a tenant lane checks out the pinned home commit and builds
-  the CLI from it; this home's lanes build from the running checkout.
+  `GIT_GOVERNANCE_DELIVERY_VARIANT` (the bound delivery variant). No
+  source-gate or source-reference variable exists — the canonical quality gate
+  and the class-D tool channel are the only forms, never a migration seam.
+- **The governance CLI** binds through `governance_repository` (the home
+  identity): this home's lanes build the CLI from the running checkout; a
+  tenant lane builds the pinned class-D tool from its own `tools/go.mod`
+  (`go build -modfile tools/go.mod ... github.com/<home>/cmd/git-governance`).
+  The CLI is a versioned, admitted tool — never a source checkout inside a
+  tenant lane, never a long-lived artifact reference.
+- **The source verification** in the delivery lane runs the canonical quality
+  gate (`go tool -modfile tools/go.mod quality-gate`) — the single gate form,
+  pinned as a class-D tool; there is no per-tenant gate choice.
 
 ## The recovery fold
 
