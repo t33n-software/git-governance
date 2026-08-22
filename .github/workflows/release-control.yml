@@ -44,7 +44,7 @@ jobs:
       contents: read
       deployments: write
       id-token: write
-    uses: t33n-software/git-governance/.github/workflows/reusable-release-control.yml@4573d36bbf928221e6d38e151e68aec6c168bb04
+    uses: t33n-software/git-governance/.github/workflows/reusable-release-control.yml@fdc47d35db4e082836d29a126aa168e736b42b3f
     with:
       operation: ${{ inputs.operation }}
       version: ${{ inputs.version }}
@@ -55,4 +55,3 @@ jobs:
       verification_environment: release-credential-verification
       request_environment: release-request
       governance_repository: t33n-software/git-governance
-      governance_ref: ${{ vars.GIT_GOVERNANCE_SOURCE_REF }}
