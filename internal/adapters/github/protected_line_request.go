@@ -27,6 +27,14 @@ const (
 	protectedLineRequestWorkflow    = "release-control.yml"
 	protectedLineExecutorWorkflow   = "execute-protected-line-request.yml"
 	protectedLineExecutorJobName    = "Execute bound protected-line request"
+	// protectedLineRequestAnchorRef anchors the durable request record to the
+	// repository default branch. The record is an audit artifact, not a code
+	// deployment: the authorized source revision is bound immutably in the
+	// payload, and the executor and finalizer validate it from the record.
+	// Anchoring the record to the source SHA would instead couple its creation
+	// to the source commit's branch relationship and fail closed whenever the
+	// source line is behind the default branch.
+	protectedLineRequestAnchorRef   = "main"
 	protectedLineRequestTTL         = 4 * time.Hour
 	protectedLineDeploymentPageSize = 100
 	protectedLineDeploymentMaxPages = 10
@@ -472,7 +480,7 @@ func (publisher *Publisher) createProtectedLineDeployment(
 	record releaserequest.Request,
 ) (deploymentResponse, error) {
 	body, _ := json.Marshal(createDeploymentRequest{
-		Ref:                   record.SourceSHA(),
+		Ref:                   protectedLineRequestAnchorRef,
 		Task:                  protectedLineRequestTask,
 		Environment:           protectedLineRequestEnvironment,
 		AutoMerge:             false,

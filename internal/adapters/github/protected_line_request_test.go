@@ -46,7 +46,11 @@ func TestProtectedLineRequestAuthorization(t *testing.T) {
 				var body createDeploymentRequest
 				decodeJSON(t, request, &body)
 				payload = body.Payload
-				if body.Ref != strings.Repeat("a", 40) || body.Task != protectedLineRequestTask ||
+				// The durable request record anchors to the repository default
+				// branch, never to the source SHA: the authorized source revision
+				// stays bound in the payload, and anchoring to the source SHA would
+				// fail closed whenever the source line is behind the default branch.
+				if body.Ref != protectedLineRequestAnchorRef || body.Task != protectedLineRequestTask ||
 					body.Environment != protectedLineRequestEnvironment || body.AutoMerge ||
 					body.TransientEnvironment || body.ProductionEnvironment {
 					t.Fatalf("deployment request = %#v", body)
@@ -93,6 +97,7 @@ func TestProtectedLineRequestAuthorization(t *testing.T) {
 		}
 		if payload.SchemaVersion != releaserequest.SchemaVersion || payload.RequestID != "request-50" ||
 			payload.Ticket != "GOV-50" || payload.ExpectedExecutor != protectedLineExecutorWorkflow ||
+			payload.SourceSHA != strings.Repeat("a", 40) ||
 			payload.ParentRunID != "123" || payload.ExpiresAt != now.Add(protectedLineRequestTTL).Format(time.RFC3339Nano) {
 			t.Fatalf("stored payload = %#v", payload)
 		}
