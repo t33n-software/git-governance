@@ -395,6 +395,24 @@ func TestProtectedLineFinalization(t *testing.T) {
 		}
 	})
 
+	t.Run("marks a composite successful executor job as verified", func(t *testing.T) {
+		record := protectedLineRecord(t, now, releaserequest.StateExecuting, "456")
+		server := protectedLineRequestServer(t, record, []deploymentStatusResponse{{
+			State:       "in_progress",
+			Description: protectedLineStatusDescription(releaserequest.StateExecuting, "456"),
+		}}, map[string]string{"release/1.2.0": strings.Repeat("a", 40)}, []workflowJobResponse{{
+			Name:       "Release execution / Execute bound protected-line request",
+			Status:     "completed",
+			Conclusion: "success",
+		}})
+		defer server.Close()
+
+		result, err := protectedLinePublisher(server).FinalizeProtectedLineRequest(context.Background(), protectedLineFinalizationAuthorization(server.URL, record.ID(), "456", false))
+		if err != nil || result.Request.State() != releaserequest.StateVerified {
+			t.Fatalf("composite final result = (%#v, %v)", result, err)
+		}
+	})
+
 	t.Run("handles verified, failed, missing ref, pending, recovery, and invalid bindings", func(t *testing.T) {
 		verified := protectedLineRecord(t, now, releaserequest.StateVerified, "456")
 		verifiedServer := protectedLineRequestServer(t, verified, []deploymentStatusResponse{{
@@ -1755,6 +1773,29 @@ func protectedLineWorkflowRun(workflow, actor string) protectedLineWorkflowRunRe
 	}
 	result.Actor.Login = actor
 	return result
+}
+
+func TestIsProtectedLineExecutorJob(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name     string
+		jobName  string
+		expected bool
+	}{
+		{name: "bare payload job", jobName: "Execute bound protected-line request", expected: true},
+		{name: "composite caller and payload job", jobName: "Release execution / Execute bound protected-line request", expected: true},
+		{name: "other job", jobName: "Finalize bound protected-line request", expected: false},
+		{name: "prefixed without composite separator", jobName: "Execute bound protected-line request extra", expected: false},
+		{name: "empty", jobName: "", expected: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if result := isProtectedLineExecutorJob(testCase.jobName); result != testCase.expected {
+				t.Fatalf("isProtectedLineExecutorJob(%q) = %t, want %t", testCase.jobName, result, testCase.expected)
+			}
+		})
+	}
 }
 
 func successfulExecutorJob() []workflowJobResponse {
