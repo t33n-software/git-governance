@@ -1,0 +1,231 @@
+name: Reusable Release Control
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: Verify the tenant credential broker or authorize a protected release or support-line request.
+        required: true
+        type: choice
+        options:
+          - broker-smoke
+          - release-request
+      version:
+        description: Release SemVer or support major.minor version without a leading v; required for release-request.
+        required: false
+        type: string
+      kind:
+        description: Protected line kind; required for release-request.
+        required: false
+        type: choice
+        options:
+          - release
+          - support
+      ticket_key:
+        description: Ticket key for release-request.
+        required: false
+        type: string
+      ticket:
+        description: Ticket number for release-request.
+        required: false
+        type: string
+      delivery_variant:
+        description: The bound delivery variant of the tenant.
+        required: true
+        type: choice
+        options:
+          - cloud
+          - github-only
+      verification_environment:
+        description: Protected environment of the release-credential-verification lane.
+        required: false
+        type: string
+      request_environment:
+        description: Protected environment of the release-request lane.
+        required: false
+        type: string
+      governance_repository:
+        description: The canonical governance home repository that carries the CLI source.
+        required: true
+        type: string
+      governance_ref:
+        description: Full commit SHA of the governance home to build the CLI from; empty builds the running checkout.
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  broker-smoke:
+    if: ${{ inputs.operation == 'broker-smoke' }}
+    name: Verify release credential broker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: ${{ inputs.verification_environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Bind the delivery variant
+        shell: bash
+        env:
+          DELIVERY_VARIANT: ${{ inputs.delivery_variant }}
+          VERIFICATION_ENVIRONMENT: ${{ inputs.verification_environment }}
+        run: |
+          set -euo pipefail
+          test "$DELIVERY_VARIANT" = "cloud" || {
+            echo "broker-smoke verifies the cloud credential boundary and is not bound in the github-only delivery variant" >&2
+            exit 1
+          }
+          test -n "$VERIFICATION_ENVIRONMENT" || { echo "broker-smoke requires verification_environment" >&2; exit 1; }
+
+      - name: Require broker configuration
+        shell: bash
+        env:
+          BROKER_URL: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL }}
+          WIF_PROVIDER: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_WIF_PROVIDER }}
+          INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_INVOKER_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          for variable in BROKER_URL WIF_PROVIDER INVOKER_SERVICE_ACCOUNT; do
+            test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+          done
+
+      - name: Obtain short-lived broker audience token
+        id: broker_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          create_credentials_file: false
+          workload_identity_provider: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_INVOKER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL }}
+
+      - name: Verify approved and rejected broker requests without token output
+        shell: bash
+        env:
+          BROKER_URL: ${{ vars.GCP_RELEASE_CREDENTIAL_VERIFICATION_BROKER_URL }}
+          BROKER_ID_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          trap 'rm -f "$response"' EXIT
+
+          owner="${GITHUB_REPOSITORY%%/*}"
+          name="${GITHUB_REPOSITORY#*/}"
+
+          approved_status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request POST "$BROKER_URL/v1/github/installations/token" \
+            --header "Authorization: Bearer $BROKER_ID_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"host\":\"github.com\",\"owner\":\"$owner\",\"repository\":\"$name\"}")"
+          test "$approved_status" = "200"
+
+          rejected_status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request POST "$BROKER_URL/v1/github/installations/token" \
+            --header "Authorization: Bearer $BROKER_ID_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"host\":\"github.com\",\"owner\":\"$owner\",\"repository\":\"not-approved\"}")"
+          test "$rejected_status" = "403"
+
+  release-request:
+    if: ${{ inputs.operation == 'release-request' }}
+    name: Authorize protected-line request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: ${{ inputs.request_environment }}
+    permissions:
+      actions: write
+      contents: read
+      deployments: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+
+      - name: Check out the pinned governance CLI source
+        if: ${{ inputs.governance_ref != '' }}
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          repository: ${{ inputs.governance_repository }}
+          ref: ${{ inputs.governance_ref }}
+          path: .build/governance
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Build trusted governance CLI
+        shell: bash
+        env:
+          GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
+          GOVERNANCE_REF: ${{ inputs.governance_ref }}
+        run: |
+          set -euo pipefail
+          if test -n "$GOVERNANCE_REF"; then
+            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
+            source_dir=".build/governance"
+          else
+            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
+              echo "governance_ref is required when the running repository is not the governance home" >&2
+              exit 1
+            }
+            source_dir="."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.build/bin"
+          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
+
+      - name: Require approved release-request inputs
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          KIND: ${{ inputs.kind }}
+          TICKET_KEY: ${{ inputs.ticket_key }}
+          TICKET: ${{ inputs.ticket }}
+          REQUEST_ENVIRONMENT: ${{ inputs.request_environment }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test -n "$REQUEST_ENVIRONMENT" || { echo "release-request requires request_environment" >&2; exit 1; }
+          for variable in VERSION KIND TICKET_KEY TICKET; do
+            test -n "${!variable:-}" || { echo "release-request requires $variable" >&2; exit 1; }
+          done
+
+      - name: Authorize and dispatch bound protected-line execution
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_GOVERNANCE_WORKFLOW_TOKEN: server
+          KIND: ${{ inputs.kind }}
+          VERSION: ${{ inputs.version }}
+          TICKET_KEY: ${{ inputs.ticket_key }}
+          TICKET: ${{ inputs.ticket }}
+          REQUESTER: ${{ github.actor }}
+          PARENT_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow release request \
+            --kind "$KIND" \
+            --version "$VERSION" \
+            --key "$TICKET_KEY" \
+            --ticket "$TICKET" \
+            --requester "$REQUESTER" \
+            --parent-run "$PARENT_RUN"

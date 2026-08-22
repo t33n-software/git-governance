@@ -1,0 +1,183 @@
+name: Reusable Hotfix Delivery
+
+on:
+  workflow_call:
+    inputs:
+      hotfix_branch:
+        description: Merged hotfix/<ticket>-<slug> branch to deliver.
+        required: true
+        type: string
+      record:
+        description: Optional repository-relative hotfix release record path.
+        required: false
+        type: string
+      delivery_variant:
+        description: The bound delivery variant of the tenant.
+        required: true
+        type: choice
+        options:
+          - cloud
+          - github-only
+      delivery_environment:
+        description: Protected environment of the hotfix-delivery lane.
+        required: true
+        type: string
+      governance_repository:
+        description: The canonical governance home repository that carries the CLI source.
+        required: true
+        type: string
+      governance_ref:
+        description: Full commit SHA of the governance home to build the CLI from; empty builds the running checkout.
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  deliver:
+    name: Deliver reviewed main hotfix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: ${{ inputs.delivery_environment }}
+    permissions:
+      actions: write
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out trusted main control-plane source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+
+      - name: Check out the pinned governance CLI source
+        if: ${{ inputs.governance_ref != '' }}
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          repository: ${{ inputs.governance_repository }}
+          ref: ${{ inputs.governance_ref }}
+          path: .build/governance
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require approved hotfix delivery inputs
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.hotfix_branch }}
+          RECORD: ${{ inputs.record }}
+          DELIVERY_VARIANT: ${{ inputs.delivery_variant }}
+          DELIVERY_ENVIRONMENT: ${{ inputs.delivery_environment }}
+          BROKER_URL: ${{ vars.GCP_HOTFIX_DELIVERY_BROKER_URL }}
+          WIF_PROVIDER: ${{ vars.GCP_HOTFIX_DELIVERY_WIF_PROVIDER }}
+          INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_HOTFIX_DELIVERY_INVOKER_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test -n "$DELIVERY_ENVIRONMENT" || { echo "hotfix-delivery requires delivery_environment" >&2; exit 1; }
+          test "$DELIVERY_VARIANT" = "cloud" || {
+            echo "hotfix-delivery binds the tenant credential-broker boundary; the github-only delivery variant of this lane is bound with the lane evidence-path migration" >&2
+            exit 1
+          }
+          [[ "$SOURCE_BRANCH" =~ ^hotfix/[A-Z][A-Z0-9]*-[1-9][0-9]*-[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
+            { echo "hotfix_branch must be a ticket-bound hotfix branch" >&2; exit 1; }
+          if test -n "$RECORD"; then
+            [[ "$RECORD" =~ ^\.git-governance/hotfix-release-records/[A-Z][A-Z0-9]*-[1-9][0-9]*\.json$ ]] ||
+              { echo "record must use the controlled ticket record path" >&2; exit 1; }
+          fi
+          for variable in BROKER_URL WIF_PROVIDER INVOKER_SERVICE_ACCOUNT; do
+            test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+          done
+
+      - name: Obtain short-lived release broker audience token
+        id: broker_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          create_credentials_file: false
+          workload_identity_provider: ${{ vars.GCP_HOTFIX_DELIVERY_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_HOTFIX_DELIVERY_INVOKER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ vars.GCP_HOTFIX_DELIVERY_BROKER_URL }}
+
+      - name: Build trusted governance CLI
+        shell: bash
+        env:
+          GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
+          GOVERNANCE_REF: ${{ inputs.governance_ref }}
+        run: |
+          set -euo pipefail
+          if test -n "$GOVERNANCE_REF"; then
+            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
+            source_dir=".build/governance"
+          else
+            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
+              echo "governance_ref is required when the running repository is not the governance home" >&2
+              exit 1
+            }
+            source_dir="."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.build/bin"
+          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
+
+      - name: Verify merge, create immutable patch tag, dispatch delivery, and verify evidence
+        shell: bash
+        env:
+          SOURCE_BRANCH: ${{ inputs.hotfix_branch }}
+          RECORD: ${{ inputs.record }}
+          GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL: ${{ vars.GCP_HOTFIX_DELIVERY_BROKER_URL }}
+          GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN: ${{ steps.broker_auth.outputs.id_token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          cleanup() {
+            rm -f "$response"
+          }
+          trap cleanup EXIT
+
+          record_args=()
+          if test -n "$RECORD"; then
+            record_args+=(--record "$RECORD")
+          fi
+
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --pull-request-provider github \
+            workflow hotfix verify-merge \
+            --branch "$SOURCE_BRANCH" \
+            "${record_args[@]}" >"$response"
+
+          tag="$(jq --exit-status --raw-output '.fields.tag' "$response")"
+          merge_commit="$(jq --exit-status --raw-output '.fields.mergeCommit' "$response")"
+          test -n "$tag"
+          test -n "$merge_commit"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$tag" "$merge_commit" --message "Hotfix ${tag#v}"
+          git push origin "refs/tags/$tag"
+
+          curl --fail-with-body --request POST \
+            --url "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/workflows/publish-release-artifacts.yml/dispatches" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            --header "Content-Type: application/json" \
+            --data "{\"ref\":\"main\",\"inputs\":{\"tag\":\"${tag}\"}}"
+
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --pull-request-provider github \
+            workflow hotfix verify-delivery \
+            --branch "$SOURCE_BRANCH" \
+            "${record_args[@]}"

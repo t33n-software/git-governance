@@ -1,0 +1,240 @@
+name: Reusable Release Reconciliation
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: Align a delivered release or publish a validated reconciliation resolution.
+        required: true
+        type: choice
+        options:
+          - reconciliation-align
+          - reconciliation-resume
+      release:
+        description: Delivered release/<semver> line.
+        required: true
+        type: string
+      ticket_key:
+        description: Ticket key for the reconciliation preparation.
+        required: true
+        type: string
+      ticket:
+        description: Ticket number for the reconciliation preparation.
+        required: true
+        type: string
+      slug:
+        description: Kebab-case reconciliation preparation description.
+        required: true
+        type: string
+      resolution_branch:
+        description: Ticket-bound resolved reconciliation branch; required for reconciliation-resume.
+        required: false
+        type: string
+      delivery_variant:
+        description: The bound delivery variant of the tenant.
+        required: true
+        type: choice
+        options:
+          - cloud
+          - github-only
+      reconciliation_environment:
+        description: Protected environment of the release-reconciliation lane.
+        required: true
+        type: string
+      governance_repository:
+        description: The canonical governance home repository that carries the CLI source.
+        required: true
+        type: string
+      governance_ref:
+        description: Full commit SHA of the governance home to build the CLI from; empty builds the running checkout.
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  reconcile:
+    name: Reconcile delivered release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: ${{ inputs.reconciliation_environment }}
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out trusted control-plane source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: ${{ inputs.delivery_variant == 'github-only' }}
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+
+      - name: Check out the pinned governance CLI source
+        if: ${{ inputs.governance_ref != '' }}
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          repository: ${{ inputs.governance_repository }}
+          ref: ${{ inputs.governance_ref }}
+          path: .build/governance
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require approved reconciliation inputs
+        shell: bash
+        env:
+          RELEASE: ${{ inputs.release }}
+          TICKET_KEY: ${{ inputs.ticket_key }}
+          TICKET: ${{ inputs.ticket }}
+          SLUG: ${{ inputs.slug }}
+          OPERATION: ${{ inputs.operation }}
+          RESOLUTION_BRANCH: ${{ inputs.resolution_branch }}
+          DELIVERY_VARIANT: ${{ inputs.delivery_variant }}
+          PUBLISHER_BROKER_URL: ${{ vars.GCP_RECONCILIATION_PUBLISHER_BROKER_URL }}
+          PUBLISHER_WIF_PROVIDER: ${{ vars.GCP_RECONCILIATION_PUBLISHER_WIF_PROVIDER }}
+          PUBLISHER_INVOKER_SERVICE_ACCOUNT: ${{ vars.GCP_RECONCILIATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          for variable in RELEASE TICKET_KEY TICKET SLUG; do
+            test -n "${!variable:-}" || { echo "missing release-reconciliation input: $variable" >&2; exit 1; }
+          done
+          if test "$OPERATION" = "reconciliation-resume"; then
+            test -n "$RESOLUTION_BRANCH" || { echo "reconciliation-resume requires resolution_branch" >&2; exit 1; }
+            [[ "$RESOLUTION_BRANCH" =~ ^chore/[A-Z][A-Z0-9]*-[1-9][0-9]*-[a-z0-9]+(-[a-z0-9]+)*$ ]] ||
+              { echo "resolution_branch must be a ticket-bound chore branch" >&2; exit 1; }
+            test "$RESOLUTION_BRANCH" = "chore/${TICKET_KEY}-${TICKET}-${SLUG}" ||
+              { echo "resolution_branch must match the supplied ticket and slug" >&2; exit 1; }
+          fi
+          if test "$DELIVERY_VARIANT" = "cloud"; then
+            for variable in PUBLISHER_BROKER_URL PUBLISHER_WIF_PROVIDER PUBLISHER_INVOKER_SERVICE_ACCOUNT; do
+              test -n "${!variable:-}" || { echo "missing GitHub variable: $variable" >&2; exit 1; }
+            done
+          fi
+
+      - name: Obtain short-lived broker audience token
+        if: ${{ inputs.delivery_variant == 'cloud' }}
+        id: publisher_auth
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          create_credentials_file: false
+          workload_identity_provider: ${{ vars.GCP_RECONCILIATION_PUBLISHER_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_RECONCILIATION_PUBLISHER_INVOKER_SERVICE_ACCOUNT }}
+          token_format: id_token
+          id_token_audience: ${{ vars.GCP_RECONCILIATION_PUBLISHER_BROKER_URL }}
+
+      - name: Build trusted governance CLI
+        shell: bash
+        env:
+          GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
+          GOVERNANCE_REF: ${{ inputs.governance_ref }}
+        run: |
+          set -euo pipefail
+          if test -n "$GOVERNANCE_REF"; then
+            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
+            source_dir=".build/governance"
+          else
+            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
+              echo "governance_ref is required when the running repository is not the governance home" >&2
+              exit 1
+            }
+            source_dir="."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.build/bin"
+          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
+
+      - name: Create, align, or publish governed reconciliation branch
+        shell: bash
+        env:
+          DELIVERY_VARIANT: ${{ inputs.delivery_variant }}
+          PUBLISHER_BROKER_URL: ${{ vars.GCP_RECONCILIATION_PUBLISHER_BROKER_URL }}
+          PUBLISHER_BROKER_ID_TOKEN: ${{ steps.publisher_auth.outputs.id_token || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE: ${{ inputs.release }}
+          TICKET_KEY: ${{ inputs.ticket_key }}
+          TICKET: ${{ inputs.ticket }}
+          SLUG: ${{ inputs.slug }}
+          OPERATION: ${{ inputs.operation }}
+          RESOLUTION_BRANCH: ${{ inputs.resolution_branch }}
+        run: |
+          set -euo pipefail
+          git config --local user.name "github-actions[bot]"
+          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          response="$(mktemp)"
+          cleanup() {
+            git config --local --unset-all http.https://github.com/.extraheader || true
+            rm -f "$response"
+          }
+          trap cleanup EXIT
+
+          if test "$DELIVERY_VARIANT" = "cloud"; then
+            status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+              --request POST "$PUBLISHER_BROKER_URL/v1/github/installations/token" \
+              --header "Authorization: Bearer $PUBLISHER_BROKER_ID_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data "{\"host\":\"github.com\",\"owner\":\"${GITHUB_REPOSITORY%%/*}\",\"repository\":\"${GITHUB_REPOSITORY#*/}\"}")"
+            test "$status" = "200"
+            transport_token="$(jq --exit-status --raw-output '.access_token' "$response")"
+            test -n "$transport_token"
+            echo "::add-mask::$transport_token"
+            transport_header="$(printf 'x-access-token:%s' "$transport_token" | base64 --wrap=0)"
+            echo "::add-mask::$transport_header"
+            git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic $transport_header"
+
+            export GIT_GOVERNANCE_GITHUB_CREDENTIAL_BROKER_URL="$PUBLISHER_BROKER_URL"
+            export GIT_GOVERNANCE_WORKLOAD_IDENTITY_TOKEN="$PUBLISHER_BROKER_ID_TOKEN"
+          fi
+          export GIT_GOVERNANCE_WORKFLOW_TOKEN="server"
+          export GIT_TERMINAL_PROMPT=0
+
+          if test "$OPERATION" = "reconciliation-align"; then
+            ./.build/bin/git-governance \
+              --interactive never \
+              --output json \
+              --yes \
+              --pull-request-provider github \
+              workflow release stabilize \
+              --release "$RELEASE" \
+              --kind release-prep \
+              --key "$TICKET_KEY" \
+              --ticket "$TICKET" \
+              --slug "$SLUG"
+
+            ./.build/bin/git-governance \
+              --interactive never \
+              --output json \
+              --yes \
+              --pull-request-provider github \
+              workflow release align-reconciliation-base \
+              --release "$RELEASE" \
+              --push \
+              --create-pull-request
+            exit 0
+          fi
+
+          git fetch origin "refs/heads/$RESOLUTION_BRANCH:refs/remotes/origin/$RESOLUTION_BRANCH"
+          git switch --create "$RESOLUTION_BRANCH" --track "origin/$RESOLUTION_BRANCH"
+
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            branch validate \
+            --branch "$RESOLUTION_BRANCH"
+
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow release align-reconciliation-base \
+            --branch "$RESOLUTION_BRANCH" \
+            --release "$RELEASE" \
+            --prepared \
+            --push \
+            --create-pull-request

@@ -1,0 +1,304 @@
+name: Reusable Execute Protected-Line Request
+
+on:
+  workflow_call:
+    inputs:
+      request_id:
+        description: Durable release-request identifier authorized by the request controller.
+        required: true
+        type: string
+      recovery:
+        description: Read-only recovery finalization of a verification-pending request on the main line.
+        required: false
+        type: boolean
+        default: false
+      repository:
+        description: The bound repository the executor is authorized to mutate; validated fail-closed.
+        required: true
+        type: string
+      execution_environment:
+        description: Protected environment of the release-execution lane.
+        required: true
+        type: string
+      governance_repository:
+        description: The canonical governance home repository that carries the CLI source.
+        required: true
+        type: string
+      governance_ref:
+        description: Full commit SHA of the governance home to build the CLI from; empty builds the running checkout.
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  execute:
+    if: ${{ inputs.recovery == false }}
+    name: Execute bound protected-line request
+    runs-on: ubuntu-24.04
+    environment: ${{ inputs.execution_environment }}
+    permissions:
+      actions: read
+      contents: write
+      deployments: write
+    outputs:
+      request_id: ${{ steps.authorization.outputs.request_id }}
+      source_sha: ${{ steps.authorization.outputs.source_sha }}
+      target: ${{ steps.authorization.outputs.target }}
+      needs_mutation: ${{ steps.authorization.outputs.needs_mutation }}
+    steps:
+      - name: Bind the running repository
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "$EXPECTED_REPOSITORY" || {
+            echo "the protected-line executor is bound to $EXPECTED_REPOSITORY, not $GITHUB_REPOSITORY" >&2
+            exit 1
+          }
+
+      - name: Check out complete repository history
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+
+      - name: Check out the pinned governance CLI source
+        if: ${{ inputs.governance_ref != '' }}
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          repository: ${{ inputs.governance_repository }}
+          ref: ${{ inputs.governance_ref }}
+          path: .build/governance
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Build trusted governance CLI
+        shell: bash
+        env:
+          GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
+          GOVERNANCE_REF: ${{ inputs.governance_ref }}
+        run: |
+          set -euo pipefail
+          if test -n "$GOVERNANCE_REF"; then
+            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
+            source_dir=".build/governance"
+          else
+            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
+              echo "governance_ref is required when the running repository is not the governance home" >&2
+              exit 1
+            }
+            source_dir="."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.build/bin"
+          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
+
+      - name: Authorize bound protected-line execution
+        id: authorization
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_GOVERNANCE_WORKFLOW_TOKEN: server
+          REQUEST_ID: ${{ inputs.request_id }}
+          EXECUTOR_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          result="$(./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow release execute-request \
+            --request-id "$REQUEST_ID" \
+            --executor-run "$EXECUTOR_RUN")"
+          request_id="$(jq --exit-status --raw-output '.fields.requestID' <<<"$result")"
+          source_sha="$(jq --exit-status --raw-output '.fields.sourceSHA' <<<"$result")"
+          target="$(jq --exit-status --raw-output '.fields.target' <<<"$result")"
+          needs_mutation="$(jq --exit-status --raw-output '.fields.needsMutation' <<<"$result")"
+          printf 'request_id=%s\n' "$request_id" >> "$GITHUB_OUTPUT"
+          printf 'source_sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
+          printf 'target=%s\n' "$target" >> "$GITHUB_OUTPUT"
+          printf 'needs_mutation=%s\n' "$needs_mutation" >> "$GITHUB_OUTPUT"
+
+      - name: Create the one authorized protected line
+        if: ${{ steps.authorization.outputs.needs_mutation == 'true' }}
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.authorization.outputs.source_sha }}
+          TARGET: ${{ steps.authorization.outputs.target }}
+        run: |
+          set -euo pipefail
+          git cat-file -e "${SOURCE_SHA}^{commit}"
+          existing="$(git ls-remote --heads origin "refs/heads/${TARGET}" | cut -f1)"
+          if test -n "$existing"; then
+            test "$existing" = "$SOURCE_SHA" || {
+              echo "protected line exists at an unauthorized revision" >&2
+              exit 1
+            }
+            exit 0
+          fi
+          git push origin "${SOURCE_SHA}:refs/heads/${TARGET}"
+
+  finalize:
+    if: ${{ always() && inputs.recovery == false }}
+    needs: execute
+    name: Finalize bound protected-line request
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+    steps:
+      - name: Check out trusted finalizer source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+
+      - name: Check out the pinned governance CLI source
+        if: ${{ inputs.governance_ref != '' }}
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          repository: ${{ inputs.governance_repository }}
+          ref: ${{ inputs.governance_ref }}
+          path: .build/governance
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Build trusted governance CLI
+        shell: bash
+        env:
+          GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
+          GOVERNANCE_REF: ${{ inputs.governance_ref }}
+        run: |
+          set -euo pipefail
+          if test -n "$GOVERNANCE_REF"; then
+            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
+            source_dir=".build/governance"
+          else
+            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
+              echo "governance_ref is required when the running repository is not the governance home" >&2
+              exit 1
+            }
+            source_dir="."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.build/bin"
+          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
+
+      - name: Independently finalize the bound request
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_GOVERNANCE_WORKFLOW_TOKEN: server
+          REQUEST_ID: ${{ inputs.request_id }}
+          EXECUTOR_RUN: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow release finalize-request \
+            --request-id "$REQUEST_ID" \
+            --executor-run "$EXECUTOR_RUN"
+
+  recover:
+    if: ${{ inputs.recovery == true }}
+    name: Recover bound protected-line request
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      deployments: write
+    steps:
+      - name: Bind the recovery preconditions
+        shell: bash
+        env:
+          EXPECTED_REPOSITORY: ${{ inputs.repository }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main" || {
+            echo "protected-line recovery runs only from the main line" >&2
+            exit 1
+          }
+          test "$GITHUB_REPOSITORY" = "$EXPECTED_REPOSITORY" || {
+            echo "the protected-line executor is bound to $EXPECTED_REPOSITORY, not $GITHUB_REPOSITORY" >&2
+            exit 1
+          }
+
+      - name: Check out trusted recovery finalizer source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+
+      - name: Check out the pinned governance CLI source
+        if: ${{ inputs.governance_ref != '' }}
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          repository: ${{ inputs.governance_repository }}
+          ref: ${{ inputs.governance_ref }}
+          path: .build/governance
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Build trusted governance CLI
+        shell: bash
+        env:
+          GOVERNANCE_REPOSITORY: ${{ inputs.governance_repository }}
+          GOVERNANCE_REF: ${{ inputs.governance_ref }}
+        run: |
+          set -euo pipefail
+          if test -n "$GOVERNANCE_REF"; then
+            test -n "$GOVERNANCE_REPOSITORY" || { echo "governance_ref requires governance_repository" >&2; exit 1; }
+            source_dir=".build/governance"
+          else
+            test "$GOVERNANCE_REPOSITORY" = "$GITHUB_REPOSITORY" || {
+              echo "governance_ref is required when the running repository is not the governance home" >&2
+              exit 1
+            }
+            source_dir="."
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.build/bin"
+          (cd "$source_dir" && go build -mod=readonly -trimpath -o "$GITHUB_WORKSPACE/.build/bin/git-governance" ./cmd/git-governance)
+          "$GITHUB_WORKSPACE/.build/bin/git-governance" --version
+
+      - name: Read-only recover the verification-pending request
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GIT_GOVERNANCE_WORKFLOW_TOKEN: server
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          set -euo pipefail
+          ./.build/bin/git-governance \
+            --interactive never \
+            --output json \
+            --yes \
+            --pull-request-provider github \
+            workflow release finalize-request \
+            --request-id "$REQUEST_ID" \
+            --recovery
