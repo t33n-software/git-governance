@@ -11,7 +11,8 @@ help-first invocation, the deterministic workflow state machine, the
 shared-line guard and mutation embargo, task-pattern recognition with the
 execution-level hierarchy, the area-symbol registry, safe Scratch usage,
 proactive key and ticket discovery, the scoped one-time provider-session
-verification, and the current hotfix capability boundary.
+verification, the current hotfix capability boundary, and the semantic
+commit-message and pull-request-description content governance.
 
 ---
 
@@ -29,6 +30,7 @@ verification, and the current hotfix capability boundary.
 || INV-007 | WORKFLOW | Proactive key and ticket discovery | No | Active |
 || INV-008 | WORKFLOW | Scoped one-time provider-session verification | No | Active |
 || INV-009 | CONSTRAINT | Current hotfix capability boundary | No | Active |
+| INV-010 | CONSTRAINT | Commit-message and pull-request-description content governance | Yes | Active |
 
 ---
 
@@ -374,6 +376,109 @@ instead of replacing it with raw Git or a privileged local token.
 
 ---
 
+### 3.10 INV-010: Commit-message and pull-request-description content governance
+[INTENT: SPECIFICATION]
+
+**Type:** CONSTRAINT
+
+**Description:**
+
+The binary and the active policy own commit grammar, families, and technical
+limits. The core owns content completeness: every commit message carries a
+precise one-sentence subject plus a body that holds what the diff cannot
+express — intent, behavioral scope, touched invariants or contracts,
+verification evidence, and risks. The body is the relevance filter of the
+commit history: a later agent must be able to judge a unit's relevance from
+subject and body without loading the diff (filter before fetch).
+
+The agent makes only generic decisions (the ticket's actual content); every
+architectural decision is bound by the contract. The subject formulation
+contract fixes language (English), imperative mood, behavior-over-file
+naming, and forbidden filler forms. The canonical body layout fixes the
+category order (Motivation, Behavioral Change, Contracts and Invariants,
+Verification, Risks and Follow-ups) with a short-form rule for narrow
+scopes. An executable acceptance gate makes `commit_content_verified`
+falsifiable: five canonical questions must be answerable from subject and
+body alone, without the diff, or the omission must be matrix-justified.
+
+The body is the default, not an option. A binding decision matrix scopes
+every exception: hotfix lanes, release and support lanes, breaking markers,
+and scratch squash transfers always require a body; behavior and structure
+families require it except for provably trivial, self-explanatory units;
+process families require it once behavior, contracts, or processes are
+touched; only provably trivial `style` or `chore` units may omit it, because
+the filler-text prohibition outranks the mandate. An omission must be
+matrix-justified and is audited as `omitted-justified`; an unjustified
+omission is never `PASS`.
+
+Content anti-patterns are forbidden: diff narration, filler text, content
+not evidenced by the actually staged paths (reality anchoring), and secrets.
+
+The pull request is a separate abstraction layer above the commit series.
+Its description carries the integration view that no single commit message
+holds and never replicates commit content (single source of truth: detail
+stays in the commits). The description is mandatory, never optional: every
+pull request crosses a protected shared line, so the review gate needs its
+information carriers deterministically; the mandate covers presence and
+contract fidelity, not length. The canonical section order is fixed:
+Summary, Scope and Non-Goals, Commit Series (navigation only), Risk and
+Rollback, Verification and Review Focus.
+
+Transport stays help-first: the composing agent derives the carrying
+arguments from the immediately preceding `commit create` or publish-endpoint
+help. If the current binary exposes no body transport for a commit or no
+description transport for a pull request, the agent blocks with the named
+gap instead of falling back to raw Git, an external PR CLI, raw provider
+calls, or manual web edits.
+
+**Current State:**
+
+The core bound semantic unit boundaries and commit validation but left the
+content completeness of commit messages and pull-request descriptions
+unowned; the binary currently exposes commit subject, body, and footer
+transport, while no publish endpoint exposes a pull-request description
+transport.
+
+**Target State:**
+
+The core binds commit-message content through the body-mandate decision
+matrix and the `commit_content_verified` proof, and pull-request-description
+content through the integration-layer contract and the
+`pr_description_verified` proof. A missing description transport on the
+binary is reported as a named blocker, never bypassed.
+
+**Affected Files:**
+
+|| Path | Relevance | Elements |
+||------|-----------|----------|
+|| `core/prompt.md` | Commit content architecture | Section [6.4] |
+|| `core/prompt.md` | Pull-request description architecture | Section [8.1] |
+|| `core/prompt.md` | Proof surfaces and audit records | Sections [2.3] and [9] |
+|| `core/prompt.md` | Content prohibitions | Section [10] |
+
+**Positive Example(s):**
+
+```text
+compose subject and body from the frozen acceptance ledger and the actually
+staged paths
+-> bind the body-mandate matrix decision, including any justified omission
+-> set commit_content_verified
+-> transport through the freshly read commit create help
+```
+
+**Negative Example(s):**
+
+```text
+narrate the diff line by line in the body, or omit the body on a hotfix
+lane commit, or replicate commit bodies into the pull-request description
+```
+
+Diff narration duplicates what the diff carries more efficiently; an
+unjustified omission removes the relevance filter; a replicated pull-request
+body breaks the single source of truth.
+
+---
+
 ## 4. Conventions and Constraints
 [INTENT: CONSTRAINT]
 
@@ -389,7 +494,7 @@ instead of replacing it with raw Git or a privileged local token.
 
 || # | Path | Relevance | Unit IDs |
 ||---|------|-----------|----------|
-|| 1 | `core/prompt.md` | Portable core workflow | INV-001 to INV-009 |
+|| 1 | `core/prompt.md` | Portable core workflow | INV-001 to INV-010 |
 
 ---
 
