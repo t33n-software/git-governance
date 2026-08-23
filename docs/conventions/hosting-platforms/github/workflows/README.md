@@ -49,6 +49,17 @@ darüber.
   Lane-Identität, der Callee-Job trägt die Gate-Identität.
 - **Composite Actions:** `.github/actions/<verb>-<object>/action.yml`.
 
+## Convention documents
+
+- [Provider-Fehlerdiagnostik](provider-fehlerdiagnostik.md) — how the
+  lifecycle lanes surface the provider's error diagnostic without redaction.
+- [Environment-gate trigger context](environment-gate-trigger-context.md) —
+  an environment-gated job never runs on a `pull_request` run; event-driven
+  lanes detect on the pull request and execute on the main-bound dispatch.
+- [Canonical copies, never symlinks](canonical-copies-not-symlinks.md) — why
+  every execution location carries a byte-identical regular-file copy of the
+  canonical caller and why a symbolic link cannot work.
+
 ## Verwaltung
 
 - Verwaltungsebene: die **Organisation** (`t33n-software`), niemals die
