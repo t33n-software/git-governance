@@ -98,7 +98,7 @@ func TestQualityGatesPropertyDefinitionIsDocumented(t *testing.T) {
 		t.Fatal("ruleset README must reference the canonical properties/github definition artifact")
 	}
 
-	convention := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-plattform", "github", "custom-properties", "README.md")))
+	convention := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-platforms", "github", "custom-properties", "README.md")))
 	for _, required := range []string{"Positive-List", "org_actors", "pending"} {
 		if !strings.Contains(convention, required) {
 			t.Fatalf("custom-properties convention does not document the token %q", required)
