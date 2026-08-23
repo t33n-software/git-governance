@@ -216,7 +216,7 @@ func (publisher *Publisher) mergedMainHotfix(
 		}
 		if response.StatusCode != http.StatusOK {
 			_ = response.Body.Close()
-			return hotfixPullRequestResponse{}, lifecycleResponseProblem(response.StatusCode, "inspect the main hotfix pull request")
+			return hotfixPullRequestResponse{}, lifecycleResponseProblem(response, "inspect the main hotfix pull request")
 		}
 		var pullRequests []hotfixPullRequestResponse
 		decodeErr := decodeResponse(response.Body, &pullRequests)
@@ -303,7 +303,7 @@ func (publisher *Publisher) mainHotfixMergeCommit(
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
-		return "", lifecycleResponseProblem(response.StatusCode, "resolve the main hotfix merge commit")
+		return "", lifecycleResponseProblem(response, "resolve the main hotfix merge commit")
 	}
 	var graphQLResponse graphQLHotfixResponse
 	decodeErr := decodeResponse(response.Body, &graphQLResponse)
@@ -366,7 +366,7 @@ func (publisher *Publisher) verifyHotfixManifest(
 		}
 		if response.StatusCode != http.StatusOK {
 			_ = response.Body.Close()
-			return lifecycleResponseProblem(response.StatusCode, "inspect the main hotfix commit manifest")
+			return lifecycleResponseProblem(response, "inspect the main hotfix commit manifest")
 		}
 		var commits []pullRequestCommitResponse
 		decodeErr := decodeResponse(response.Body, &commits)
@@ -411,7 +411,7 @@ func (publisher *Publisher) tagExists(
 	case http.StatusNotFound:
 		return false, nil
 	default:
-		return false, lifecycleResponseProblem(response.StatusCode, "inspect the proposed immutable hotfix patch tag")
+		return false, lifecycleResponseProblem(response, "inspect the proposed immutable hotfix patch tag")
 	}
 }
 
@@ -428,7 +428,7 @@ func (publisher *Publisher) publishedHotfixReleaseURL(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", lifecycleResponseProblem(response.StatusCode, "inspect the published main hotfix release")
+		return "", lifecycleResponseProblem(response, "inspect the published main hotfix release")
 	}
 	var release struct {
 		HTMLURL string                 `json:"html_url"`
@@ -496,7 +496,7 @@ func (publisher *Publisher) waitForHotfixArtifactWorkflow(
 			return "", decodeErr
 		}
 		if status != http.StatusOK {
-			return "", lifecycleResponseProblem(status, "inspect the main hotfix artifact workflow")
+			return "", lifecycleResponseProblem(response, "inspect the main hotfix artifact workflow")
 		}
 		for _, run := range runs.WorkflowRuns {
 			if run.DisplayTitle != "Release "+tag {

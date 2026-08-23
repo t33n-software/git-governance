@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	releaseWorkflowWaitLimit = 30 * time.Second
-	releasePromotionPageSize = 100
+	releaseWorkflowWaitLimit    = 30 * time.Second
+	releasePromotionPageSize    = 100
+	lifecycleDiagnosticMaxBytes = 4096
 )
 
 var releaseRequestIDGenerator = newReleaseRequestID
@@ -169,7 +170,7 @@ func (publisher *Publisher) DispatchSharedLine(
 	defer response.Body.Close()
 	if !isSuccessfulHTTPStatus(response.StatusCode) {
 		return port.SharedLineDispatchResult{}, lifecycleResponseProblem(
-			response.StatusCode,
+			response,
 			"dispatch the protected-line creation workflow",
 		)
 	}
@@ -303,7 +304,7 @@ func (publisher *Publisher) waitForWorkflowRun(
 			return "", decodeErr
 		}
 		if status != http.StatusOK {
-			return "", lifecycleResponseProblem(status, "inspect the protected-line workflow run")
+			return "", lifecycleResponseProblem(response, "inspect the protected-line workflow run")
 		}
 		for _, run := range runs.WorkflowRuns {
 			if !strings.Contains(run.DisplayTitle, requestID) {
@@ -354,7 +355,7 @@ func (publisher *Publisher) mergedPromotion(
 		}
 		if response.StatusCode != http.StatusOK {
 			_ = response.Body.Close()
-			return releasePullRequestResponse{}, lifecycleResponseProblem(response.StatusCode, "inspect the release promotion pull request")
+			return releasePullRequestResponse{}, lifecycleResponseProblem(response, "inspect the release promotion pull request")
 		}
 		var pullRequests []releasePullRequestResponse
 		decodeErr := decodeResponse(response.Body, &pullRequests)
@@ -444,7 +445,7 @@ func (publisher *Publisher) promotionMergeCommit(
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
-		return "", lifecycleResponseProblem(response.StatusCode, "resolve the release promotion merge commit")
+		return "", lifecycleResponseProblem(response, "resolve the release promotion merge commit")
 	}
 	var graphQLResponse graphQLPromotionResponse
 	decodeErr := decodeResponse(response.Body, &graphQLResponse)
@@ -511,7 +512,7 @@ func (publisher *Publisher) tagCommit(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", lifecycleResponseProblem(response.StatusCode, "inspect the immutable release tag")
+		return "", lifecycleResponseProblem(response, "inspect the immutable release tag")
 	}
 	var reference gitReferenceResponse
 	if err := decodeResponse(response.Body, &reference); err != nil {
@@ -526,7 +527,7 @@ func (publisher *Publisher) tagCommit(
 		}
 		defer tagResponse.Body.Close()
 		if tagResponse.StatusCode != http.StatusOK {
-			return "", lifecycleResponseProblem(tagResponse.StatusCode, "resolve the annotated release tag")
+			return "", lifecycleResponseProblem(tagResponse, "resolve the annotated release tag")
 		}
 		var annotated gitTagResponse
 		if err := decodeResponse(tagResponse.Body, &annotated); err != nil {
@@ -557,7 +558,7 @@ func (publisher *Publisher) publishedReleaseURL(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", lifecycleResponseProblem(response.StatusCode, "inspect the published GitHub release")
+		return "", lifecycleResponseProblem(response, "inspect the published GitHub release")
 	}
 	var release releaseResponse
 	if err := decodeResponse(response.Body, &release); err != nil {
@@ -586,7 +587,7 @@ func (publisher *Publisher) hasEffectiveReleaseDelta(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return false, lifecycleResponseProblem(response.StatusCode, "compare the released line with develop")
+		return false, lifecycleResponseProblem(response, "compare the released line with develop")
 	}
 	var comparison compareResponse
 	if err := decodeResponse(response.Body, &comparison); err != nil {
@@ -627,16 +628,69 @@ func newReleaseRequestID() (string, error) {
 	return hex.EncodeToString(value[:]), nil
 }
 
-func lifecycleResponseProblem(status int, operation string) error {
+func lifecycleResponseProblem(response *http.Response, operation string) error {
+	status := 0
+	if response != nil {
+		status = response.StatusCode
+	}
 	return problem.New(problem.Details{
 		Code:        problem.CodeExternalCommandFailed,
 		Category:    problem.CategoryExternal,
 		Field:       "GitHub release lifecycle",
 		Actual:      http.StatusText(status),
+		Diagnostic:  lifecycleErrorDiagnostic(response),
 		Expected:    "a successful GitHub API response",
 		Rule:        "release lifecycle operations must complete through the configured GitHub adapter",
 		Remediation: operation + " after checking GitHub App permissions, workflow availability, and repository access",
 	})
+}
+
+// lifecycleErrorDiagnostic surfaces the provider's own failure message for
+// diagnosability. No redaction occurs: the request is secret-free by
+// construction and the credential is header-isolated, so the provider
+// diagnostic message cannot carry secrets. Canonical rationale:
+// docs/conventions/hosting-platforms/github/workflows/provider-fehlerdiagnostik.md
+func lifecycleErrorDiagnostic(response *http.Response) string {
+	if response == nil || response.Body == nil {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, lifecycleDiagnosticMaxBytes+1))
+	if err != nil {
+		return ""
+	}
+	truncated := len(body) > lifecycleDiagnosticMaxBytes
+	if truncated {
+		body = body[:lifecycleDiagnosticMaxBytes]
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return ""
+	}
+	var envelope struct {
+		Message string `json:"message"`
+		Errors  []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err == nil {
+		messages := make([]string, 0, len(envelope.Errors)+1)
+		if message := strings.TrimSpace(envelope.Message); message != "" {
+			messages = append(messages, message)
+		}
+		for _, entry := range envelope.Errors {
+			if message := strings.TrimSpace(entry.Message); message != "" {
+				messages = append(messages, message)
+			}
+		}
+		if len(messages) == 0 {
+			return ""
+		}
+		text = strings.Join(messages, "; ")
+	}
+	if truncated {
+		text += " …[truncated]"
+	}
+	return text
 }
 
 func lifecycleConfigurationProblem(field, expected, remediation string) error {
