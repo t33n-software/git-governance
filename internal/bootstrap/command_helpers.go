@@ -130,12 +130,26 @@ func (application *application) confirmMutation(ctx context.Context, label, desc
 func (application *application) validatePullRequestPublication(
 	services services,
 	push, createPullRequest bool,
+	body string,
 ) error {
 	if createPullRequest && !push {
 		return invalidOption("create-pull-request", "true", "--push")
 	}
+	if err := validatePullRequestBody(createPullRequest, body); err != nil {
+		return err
+	}
 	if createPullRequest && !application.options.dryRun && !services.tickets.HasPullRequestPublisher() {
 		return pullRequestPublisherUnavailable()
+	}
+	return nil
+}
+
+// validatePullRequestBody enforces the mandatory pull-request description
+// owned by docs/conventions/pull-requests/description-mandate.md before any
+// Git mutation happens.
+func validatePullRequestBody(createPullRequest bool, body string) error {
+	if createPullRequest && strings.TrimSpace(body) == "" {
+		return invalidOption("body", "empty", "a non-empty pull-request description when --create-pull-request is set")
 	}
 	return nil
 }
@@ -177,7 +191,7 @@ func (application *application) completePreparedPublication(
 	}
 	result.Pushed = true
 
-	createPullRequest, err := application.resolvePullRequestPublication(
+	pullRequest, createPullRequest, err := application.resolvePullRequestPublication(
 		ctx,
 		services,
 		result.PullRequest,
@@ -189,6 +203,7 @@ func (application *application) completePreparedPublication(
 	if !createPullRequest {
 		return nil
 	}
+	result.PullRequest = pullRequest
 	if err := services.tickets.PreflightPullRequest(ctx, repository, result.PullRequest); err != nil {
 		return err
 	}
@@ -205,16 +220,17 @@ func (application *application) resolvePullRequestPublication(
 	services services,
 	request port.PullRequest,
 	requested bool,
-) (bool, error) {
+) (port.PullRequest, bool, error) {
 	if application.options.dryRun {
-		return false, nil
+		return request, false, nil
 	}
 	if !services.tickets.HasPullRequestPublisher() {
 		if requested {
-			return false, pullRequestPublisherUnavailable()
+			return request, false, pullRequestPublisherUnavailable()
 		}
-		return false, nil
+		return request, false, nil
 	}
+	create := requested
 	if application.promptAvailable() && !application.options.yes {
 		confirmed, err := application.prompt().Confirm(ctx, port.ConfirmRequest{
 			Label: "Create pull request",
@@ -223,14 +239,56 @@ func (application *application) resolvePullRequestPublication(
 			Default: requested,
 		})
 		if err != nil {
-			return false, err
+			return request, false, err
 		}
-		return confirmed, nil
+		create = confirmed
+	} else if requested && !application.options.yes {
+		return request, false, pullRequestConfirmationRequired()
 	}
-	if requested && !application.options.yes {
-		return false, pullRequestConfirmationRequired()
+	if !create {
+		return request, false, nil
 	}
-	return requested, nil
+	return application.resolvePullRequestBody(ctx, request)
+}
+
+// resolvePullRequestBody enforces the mandatory pull-request description
+// owned by docs/conventions/pull-requests/description-mandate.md: a confirmed
+// publication either carries the description already or asks for it
+// interactively; non-interactive creation without it fails closed.
+func (application *application) resolvePullRequestBody(
+	ctx context.Context,
+	request port.PullRequest,
+) (port.PullRequest, bool, error) {
+	if strings.TrimSpace(request.Body) != "" {
+		return request, true, nil
+	}
+	if application.promptAvailable() && !application.options.yes {
+		body, err := application.prompt().Input(ctx, port.InputRequest{
+			Label: "Pull request description",
+			Description: "Describe the change set for " + request.Source.String() + " to " + request.Target.String() +
+				": summary, scope and non-goals, commit series, risk and rollback, verification and review focus. The description is mandatory.",
+			Required: true,
+			Validate: func(value string) error {
+				if strings.TrimSpace(value) == "" {
+					return problem.New(problem.Details{
+						Code:        problem.CodeInvalidInput,
+						Category:    problem.CategoryUsage,
+						Field:       "pull request description",
+						Expected:    "a non-empty description",
+						Rule:        "every governed pull request carries a mandatory description",
+						Remediation: "enter the canonical pull-request description",
+					})
+				}
+				return nil
+			},
+		})
+		if err != nil {
+			return request, false, err
+		}
+		request.Body = body
+		return request, true, nil
+	}
+	return request, false, invalidOption("body", "empty", "a non-empty pull-request description passed as --body")
 }
 
 func pullRequestPublisherUnavailable() error {

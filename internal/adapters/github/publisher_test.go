@@ -45,6 +45,7 @@ func TestPublisherCreatesAndReusesPullRequests(t *testing.T) {
 				}
 				if body != (createPullRequestRequest{
 					Title: "ABC-123: add export",
+					Body:  "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring.",
 					Head:  "feature/ABC-123-add-export",
 					Base:  "develop",
 					Draft: true,
@@ -125,6 +126,16 @@ func TestPublisherRejectsInvalidConfigurationAndIntent(t *testing.T) {
 	t.Run("incomplete intent", func(t *testing.T) {
 		invalid := publication
 		invalid.PullRequest.Title = ""
+		_, err := New(Options{
+			Resolver:   testCredentialResolver(),
+			APIBaseURL: defaultAPIBaseURL,
+		}).Publish(context.Background(), invalid)
+		assertProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+
+	t.Run("missing mandatory description", func(t *testing.T) {
+		invalid := publication
+		invalid.PullRequest.Body = "  "
 		_, err := New(Options{
 			Resolver:   testCredentialResolver(),
 			APIBaseURL: defaultAPIBaseURL,
@@ -460,6 +471,7 @@ func testPublication(apiURL string, draft bool) port.PullRequestPublication {
 			Source: source,
 			Target: target,
 			Title:  "ABC-123: add export",
+			Body:   "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring.",
 			Draft:  draft,
 		},
 	}

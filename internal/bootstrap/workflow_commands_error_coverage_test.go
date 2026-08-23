@@ -685,11 +685,27 @@ func TestWorkflowCommandsAttachInputsToPostValidationFailures(t *testing.T) {
 	})
 }
 
-func TestReleasePromotionAndBackmergeAttachInputsToPublisherFailures(t *testing.T) {
-	publishErr := errors.New("publisher unavailable")
+func TestReleasePromotionAndBackmergeRequireTheMandatoryDescription(t *testing.T) {
 	for _, arguments := range [][]string{
 		{"workflow", "release", "promote", "--release", "release/2.8.0", "--create-pull-request", "--yes"},
 		{"workflow", "release", "backmerge", "--release", "release/2.8.0", "--create-pull-request", "--yes"},
+	} {
+		arguments := arguments
+		t.Run(strings.Join(arguments[2:3], "-"), func(t *testing.T) {
+			runtime := commandRuntime(newWorkflowCommandCoverageGit(t, "feature/ABC-123-add-export", nil))
+			runtime.Publisher = workflowFailurePublisher{err: errors.New("publisher unavailable")}
+			command := NewWithRuntime(BuildInfo{Version: "test"}, runtime)
+			_, err := executeBootstrapCommand(t, command, append([]string{"--interactive", "never", "--output", "json"}, arguments...)...)
+			assertProblemCode(t, err, problem.CodeInvalidInput)
+		})
+	}
+}
+
+func TestReleasePromotionAndBackmergeAttachInputsToPublisherFailures(t *testing.T) {
+	publishErr := errors.New("publisher unavailable")
+	for _, arguments := range [][]string{
+		{"workflow", "release", "promote", "--release", "release/2.8.0", "--create-pull-request", "--yes", "--body", "Summary: Promote release 2.8.0 into main."},
+		{"workflow", "release", "backmerge", "--release", "release/2.8.0", "--create-pull-request", "--yes", "--body", "Summary: Backmerge release 2.8.0 into develop."},
 	} {
 		arguments := arguments
 		t.Run(strings.Join(arguments[2:3], "-"), func(t *testing.T) {

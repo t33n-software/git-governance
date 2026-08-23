@@ -76,6 +76,12 @@ func TestReleaseWhiteboxPublishesManifestOnlyThroughDedicatedBoundary(t *testing
 			publisher.requests[0].Target.String() != "develop" {
 			t.Fatalf("publisher requests = %#v", publisher.requests)
 		}
+		body := publisher.requests[0].Body
+		for _, expected := range []string{"## Summary", "## Scope and Non-Goals", "## Commit Series", "## Risk and Rollback", "## Verification and Review Focus", "ABC-999", "INC-999", strings.Repeat("a", 40), strings.Repeat("b", 40)} {
+			if !strings.Contains(body, expected) {
+				t.Fatalf("record-derived pull-request body misses %q: %q", expected, body)
+			}
+		}
 	})
 
 	t.Run("propagates provider publication failure", func(t *testing.T) {
@@ -249,21 +255,21 @@ func TestReleaseWhiteboxHotfixManifestPublicationFailurePaths(t *testing.T) {
 
 	t.Run("fails closed for direct publication helper misuse", func(t *testing.T) {
 		service := newReleaseWhiteboxService(newReleaseWhiteboxGit(), &releaseWhiteboxPublisher{})
-		_, err := service.publishHotfixManifestCandidate(context.Background(), testRepository(), candidate, target)
+		_, err := service.publishHotfixManifestCandidate(context.Background(), testRepository(), record, candidate, target)
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 
 		service = NewReleaseService(branchapp.NewService(newReleaseWhiteboxGit(), &fakeKeyPolicy{}), newReleaseWhiteboxGit(), nil).
 			WithHotfixManifestPublication(true)
-		_, err = service.publishHotfixManifestCandidate(context.Background(), testRepository(), candidate, target)
+		_, err = service.publishHotfixManifestCandidate(context.Background(), testRepository(), record, candidate, target)
 		assertProblemCode(t, err, problem.CodeInternal)
 
 		service = newReleaseWhiteboxService(newReleaseWhiteboxGit(), &hotfixPropagationPreflightPublisher{err: errors.New("preflight failed")}).
 			WithHotfixManifestPublication(true)
-		_, err = service.publishHotfixManifestCandidate(context.Background(), testRepository(), candidate, branch.BranchName{})
+		_, err = service.publishHotfixManifestCandidate(context.Background(), testRepository(), record, candidate, branch.BranchName{})
 		if err == nil {
 			t.Fatal("publication helper accepted an invalid target")
 		}
-		_, err = service.publishHotfixManifestCandidate(context.Background(), testRepository(), candidate, target)
+		_, err = service.publishHotfixManifestCandidate(context.Background(), testRepository(), record, candidate, target)
 		if err == nil || !strings.Contains(err.Error(), "preflight failed") {
 			t.Fatalf("preflight error = %v", err)
 		}

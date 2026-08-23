@@ -199,6 +199,7 @@ func promotionAlignmentRequest() AlignReleasePromotionBaseRequest {
 		Repository: testRepository(),
 		Release:    mustBranch("release/1.0.1"),
 		Branch:     mustBranch("chore/GOV-18-align-promotion-base"),
+		Body:       "Summary: Align the promotion base with main.\n\nScope and Non-Goals: The preparation merge only.\n\nCommit Series:\n- chore(GOV-18): align release 1.0.1 with main for promotion\n\nRisk and Rollback: Low; the release line is untouched.\n\nVerification and Review Focus: Quality gate passed; review the merge result.",
 	}
 }
 
@@ -654,6 +655,15 @@ func TestReleasePromotionBaseAlignmentRejectsUnsafeInputsBeforeMerge(t *testing.
 			code: problem.CodeInvalidInput,
 		},
 		{
+			name: "pull request without the mandatory description",
+			configure: func(_ *promotionAlignmentGit, request *AlignReleasePromotionBaseRequest, _ *ReleaseService) {
+				request.Push = true
+				request.CreatePullRequest = true
+				request.Body = ""
+			},
+			code: problem.CodeInvalidInput,
+		},
+		{
 			name: "missing repository",
 			configure: func(_ *promotionAlignmentGit, request *AlignReleasePromotionBaseRequest, _ *ReleaseService) {
 				request.Repository = port.RepositoryIdentity{}
@@ -944,9 +954,10 @@ func TestPromotionBaseAlignmentHelpers(t *testing.T) {
 	if message.String() != "chore(GOV-18): align release 1.0.1 with main for promotion" {
 		t.Fatalf("merge message = %q", message)
 	}
-	pullRequest := promotionBaseAlignmentPullRequest(worker, release, true)
+	pullRequest := promotionBaseAlignmentPullRequest(worker, release, true, "Summary: Align the promotion base.")
 	if pullRequest.Source != worker || pullRequest.Target != release || pullRequest.Ticket.String() != "GOV-18" ||
-		pullRequest.Title != "GOV-18: align-promotion-base" || !pullRequest.Draft {
+		pullRequest.Title != "GOV-18: align-promotion-base" || !pullRequest.Draft ||
+		pullRequest.Body != "Summary: Align the promotion base." {
 		t.Fatalf("pull request = %#v", pullRequest)
 	}
 }

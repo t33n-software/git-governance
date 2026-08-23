@@ -149,6 +149,7 @@ func TestReleaseDryRunsNeverPublishPullRequests(t *testing.T) {
 				"workflow", "release", "promote",
 				"--release", "release/2.8.0",
 				"--create-pull-request",
+				"--body", "Summary: Promote release 2.8.0 into main.",
 			},
 		},
 		{
@@ -157,6 +158,7 @@ func TestReleaseDryRunsNeverPublishPullRequests(t *testing.T) {
 				"workflow", "release", "backmerge",
 				"--release", "release/2.8.0",
 				"--create-pull-request",
+				"--body", "Summary: Backmerge release 2.8.0 into develop.",
 			},
 		},
 	}
@@ -286,6 +288,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			"--branch", "feature/ABC-123-add-export",
 			"--push",
 			"--create-pull-request",
+			"--body", "Summary: Add the export button.",
 		)
 		if err != nil || !strings.Contains(output, "https://example.invalid/pr/explicit") || publisher.calls != 1 {
 			t.Fatalf("explicit PR publication = (%q, %v), publisher=%#v", output, err, publisher)
@@ -311,6 +314,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			"--branch", "feature/ABC-123-add-export",
 			"--push",
 			"--create-pull-request",
+			"--body", "Summary: Add the export button.",
 		)
 		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
 	})
@@ -342,7 +346,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 				output, err := executeBootstrapCommand(
 					t,
 					command,
-					append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request")...)...,
+					append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body", "Summary: Release 2.8.0 lifecycle pull request.")...)...,
 				)
 				if err != nil || !strings.Contains(output, "https://example.invalid/pr/release") || publisher.calls != 1 {
 					t.Fatalf("release publication = (%q, %v), publisher=%#v", output, err, publisher)
@@ -360,7 +364,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			_, err := executeBootstrapCommand(
 				t,
 				command,
-				append([]string{"--interactive", "never", "--output", "json"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request")...)...,
+				append([]string{"--interactive", "never", "--output", "json"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body", "Summary: Release 2.8.0 lifecycle pull request.")...)...,
 			)
 			assertProblemCode(t, err, problem.CodeInvalidInput)
 		}
@@ -472,6 +476,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 					"workflow", "hotfix", "publish",
 					"--affected-line", "main",
 					"--resume", "--push", "--create-pull-request",
+					"--body", "Summary: Publish the payment-timeout hotfix.",
 				},
 			},
 			{
@@ -481,6 +486,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 					"workflow", "release", "publish-stabilization",
 					"--release", "release/2.8.0",
 					"--resume", "--push", "--create-pull-request",
+					"--body", "Summary: Publish the release-blocker stabilization.",
 				},
 			},
 		} {
@@ -556,7 +562,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 		_, err = executeBootstrapCommand(
 			t,
 			command,
-			append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(baseArguments, "--push", "--create-pull-request")...)...,
+			append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(baseArguments, "--push", "--create-pull-request", "--body", "Summary: Forward-port the reviewed hotfix.")...)...,
 		)
 		if !errors.Is(err, publisherErr) {
 			t.Fatalf("propagation publisher error = %v", err)
@@ -576,6 +582,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 			"--target-line", "develop",
 			"--commit", strings.Repeat("a", 40),
 			"--push", "--create-pull-request",
+			"--body", "Summary: Forward-port the reviewed hotfix.",
 		)
 		if !errors.Is(err, publisherErr) {
 			t.Fatalf("new propagation publisher error = %v, want %v", err, publisherErr)
@@ -608,6 +615,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 			"workflow", "ticket", "publish",
 			"--branch", "feature/ABC-123-add-export",
 			"--push", "--create-pull-request",
+			"--body", "Summary: Add the export button.",
 		)
 		if !errors.Is(err, preflightErr) {
 			t.Fatalf("ticket preflight error = %v, want %v", err, preflightErr)
@@ -623,7 +631,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 			_, err := executeBootstrapCommand(
 				t,
 				command,
-				append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request")...)...,
+				append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body", "Summary: Release 2.8.0 lifecycle pull request.")...)...,
 			)
 			if !errors.Is(err, preflightErr) {
 				t.Fatalf("release preflight error = %v, want %v", err, preflightErr)
@@ -677,6 +685,7 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 			"--pull-request-provider", "github",
 			"workflow", "release", "backmerge",
 			"--release", "release/2.8.0", "--create-pull-request",
+			"--body", "Summary: Backmerge release 2.8.0 into develop.",
 		)
 		if err != nil || publisher.lifecycleCalls != 1 || publisher.calls != 0 ||
 			!strings.Contains(output, `"status":"not-required"`) {
@@ -823,6 +832,7 @@ func TestInteractiveTicketPublishResumesRebaseAndOffersPublicationSteps(t *testi
 	prompt := &commandHelperPrompt{
 		selects:  []commandHelperStringReply{{value: "retry"}},
 		confirms: []commandHelperConfirmReply{{value: true}, {value: true}, {value: true}},
+		inputs:   []commandHelperStringReply{{value: "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring."}},
 	}
 	publisher := &workflowRecordingPublisher{result: port.PublishedPullRequest{URL: "https://example.invalid/pr/42"}}
 	runtime := commandRuntime(git)

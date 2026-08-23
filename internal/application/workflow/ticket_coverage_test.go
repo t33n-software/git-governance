@@ -380,6 +380,7 @@ func TestTicketServiceCoveragePublishFailuresAndBranches(t *testing.T) {
 		request := validRequest()
 		request.Push = true
 		request.CreatePullRequest = true
+		request.Body = "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring."
 		_, err := newTicketServiceWithGit(
 			newTicketCoverageGit(),
 			nil,
@@ -525,11 +526,23 @@ func TestTicketServiceExplicitPullRequestPublicationContracts(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 	})
 
+	t.Run("requires the mandatory description before provider publication", func(t *testing.T) {
+		request := PublishTicketRequest{
+			Repository:        testRepository(),
+			Branch:            mustBranch("feature/ABC-123-add-export"),
+			Push:              true,
+			CreatePullRequest: true,
+		}
+		_, err := newTicketServiceWithGit(newTicketCoverageGit(), nil, &fakePublisher{}).PublishTicket(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
 	t.Run("validates publication dependencies and remote lookup", func(t *testing.T) {
 		request := port.PullRequest{
 			Source: mustBranch("feature/ABC-123-add-export"),
 			Target: mustBranch("develop"),
 			Title:  "ABC-123: add export",
+			Body:   "Summary: Add the export button.",
 		}
 		var nilService *TicketService
 		_, err := nilService.PublishPullRequest(context.Background(), testRepository(), request)
@@ -551,6 +564,7 @@ func TestTicketServiceExplicitPullRequestPublicationContracts(t *testing.T) {
 			Source: mustBranch("feature/ABC-123-add-export"),
 			Target: mustBranch("develop"),
 			Title:  "ABC-123: add export",
+			Body:   "Summary: Add the export button.",
 		}
 		git := &fakeGitRepository{}
 		service := &TicketService{git: git, publisher: &fakePublisher{}}

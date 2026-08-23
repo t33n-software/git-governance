@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"strings"
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -10,7 +11,10 @@ import (
 )
 
 // AlignReleasePromotionBaseRequest describes an explicit, release-preparation
-// merge of the current main line into a release stabilization branch.
+// merge of the current main line into a release stabilization branch. Body
+// carries the mandatory pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md whenever
+// CreatePullRequest is set.
 type AlignReleasePromotionBaseRequest struct {
 	Repository        port.RepositoryIdentity
 	Release           branch.BranchName
@@ -19,6 +23,7 @@ type AlignReleasePromotionBaseRequest struct {
 	CreatePullRequest bool
 	Draft             bool
 	Resume            bool
+	Body              string
 	DryRun            bool
 }
 
@@ -66,6 +71,9 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 			"set Push before requesting provider pull-request creation",
 		)
 	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return AlignReleasePromotionBaseResult{}, pullRequestBodyRequired()
+	}
 	if request.Resume && request.DryRun {
 		return AlignReleasePromotionBaseResult{}, invalidWorkflowInput(
 			"promotion-base alignment cannot resume in a dry run",
@@ -111,7 +119,7 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 		Branch:      request.Branch,
 		Release:     request.Release,
 		Main:        main,
-		PullRequest: promotionBaseAlignmentPullRequest(request.Branch, request.Release, request.Draft),
+		PullRequest: promotionBaseAlignmentPullRequest(request.Branch, request.Release, request.Draft, request.Body),
 		DryRun:      request.DryRun,
 	}
 	if request.DryRun {
@@ -352,7 +360,7 @@ func branchValidationRequest(repository port.RepositoryIdentity, name branch.Bra
 	return branchapp.ValidateRequest{Repository: repository, Name: name}
 }
 
-func promotionBaseAlignmentPullRequest(worker, release branch.BranchName, draft bool) port.PullRequest {
+func promotionBaseAlignmentPullRequest(worker, release branch.BranchName, draft bool, body string) port.PullRequest {
 	id, _ := worker.Ticket()
 	slug, _ := worker.Slug()
 	return port.PullRequest{
@@ -360,6 +368,7 @@ func promotionBaseAlignmentPullRequest(worker, release branch.BranchName, draft 
 		Target: release,
 		Ticket: id,
 		Title:  id.String() + ": " + slug.String(),
+		Body:   body,
 		Draft:  draft,
 	}
 }

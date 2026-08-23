@@ -1204,6 +1204,7 @@ func releasePropagationRequest() PropagateHotfixRequest {
 		TargetLine: mustBranch("main"),
 		CommitID:   strings.Repeat("a", 40),
 		Slug:       mustSlug("forward-port-payment-timeout"),
+		Body:       "Summary: Forward-port the reviewed payment-timeout hotfix to main.\n\nScope and Non-Goals: The single reviewed commit only.\n\nCommit Series:\n- fix(ABC-999): resolve payment timeout\n\nRisk and Rollback: Reviewed hotfix; rollback reverts the cherry-pick.\n\nVerification and Review Focus: Reviewed source commit; review the target-line fit.",
 	}
 }
 
@@ -1963,6 +1964,15 @@ func TestReleaseWhiteboxPromotionAndBackmergePublication(t *testing.T) {
 		}
 	})
 
+	t.Run("promotion requires the mandatory description before publication", func(t *testing.T) {
+		_, err := (&ReleaseService{git: &fakeGitRepository{}, publisher: &releaseWhiteboxPublisher{}}).PrepareReleasePromotion(context.Background(), PrepareReleasePromotionRequest{
+			Repository:        testRepository(),
+			Release:           release,
+			CreatePullRequest: true,
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
 	t.Run("promotion propagates publisher errors and emits a complete PR intent", func(t *testing.T) {
 		publishFailure := errors.New("publish promotion")
 		publisher := &releaseWhiteboxPublisher{err: publishFailure}
@@ -1970,6 +1980,7 @@ func TestReleaseWhiteboxPromotionAndBackmergePublication(t *testing.T) {
 			Repository:        testRepository(),
 			Release:           release,
 			CreatePullRequest: true,
+			Body:              "Summary: Promote release 2.8.0 into main.\n\nScope and Non-Goals: The frozen release line only.\n\nCommit Series:\n- release 2.8.0 stabilization\n\nRisk and Rollback: Production promotion; rollback reverts the merge.\n\nVerification and Review Focus: Stabilization evidence; review the release contents.",
 		})
 		assertReleaseErrorIs(t, err, publishFailure)
 
@@ -1981,6 +1992,7 @@ func TestReleaseWhiteboxPromotionAndBackmergePublication(t *testing.T) {
 			Release:           release,
 			CreatePullRequest: true,
 			Draft:             true,
+			Body:              "Summary: Promote release 2.8.0 into main.\n\nScope and Non-Goals: The frozen release line only.\n\nCommit Series:\n- release 2.8.0 stabilization\n\nRisk and Rollback: Production promotion; rollback reverts the merge.\n\nVerification and Review Focus: Stabilization evidence; review the release contents.",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2023,6 +2035,15 @@ func TestReleaseWhiteboxPromotionAndBackmergePublication(t *testing.T) {
 		}
 	})
 
+	t.Run("backmerge requires the mandatory description before publication", func(t *testing.T) {
+		_, err := (&ReleaseService{git: &fakeGitRepository{}, publisher: &releaseWhiteboxPublisher{}}).PrepareReleaseBackmerge(context.Background(), PrepareReleaseBackmergeRequest{
+			Repository:        testRepository(),
+			Release:           release,
+			CreatePullRequest: true,
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
 	t.Run("backmerge propagates publisher errors and emits a complete PR intent", func(t *testing.T) {
 		publishFailure := errors.New("publish backmerge")
 		publisher := &releaseWhiteboxPublisher{err: publishFailure}
@@ -2030,6 +2051,7 @@ func TestReleaseWhiteboxPromotionAndBackmergePublication(t *testing.T) {
 			Repository:        testRepository(),
 			Release:           release,
 			CreatePullRequest: true,
+			Body:              "Summary: Backmerge release 2.8.0 into develop.\n\nScope and Non-Goals: The effective release delta only.\n\nCommit Series:\n- release 2.8.0 changes\n\nRisk and Rollback: Low; the release is delivered.\n\nVerification and Review Focus: Delivery evidence verified; review the delta.",
 		})
 		assertReleaseErrorIs(t, err, publishFailure)
 
@@ -2041,6 +2063,7 @@ func TestReleaseWhiteboxPromotionAndBackmergePublication(t *testing.T) {
 			Release:           release,
 			CreatePullRequest: true,
 			Draft:             true,
+			Body:              "Summary: Backmerge release 2.8.0 into develop.\n\nScope and Non-Goals: The effective release delta only.\n\nCommit Series:\n- release 2.8.0 changes\n\nRisk and Rollback: Low; the release is delivered.\n\nVerification and Review Focus: Delivery evidence verified; review the delta.",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -2089,6 +2112,20 @@ func TestReleaseWhiteboxPropagateHotfixBoundaries(t *testing.T) {
 			assertReleaseNoCall(t, git.calls, "store-workflow-base")
 			assertReleaseNoCall(t, git.calls, "cherry-pick")
 		}
+	})
+
+	t.Run("requires the mandatory description before any propagation mutation", func(t *testing.T) {
+		git := newReleaseWhiteboxGit()
+		request := releasePropagationRequest()
+		request.Push = true
+		request.CreatePullRequest = true
+		request.Body = "  "
+
+		_, err := newReleaseWhiteboxService(git, nil).PropagateHotfix(context.Background(), request)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		assertReleaseNoCall(t, git.calls, "create-branch")
+		assertReleaseNoCall(t, git.calls, "store-workflow-base")
+		assertReleaseNoCall(t, git.calls, "cherry-pick")
 	})
 
 	t.Run("fails safely when the derived forward-port slug is invalid", func(t *testing.T) {
@@ -2236,6 +2273,11 @@ func TestReleaseWhiteboxResumeHotfixPropagation(t *testing.T) {
 			},
 			func(value *ResumeHotfixPropagationRequest) { value.Branch = mustBranch("fix/ABC-998-wrong-ticket") },
 			func(value *ResumeHotfixPropagationRequest) { value.CreatePullRequest = true },
+			func(value *ResumeHotfixPropagationRequest) {
+				value.Push = true
+				value.CreatePullRequest = true
+				value.Body = ""
+			},
 		} {
 			git := newReleaseWhiteboxGit()
 			configure(git)

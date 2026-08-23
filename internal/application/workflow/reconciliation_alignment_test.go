@@ -230,6 +230,7 @@ func reconciliationAlignmentRequest() AlignReleaseReconciliationBaseRequest {
 		Repository: testRepository(),
 		Release:    mustBranch("release/1.0.1"),
 		Branch:     mustBranch("chore/GOV-20-align-release-reconciliation-base"),
+		Body:       "Summary: Align the reconciliation base with develop.\n\nScope and Non-Goals: The preparation merge only.\n\nCommit Series:\n- chore(GOV-20): align release 1.0.1 with develop for reconciliation\n\nRisk and Rollback: Low; the delivered release line is untouched.\n\nVerification and Review Focus: Quality gate passed; review the merge result.",
 	}
 }
 
@@ -621,6 +622,15 @@ func TestReleaseReconciliationBaseAlignmentRejectsUnsafeInputsBeforeMerge(t *tes
 			code: problem.CodeInvalidInput,
 		},
 		{
+			name: "pull request without the mandatory description",
+			configure: func(_ *reconciliationAlignmentGit, request *AlignReleaseReconciliationBaseRequest, _ *ReleaseService) {
+				request.Push = true
+				request.CreatePullRequest = true
+				request.Body = ""
+			},
+			code: problem.CodeInvalidInput,
+		},
+		{
 			name: "missing repository",
 			configure: func(_ *reconciliationAlignmentGit, request *AlignReleaseReconciliationBaseRequest, _ *ReleaseService) {
 				request.Repository = port.RepositoryIdentity{}
@@ -972,9 +982,10 @@ func TestReconciliationBaseAlignmentHelpers(t *testing.T) {
 	if message.String() != "chore(GOV-20): align release 1.0.1 with develop for reconciliation" {
 		t.Fatalf("merge message = %q", message)
 	}
-	pullRequest := reconciliationBaseAlignmentPullRequest(worker, mustBranch("develop"), true)
+	pullRequest := reconciliationBaseAlignmentPullRequest(worker, mustBranch("develop"), true, "Summary: Align the reconciliation base.")
 	if pullRequest.Source != worker || pullRequest.Target.String() != "develop" || pullRequest.Ticket.String() != "GOV-20" ||
-		pullRequest.Title != "GOV-20: align-release-reconciliation-base" || !pullRequest.Draft {
+		pullRequest.Title != "GOV-20: align-release-reconciliation-base" || !pullRequest.Draft ||
+		pullRequest.Body != "Summary: Align the reconciliation base." {
 		t.Fatalf("pull request = %#v", pullRequest)
 	}
 }

@@ -378,12 +378,16 @@ func TestPublishTicketValidatesSeriesAndBuildsPullRequest(t *testing.T) {
 		Push:              true,
 		CreatePullRequest: true,
 		Draft:             true,
+		Body:              "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring.",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.Pushed || result.PullRequest.Source.String() != name.String() || result.PullRequest.Target.String() != "develop" || !result.PullRequest.Draft {
 		t.Fatalf("PublishTicket() = %#v", result)
+	}
+	if result.PullRequest.Body == "" {
+		t.Fatal("PublishTicket() emitted a pull request without its mandatory description")
 	}
 	if result.PublishedURL != "https://example.invalid/pr/1" || publisher.calls != 1 || quality.calls != 2 {
 		t.Fatalf("publish result = %#v, publisher=%d, quality=%d", result, publisher.calls, quality.calls)
@@ -496,6 +500,7 @@ func TestTicketPublicationResumePushAndPullRequestBoundaries(t *testing.T) {
 		Repository: testRepository(),
 		Branch:     name,
 		Base:       &base,
+		Body:       "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring.",
 	})
 	if err != nil || resumed.Branch != name || resumed.Sync.RecommendedAction != "rebased" ||
 		resumed.PostMutationQuality == nil || quality.calls != 1 {
@@ -667,10 +672,18 @@ func TestTicketPublicationResumeAndPushWhiteboxFailurePaths(t *testing.T) {
 	t.Run("pull request publisher errors are preserved", func(t *testing.T) {
 		publishErr := errors.New("publisher failed")
 		service := newTicketService(&fakeGitRepository{}, nil, &fakePublisher{err: publishErr})
-		_, err := service.PublishPullRequest(context.Background(), testRepository(), port.PullRequest{})
+		_, err := service.PublishPullRequest(context.Background(), testRepository(), port.PullRequest{Body: "Summary: Add the export button."})
 		if !errors.Is(err, publishErr) {
 			t.Fatalf("publisher error = %v, want %v", err, publishErr)
 		}
+	})
+
+	t.Run("pull request publication requires the mandatory description", func(t *testing.T) {
+		service := newTicketService(&fakeGitRepository{}, nil, &fakePublisher{})
+		_, err := service.PublishPullRequest(context.Background(), testRepository(), port.PullRequest{})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		err = service.PreflightPullRequest(context.Background(), testRepository(), port.PullRequest{Title: "ABC-123: add export"})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
 	})
 }
 
@@ -902,6 +915,7 @@ func TestPrepareReleaseBackmerge(t *testing.T) {
 		Repository:        testRepository(),
 		Release:           mustBranch("release/2.8.0"),
 		CreatePullRequest: true,
+		Body:              "Summary: Backmerge release 2.8.0 into develop.\n\nScope and Non-Goals: The effective release delta only.\n\nCommit Series:\n- release 2.8.0 changes\n\nRisk and Rollback: Low; the release is delivered.\n\nVerification and Review Focus: Delivery evidence verified; review the delta.",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -967,6 +981,7 @@ func TestReleasePromotionAndSupportProvenance(t *testing.T) {
 			Repository:        testRepository(),
 			Release:           mustBranch("release/2.8.0"),
 			CreatePullRequest: true,
+			Body:              "Summary: Promote release 2.8.0 into main.\n\nScope and Non-Goals: The frozen release line only.\n\nCommit Series:\n- release 2.8.0 stabilization\n\nRisk and Rollback: Production promotion; rollback reverts the merge.\n\nVerification and Review Focus: Stabilization evidence; review the release contents.",
 		})
 		if err != nil || result.PullRequest.Target.String() != "main" || result.PublishedURL == "" {
 			t.Fatalf("PrepareReleasePromotion() = (%#v, %v)", result, err)

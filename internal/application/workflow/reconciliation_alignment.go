@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"errors"
+	"strings"
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -12,7 +13,10 @@ import (
 )
 
 // AlignReleaseReconciliationBaseRequest describes a controlled merge of the
-// current integration line into a release-derived reconciliation branch.
+// current integration line into a release-derived reconciliation branch. Body
+// carries the mandatory pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md whenever
+// CreatePullRequest is set.
 type AlignReleaseReconciliationBaseRequest struct {
 	Repository        port.RepositoryIdentity
 	Release           branch.BranchName
@@ -22,6 +26,7 @@ type AlignReleaseReconciliationBaseRequest struct {
 	Draft             bool
 	Resume            bool
 	Prepared          bool
+	Body              string
 	DryRun            bool
 }
 
@@ -70,6 +75,9 @@ func (service *ReleaseService) AlignReleaseReconciliationBase(
 			"pull-request creation requires an explicit branch push",
 			"set Push before requesting provider pull-request creation",
 		)
+	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return AlignReleaseReconciliationBaseResult{}, pullRequestBodyRequired()
 	}
 	if request.Resume && request.Prepared {
 		return AlignReleaseReconciliationBaseResult{}, invalidWorkflowInput(
@@ -123,7 +131,7 @@ func (service *ReleaseService) AlignReleaseReconciliationBase(
 		Branch:      request.Branch,
 		Release:     request.Release,
 		Develop:     develop,
-		PullRequest: reconciliationBaseAlignmentPullRequest(request.Branch, develop, request.Draft),
+		PullRequest: reconciliationBaseAlignmentPullRequest(request.Branch, develop, request.Draft, request.Body),
 		Prepared:    request.Prepared,
 		DryRun:      request.DryRun,
 	}
@@ -331,7 +339,7 @@ func (service *ReleaseService) AlignReleaseReconciliationBase(
 	return result, nil
 }
 
-func reconciliationBaseAlignmentPullRequest(worker, develop branch.BranchName, draft bool) port.PullRequest {
+func reconciliationBaseAlignmentPullRequest(worker, develop branch.BranchName, draft bool, body string) port.PullRequest {
 	id, _ := worker.Ticket()
 	slug, _ := worker.Slug()
 	return port.PullRequest{
@@ -339,6 +347,7 @@ func reconciliationBaseAlignmentPullRequest(worker, develop branch.BranchName, d
 		Target: develop,
 		Ticket: id,
 		Title:  id.String() + ": " + slug.String(),
+		Body:   body,
 		Draft:  draft,
 	}
 }

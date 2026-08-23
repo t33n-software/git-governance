@@ -769,12 +769,16 @@ func (service *ReleaseService) CreateReleaseStabilization(ctx context.Context, r
 }
 
 // PrepareReleasePromotionRequest describes a provider-neutral release-to-main
-// pull request after release stabilization and approval.
+// pull request after release stabilization and approval. Body carries the
+// mandatory pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md whenever
+// CreatePullRequest is set.
 type PrepareReleasePromotionRequest struct {
 	Repository        port.RepositoryIdentity
 	Release           branch.BranchName
 	CreatePullRequest bool
 	Draft             bool
+	Body              string
 	DryRun            bool
 }
 
@@ -795,6 +799,9 @@ func (service *ReleaseService) PrepareReleasePromotion(ctx context.Context, requ
 			"select the frozen release line approved for promotion",
 		)
 	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return PrepareReleasePromotionResult{}, pullRequestBodyRequired()
+	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
 	if err != nil {
 		return PrepareReleasePromotionResult{}, err
@@ -805,6 +812,7 @@ func (service *ReleaseService) PrepareReleasePromotion(ctx context.Context, requ
 			Source: request.Release,
 			Target: mustMain(),
 			Title:  "Release " + version.String() + " into main",
+			Body:   request.Body,
 			Draft:  request.Draft,
 		},
 		DryRun: request.DryRun,
@@ -821,12 +829,16 @@ func (service *ReleaseService) PrepareReleasePromotion(ctx context.Context, requ
 }
 
 // PrepareReleaseBackmergeRequest describes provider-neutral release backmerge
-// preparation after a release has been approved.
+// preparation after a release has been approved. Body carries the mandatory
+// pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md whenever
+// CreatePullRequest is set.
 type PrepareReleaseBackmergeRequest struct {
 	Repository        port.RepositoryIdentity
 	Release           branch.BranchName
 	CreatePullRequest bool
 	Draft             bool
+	Body              string
 	DryRun            bool
 }
 
@@ -849,11 +861,15 @@ const (
 )
 
 // AssessReleaseBackmergeRequest describes the delivery-gated reconciliation
-// decision for a completed release line.
+// decision for a completed release line. Body carries the mandatory
+// pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md for the case that the
+// assessment yields a required backmerge pull request.
 type AssessReleaseBackmergeRequest struct {
 	Repository port.RepositoryIdentity
 	Release    branch.BranchName
 	Draft      bool
+	Body       string
 	DryRun     bool
 }
 
@@ -874,11 +890,14 @@ func (service *ReleaseService) PrepareReleaseBackmerge(ctx context.Context, requ
 			"select the completed release branch to merge back into develop",
 		)
 	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return PrepareReleaseBackmergeResult{}, pullRequestBodyRequired()
+	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
 	if err != nil {
 		return PrepareReleaseBackmergeResult{}, err
 	}
-	pullRequest := releaseBackmergePullRequest(request.Release, request.Draft)
+	pullRequest := releaseBackmergePullRequest(request.Release, request.Draft, request.Body)
 	result := PrepareReleaseBackmergeResult{
 		PullRequest: pullRequest,
 		DryRun:      request.DryRun,
@@ -912,7 +931,7 @@ func (service *ReleaseService) AssessReleaseBackmerge(
 		return AssessReleaseBackmergeResult{}, err
 	}
 	prepared := PrepareReleaseBackmergeResult{
-		PullRequest: releaseBackmergePullRequest(request.Release, request.Draft),
+		PullRequest: releaseBackmergePullRequest(request.Release, request.Draft, request.Body),
 		DryRun:      request.DryRun,
 	}
 	if request.DryRun {
@@ -960,18 +979,22 @@ func (service *ReleaseService) AssessReleaseBackmerge(
 	}, nil
 }
 
-func releaseBackmergePullRequest(release branch.BranchName, draft bool) port.PullRequest {
+func releaseBackmergePullRequest(release branch.BranchName, draft bool, body string) port.PullRequest {
 	releaseVersion, _ := release.ReleaseVersion()
 	return port.PullRequest{
 		Source: release,
 		Target: mustDevelop(),
 		Title:  "Backmerge release " + releaseVersion.String() + " into develop",
+		Body:   body,
 		Draft:  draft,
 	}
 }
 
 // PropagateHotfixRequest describes an explicit forward-port or backport of one
-// already-reviewed hotfix commit into another active line.
+// already-reviewed hotfix commit into another active line. Body carries the
+// mandatory pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md whenever
+// CreatePullRequest is set.
 type PropagateHotfixRequest struct {
 	Repository        port.RepositoryIdentity
 	Source            branch.BranchName
@@ -981,6 +1004,7 @@ type PropagateHotfixRequest struct {
 	Push              bool
 	CreatePullRequest bool
 	Draft             bool
+	Body              string
 	DryRun            bool
 }
 
@@ -1016,6 +1040,9 @@ func (service *ReleaseService) PropagateHotfix(ctx context.Context, request Prop
 	}
 	if err := ValidateCommitID(request.CommitID); err != nil {
 		return PropagateHotfixResult{}, err
+	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return PropagateHotfixResult{}, pullRequestBodyRequired()
 	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
 	if err != nil {
@@ -1057,6 +1084,7 @@ func (service *ReleaseService) PropagateHotfix(ctx context.Context, request Prop
 				Target: request.TargetLine,
 				Ticket: sourceTicket,
 				Title:  sourceTicket.String() + ": " + slug.String(),
+				Body:   request.Body,
 				Draft:  request.Draft,
 			},
 			DryRun: true,
@@ -1080,6 +1108,7 @@ func (service *ReleaseService) PropagateHotfix(ctx context.Context, request Prop
 		Push:              request.Push,
 		CreatePullRequest: request.CreatePullRequest,
 		Draft:             request.Draft,
+		Body:              request.Body,
 	})
 	if err != nil {
 		return PropagateHotfixResult{}, err
@@ -1183,7 +1212,7 @@ func (service *ReleaseService) PropagateHotfixManifest(
 		return PropagateHotfixManifestResult{}, err
 	}
 	if request.Publish {
-		publication, err := service.publishHotfixManifestCandidate(ctx, repository, result.Branch.Name, request.TargetLine)
+		publication, err := service.publishHotfixManifestCandidate(ctx, repository, record, result.Branch.Name, request.TargetLine)
 		if err != nil {
 			return PropagateHotfixManifestResult{}, err
 		}
@@ -1292,7 +1321,7 @@ func (service *ReleaseService) ResumeHotfixManifestPropagation(
 		return PropagateHotfixManifestResult{}, err
 	}
 	if request.Publish {
-		publication, err := service.publishHotfixManifestCandidate(ctx, repository, result.Branch.Name, request.TargetLine)
+		publication, err := service.publishHotfixManifestCandidate(ctx, repository, record, result.Branch.Name, request.TargetLine)
 		if err != nil {
 			return PropagateHotfixManifestResult{}, err
 		}
@@ -1348,6 +1377,7 @@ func (service *ReleaseService) applyHotfixManifest(
 func (service *ReleaseService) publishHotfixManifestCandidate(
 	ctx context.Context,
 	repository port.RepositoryIdentity,
+	record hotfix.ReleaseRecord,
 	candidate branch.BranchName,
 	target branch.BranchName,
 ) (PublishTicketResult, error) {
@@ -1364,7 +1394,8 @@ func (service *ReleaseService) publishHotfixManifestCandidate(
 	if err != nil {
 		return PublishTicketResult{}, err
 	}
-	pullRequest := newTicketPullRequest(candidate, target, false)
+	body := hotfixManifestPullRequestBody(record, target)
+	pullRequest := newTicketPullRequest(candidate, target, false, body)
 	if err := service.tickets.PreflightPullRequest(ctx, repository, pullRequest); err != nil {
 		return PublishTicketResult{}, err
 	}
@@ -1376,7 +1407,26 @@ func (service *ReleaseService) publishHotfixManifestCandidate(
 		WorkflowManaged:   true,
 		Push:              true,
 		CreatePullRequest: true,
+		Body:              body,
 	})
+}
+
+// hotfixManifestPullRequestBody composes the mandatory pull-request
+// description from the reviewed release record; the record is the content
+// source of truth for the server-side propagation publisher boundary. The
+// canonical section layout is owned by
+// docs/conventions/pull-requests/description-mandate.md.
+func hotfixManifestPullRequestBody(record hotfix.ReleaseRecord, target branch.BranchName) string {
+	manifest := record.Manifest()
+	series := make([]string, 0, len(manifest))
+	for _, commitID := range manifest {
+		series = append(series, "- "+commitID)
+	}
+	return "## Summary\n\nPropagate the reviewed hotfix " + record.Ticket().String() + " manifest into " + target.String() + ".\n\n" +
+		"## Scope and Non-Goals\n\nApplies exactly the ordered reviewed manifest onto " + target.String() + "; no new changes are introduced.\n\n" +
+		"## Commit Series\n\n" + strings.Join(series, "\n") + "\n\n" +
+		"## Risk and Rollback\n\nControlled propagation of the reviewed hotfix for incident " + record.Incident() + "; rollback reverts the propagated series on " + target.String() + ".\n\n" +
+		"## Verification and Review Focus\n\nThe reviewed release record, the ordered manifest, and the final quality gate bound the candidate; review the manifest order and the target-line selection."
 }
 
 func hotfixManifestPublicationUnavailable() error {
@@ -1445,6 +1495,7 @@ type ResumeHotfixPropagationRequest struct {
 	Push              bool
 	CreatePullRequest bool
 	Draft             bool
+	Body              string
 }
 
 // ResumeHotfixPropagation continues only a known propagation branch whose
@@ -1489,6 +1540,9 @@ func (service *ReleaseService) ResumeHotfixPropagation(
 			"pull-request creation requires an explicit propagation branch push",
 			"set Push before requesting provider pull-request creation",
 		)
+	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return PropagateHotfixResult{}, pullRequestBodyRequired()
 	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
 	if err != nil {
@@ -1537,6 +1591,7 @@ func (service *ReleaseService) ResumeHotfixPropagation(
 		Push:              request.Push,
 		CreatePullRequest: request.CreatePullRequest,
 		Draft:             request.Draft,
+		Body:              request.Body,
 	})
 	if err != nil {
 		return PropagateHotfixResult{}, err
