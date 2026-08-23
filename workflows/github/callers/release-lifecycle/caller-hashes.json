@@ -27,7 +27,7 @@
       "master": "workflows/github/callers/release-lifecycle/tag-promoted-release.yml",
       "tenantFile": ".github/workflows/tag-promoted-release.yml",
       "class": "",
-      "sha256": "ba2796b7afa7d64d8bb11e535782b5379c12f068100c5dfdeb710ec962ad754f"
+      "sha256": "e7243978e4519e920a77c7e380fa8aa9063f10ef10ba2d47dc9e3a545534230d"
     },
     {
       "master": "workflows/github/callers/release-lifecycle/publish-release-artifacts.yml",
@@ -39,7 +39,7 @@
       "master": "workflows/github/callers/release-lifecycle/hotfix-delivery.yml",
       "tenantFile": ".github/workflows/hotfix-delivery.yml",
       "class": "",
-      "sha256": "29eea1ba0df75a201c402eb64392a076a8797643009b8f153d7ec537a13f5a03"
+      "sha256": "0b4fc441bcc759c2f39ae4484c7a4bc593d8a8037b9b36cb638ce818550122a0"
     },
     {
       "master": "workflows/github/callers/release-lifecycle/hotfix-propagation.yml",
