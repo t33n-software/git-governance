@@ -34,6 +34,14 @@ var lifecycleCallers = []string{
 	"hotfix-propagation.yml",
 }
 
+// eventDrivenEnvironmentGatedCallers are the callers whose event-driven
+// detection job dispatches the environment-gated execution on the default
+// branch; only they may carry the bounded detection steps.
+var eventDrivenEnvironmentGatedCallers = map[string]bool{
+	"tag-promoted-release.yml": true,
+	"hotfix-delivery.yml":      true,
+}
+
 var actionReferencePattern = regexp.MustCompile(`^[a-z0-9_.-]+/[a-z0-9_.-]+(/[a-z0-9_.-]+)*@[0-9a-f]{40} # .+$`)
 
 func TestLifecyclePayloadsCarryOnlyWorkflowCall(t *testing.T) {
@@ -643,7 +651,7 @@ func TestLifecycleCallersCarryTheContractSurface(t *testing.T) {
 				t.Fatalf("caller %s does not contain %q", name, expected)
 			}
 		}
-		if strings.Contains(caller, "steps:") {
+		if strings.Contains(caller, "steps:") && !eventDrivenEnvironmentGatedCallers[name] {
 			t.Fatalf("caller %s must stay a thin caller without steps", name)
 		}
 		for _, forbidden := range []string{
@@ -655,6 +663,49 @@ func TestLifecycleCallersCarryTheContractSurface(t *testing.T) {
 		} {
 			if strings.Contains(caller, forbidden) {
 				t.Fatalf("caller %s must not carry the action reference %q", name, forbidden)
+			}
+		}
+	}
+}
+
+func TestEventDrivenEnvironmentGatedCallersExecuteOnTheMainBoundRun(t *testing.T) {
+	t.Parallel()
+
+	for name, dispatchPath := range map[string]string{
+		"tag-promoted-release.yml": "actions/workflows/tag-promoted-release.yml/dispatches",
+		"hotfix-delivery.yml":      "actions/workflows/hotfix-delivery.yml/dispatches",
+	} {
+		caller := readWorkflow(t, name)
+		for _, expected := range []string{
+			"pull_request:",
+			"workflow_dispatch:",
+			"  detect:",
+			"if: github.event_name == 'workflow_dispatch'",
+			`\"ref\":\"main\"`,
+			dispatchPath,
+		} {
+			if !strings.Contains(caller, expected) {
+				t.Fatalf("event-driven environment-gated caller %s does not contain %q", name, expected)
+			}
+		}
+
+		detectStart := strings.Index(caller, "  detect:")
+		executeStart := strings.Index(caller, "if: github.event_name == 'workflow_dispatch'")
+		if detectStart == -1 || executeStart == -1 || executeStart < detectStart {
+			t.Fatalf("caller %s does not order the detection job before the main-bound execution job", name)
+		}
+		detectJob := caller[detectStart:executeStart]
+		if !strings.Contains(detectJob, "actions: write") {
+			t.Fatalf("caller %s detection job does not carry the dispatch grant", name)
+		}
+		for _, forbidden := range []string{
+			"environment:",
+			"contents: write",
+			"id-token: write",
+			"uses:",
+		} {
+			if strings.Contains(detectJob, forbidden) {
+				t.Fatalf("caller %s detection job must not contain %q: the environment-gated call never runs on a pull_request run", name, forbidden)
 			}
 		}
 	}
