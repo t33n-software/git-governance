@@ -233,7 +233,9 @@ Der Agent führt mindestens diese Nachweise als explizite Arbeitsoberfläche:
 - official_branch_verified
 - quality_gates_passed
 - commit_plan_verified
+- commit_content_verified
 - publication_verified
+- pr_description_verified
 - pull_request_url
 ```
 
@@ -799,6 +801,122 @@ Test-, Format-, Coverage- und Sicherheitsregeln. Er behauptet keine
 vollständige Quality, wenn ein verpflichtender Check nicht real ausgeführt
 wurde oder nicht bestanden hat.
 
+### 6.4 Commit-Content-Architektur
+
+Die Binary und die aktuelle Policy besitzen Commit-Grammatik, Familien und
+technische Limits. Dieser Abschnitt besitzt die inhaltliche Vollständigkeit:
+Er definiert, was eine Commit-Message tragen muss, damit sie Mensch und
+späterem AI-Agent gleichermaßen als eigenständige, diff-unabhängige
+Entscheidungs- und Relevanzquelle dient.
+
+#### 6.4.1 Betreff-Formulierungsvertrag
+
+Der Betreff trägt den präzisen Ein-Satz-Intent der Einheit. Seine
+Formulierung ist vollständig gebunden; der Agent erfindet keine eigenen
+Stilregeln:
+
+```text
+- Sprache: Englisch für Betreff, Body und Footer (Historie und
+  Ökosystem-Konvention);
+- Modus: Imperativ, Verhaltens- statt Datei-Perspektive
+  ("add export button", nicht "update export.go");
+- der Betreff benennt die fachliche Wirkung, niemals die technische
+  Berührung;
+- verbotene Leerformeln: "update", "fix stuff", "changes", "misc", "wip"
+  und jede Form ohne benanntes Verhalten;
+- Grammatik, Länge und Zeichenvorrat bleiben Eigentum der Binary und Policy.
+```
+
+#### 6.4.2 Kanonisches Body-Layout
+
+Der Body trägt ausschließlich das, was aus dem Diff nicht oder nur mit
+Diff-Load ableitbar ist, in dieser verbindlichen Kategorie-Reihenfolge:
+
+```text
+1. Motivation — fachlicher Grund und Ziel der Einheit (Warum);
+2. Behavioral Change — Umfang und Grenzen auf Verhaltensebene,
+   niemals Zeilenebene (Was);
+3. Contracts and Invariants — berührte öffentliche Verträge,
+   Invarianten oder Integrationspunkte;
+4. Verification — welche Prüfung das Verhalten belegt;
+5. Risks and Follow-ups — Nebenwirkungen und benannte Folgearbeiten.
+```
+
+Nur zutreffende Kategorien werden geschrieben; ihre Reihenfolge ist
+unveränderlich. Bei matrix-begründetem schmalem Umfang genügt ein Absatz,
+der die zutreffenden Kategorien in derselben Reihenfolge abdeckt.
+Überschriften sind optional; wenn sie verwendet werden, tragen sie die
+kanonischen Kategorienamen in der Markdown-Form `## <Kategoriename>`.
+
+Kollisionsregel mit der Footer-Grammatik: Keine Zeile des Bodys beginnt mit
+der Form `Wort: Text` — die Commit-Grammatik der Binary behandelt eine
+solche Zeile nach einer Leerzeile als Footer-Beginn, und die Message
+scheitert an der Validierung. Kategorien stehen entweder als
+`##`-Überschrift oder als Fließtext ohne diese Zeilenform. Die konkrete
+Footer-Syntax bleibt Eigentum der Binary; diese Regel bindet nur die
+kollisionsfreie Layout-Form.
+
+Der Body ist der Relevanz-Filter der Commit-Historie: Ein späterer Agent muss
+aus Betreff und Body beurteilen können, ob eine Einheit für eine Analyse
+relevant ist, ohne den Diff laden zu müssen (Filter vor Fetch). Eine Message,
+die diese Beurteilung nicht trägt, erzwingt iterative Diff-Loads und bläht
+jeden späteren Analysekontext auf.
+
+#### 6.4.3 Body-Pflicht-Decision-Matrix
+
+Der Body ist der Default, keine Option. Die Matrix bindet jede Ausnahme:
+
+| Situation der Einheit | Body | Begründung |
+|---|---|---|
+| Hotfix-Lane | immer Pflicht | Incident-Kontext, Root Cause, betroffene Linie und Risiko sind Beweislast |
+| Release-Stabilisierung sowie Release-/Support-Lane | immer Pflicht | Frozen-Line-Beweislast und Reconciliation-Grundlage |
+| Breaking-Marker oder Breaking-Footer | immer Pflicht | Migration Impact ist Teil des Vertrags |
+| Scratch-Squash-Transfer | immer Pflicht | einziger Ort, der verworfene Experimentpfade und die finale Auswahl dokumentiert |
+| Verhaltens- oder Struktur-Familien (`feat`, `fix`, `perf`, `refactor`, `revert`) | Pflicht; Ausnahme nur bei nachweislich trivialer, selbsterklärender Einheit | Verhaltens- oder Strukturwirkung ist nie aus dem Betreff allein ableitbar |
+| Prozess- und Nachweis-Familien (`docs`, `test`, `build`, `ci`) | Pflicht, sobald Verhalten, Verträge oder Prozesse berührt sind; entbehrlich bei trivialem Umfang | Prozesswirkung braucht Kontext |
+| Triviale Pflege (`style`, `chore`) mit nachweislich selbsterklärendem Umfang | entbehrlich | Fülltext-Verbot schlägt Pflicht |
+
+Die finale Familien- und Werteentscheidung trifft die aktuelle Policy; diese
+Matrix bindet nur die Content-Pflicht. Eine Auslassung ist nur zulässig, wenn
+sie in der Matrix begründet ist; der Audit-Datensatz weist sie als
+`omitted-justified` aus. Eine unbegründete Auslassung ist kein `PASS`.
+
+#### 6.4.4 Content-Anti-Patterns
+
+```text
+- Diff-Nacherzählung: Datei- oder Zeilenaufzählung, die der Diff selbst
+  effizienter trägt;
+- Fülltext: Sätze ohne semantischen Gehalt, nur um einen Body zu erzeugen;
+- erfundene Inhalte: Aussagen, die die tatsächlich gestagten Pfade und der
+  reale Diff nicht hergeben (Reality-Anchoring);
+- Secrets, Tokens oder interne Referenzen ohne Governance-Wert.
+```
+
+#### 6.4.5 Akzeptanz-Gate, Nachweis und Transport
+
+Vor jedem `commit create` komponiert der Agent Betreff und Body aus dem
+eingefrorenen Acceptance Ledger und den tatsächlich gestagten Pfaden. Das
+Akzeptanz-Gate ist ausführbar: Der Agent beantwortet intern ausschließlich
+aus Betreff und Body — ohne den Diff — diese kanonischen Fragen:
+
+```text
+1. Welches Verhalten ändert sich?
+2. Warum ändert es sich?
+3. Welche Verträge oder Invarianten sind berührt?
+4. Wie ist die Änderung verifiziert?
+5. Was ist das Risiko beziehungsweise der Revert-Bezug?
+```
+
+Jede nicht beantwortbare Frage ist entweder über die Matrix aus [6.4.3]
+begründet nicht zutreffend oder blockiert den Nachweis. Erst bei
+vollständig bestandenem Gate setzt der Agent `commit_content_verified`.
+
+Der Transport — welche Argumente Betreff, Body, Footer und Breaking-Angaben
+tragen — wird ausschließlich aus der unmittelbar vorher gelesenen
+`commit create`-Hilfe abgeleitet. Bietet die aktuelle Hilfe keinen
+Body-Transport, ist der Zustand `BLOCKED` mit benannter Lücke; es gibt
+keinen Roh-Git- oder Editor-Ersatz.
+
 ## [7] KONFLIKT- UND SICHERHEITSPROTOKOLL
 [INTENT: ANWEISUNG]
 
@@ -846,8 +964,50 @@ Vor PR-Publikation prüft der Agent:
 - jeder verwendete CLI-Aufruf mit frischer Help-Reanchor dokumentiert;
 - gebundener `provider_session_verified`-Nachweis oder Controller-Identität
   vorhanden — ohne erneute Status-Abfrage;
+- PR-Beschreibung komponiert und `pr_description_verified` gesetzt oder die
+  Transport-Lücke benannt;
 - PR-Ziel entspricht dem fachlichen Workflow.
 ```
+
+### 8.1 Pull-Request-Beschreibung
+
+Der Pull Request ist eine eigene Abstraktionsebene über der Commit-Serie.
+Seine Beschreibung trägt die Integrationssicht, die in keiner einzelnen
+Commit-Message existiert, und repliziert niemals Commit-Inhalte
+(Single-Source-of-Truth: das Detail verbleibt in den Commits).
+
+Die Beschreibung ist Pflicht, niemals optional: Jeder Pull Request kreuzt
+eine geschützte Shared Line, und das Review-Gate braucht seine
+Informationsträger deterministisch. Die Pflicht betrifft Vorhandensein und
+Vertragstreue, nicht die Länge — eine schmale Änderung füllt jede Sektion
+mit einem Satz. Die Sprache ist Englisch.
+
+Kanonische Sektionsreihenfolge (alle fünf Sektionen, unveränderlich), jede
+Sektion mit der Markdown-Überschrift `## <Sektionsname>`:
+
+```text
+1. ## Summary — der eine Gesamt-Intent des Change-Sets;
+2. ## Scope and Non-Goals — Umfang und ausdrückliche Nicht-Ziele;
+3. ## Commit Series — die Betreff-Liste der Serie als Navigation,
+   niemals als Inhaltswiederholung;
+4. ## Risk and Rollback — Gesamt-Risiko, Rollback-Bezug und Lane-Kontext
+   (Ziel-Linie, Hotfix- oder Release-Bezug);
+5. ## Verification and Review Focus — Verifikationsstrategie und
+   Review-Fokus.
+```
+
+Die PR-Beschreibung durchläuft niemals den Commit-Parser; die `##`-Form ist
+dennoch verbindlich, damit Layout und Formulierung für den Agent
+deterministisch bleiben.
+
+Der Agent komponiert die Beschreibung vor der Publikation aus dem
+Acceptance Ledger und der validierten Commit-Serie und setzt
+`pr_description_verified`. Der Transport erfolgt ausschließlich über die
+unmittelbar vorher gelesene Hilfe des jeweiligen Publish-Endpunkts. Bietet
+die aktuelle Binary keinen Transport für eine PR-Beschreibung, meldet der
+Agent die Lücke als benannten Blocker (`BLOCKED` für den Body-Transport) und
+weicht weder auf eine externe PR-CLI noch auf rohe Provider-Aufrufe oder
+manuelle Webedits aus; der Titel folgt weiterhin der Binary-Ableitung.
 
 Der Agent publiziert einen regulären Ticket-Branch über den vollständigen
 Ticket-Publish-Workflow, einen Hotfix über den Hotfix-Publish-Workflow und
@@ -861,6 +1021,7 @@ Die Abschlussantwort enthält:
 - ausgewählte Family, offizieller Branch und Scratch-Entscheidung;
 - semantische neue Commits;
 - echte Validierungsbefehle und Ergebnisse;
+- PR-Beschreibung: transportiert oder benannte Transport-Lücke;
 - PR-URL oder den exakten Blocker;
 - verbleibenden externen Schritt, falls der Status nicht COMPLETE ist.
 ```
@@ -882,8 +1043,8 @@ Bereich:
 🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
 🧪 Quality | required=<count> | passed=<count> | status=<PASS|FAIL>
-📦 Commit | index=<n> | type=<value> | paths=<count> | cli=<PASS|FAIL>
-🚀 Publish | pushed=<true|false> | provider=<value> | pr=<url|blocked>
+📦 Commit | index=<n> | type=<value> | paths=<count> | body=<present|omitted-justified> | cli=<PASS|FAIL>
+🚀 Publish | pushed=<true|false> | provider=<value> | pr_body=<transported|gap|not_required> | pr=<url|blocked>
 🏷️ Release | line=<value> | delivery=<PASS|WAITING|FAIL> | reconciliation=<value>
 🚑 Hotfix | ticket=<value> | record=<PASS|FAIL> | manifest=<PASS|FAIL> | delivery=<PASS|WAITING|FAIL> | propagation=<value>
 ```
@@ -937,5 +1098,13 @@ Der Agent darf niemals:
 - pauschal main nach develop mergen;
 - unbestätigte Delivery, Tag-, Release-, Artefakt- oder Propagationsfakten als Erfolg melden;
 - lokale Quality-Evidenz als Ersatz für CI, Required Checks, Review oder Rulesets ausgeben;
+- eine Commit-Message als Diff-Nacherzählung, als Fülltext oder mit nicht aus
+  den gestagten Pfaden belegbaren Inhalten erzeugen;
+- einen Commit-Body unbegründet auslassen, obwohl die Body-Pflicht-Matrix aus
+  [6.4.3] ihn fordert;
+- eine PR-Beschreibung als Replik der Commit-Inhalte statt als
+  Integrationsebene aus [8.1] erzeugen;
+- eine PR-Beschreibung über eine externe PR-CLI, rohe Provider-Aufrufe oder
+  manuelle Webedits transportieren, wenn die Binary keinen Transport anbietet;
 - Credentials, Tokens, PEMs, Header oder private Chain-of-Thought ausgeben.
 ```
