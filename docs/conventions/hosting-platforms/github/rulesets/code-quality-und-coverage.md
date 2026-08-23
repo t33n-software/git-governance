@@ -13,11 +13,14 @@ Rule-Set-Quellen erscheinen noch Organisations-Default werden.
 ## Die vier Schichten der Konvention
 
 1. **Vertragsoberfläche (sprachagnostisch).** Die Organisations-rulesets
-   fordern nur stabile, identische Check-Kontexte — zum Beispiel
-   `Quality gates (linux-amd64)` und `Dependency admission review`. Jedes
-   Repository — Go, Python, Node.js oder ein künftiges Ökosystem — emittiert
-   dieselben Kontexte; der organisationsweite Vertrag nennt niemals ein
-   sprachspezifisches Werkzeug.
+   fordern nur stabile, identische Check-Kontexte — in der komponierten Ära
+   die Composite-Form `Quality gates / linux-amd64` und
+   `Dependency review / Dependency admission review` (Klasse `linux-only`;
+   die Klasse `full` trägt bis zur Caller-Adoption ihrer Repositories die
+   Inline-Ära-Form `Quality gates (<os>)` plus `Dependency admission
+   review`). Jedes Repository — Go, Python, Node.js oder ein künftiges
+   Ökosystem — emittiert dieselben Kontexte; der organisationsweite Vertrag
+   nennt niemals ein sprachspezifisches Werkzeug.
 2. **Gate-Inhalt (produzenten-eigen).** Das eigene Build-Gate jedes
    Repositorys berechnet Quality und Coverage mit seiner nativen Toolchain —
    zum Beispiel golangci-lint plus exaktem 100-%-Statement-Coverage-Check für

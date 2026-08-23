@@ -405,6 +405,17 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 
 const dependencyAdmissionReviewStatusCheck = "Dependency admission review"
 
+// The canonical composite check contexts bound by the linux-only shared-line
+// rulesets. The canonical callers (repository-governance) emit them per the
+// naming law (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job
+// carries the lane identity, the callee job carries the gate or variant
+// identity. The full-class variants keep the inline-era contexts until the
+// full-class repositories adopt the canonical callers.
+const (
+	compositeQualityGateLinuxStatusCheck = "Quality gates / linux-amd64"
+	compositeDependencyReviewStatusCheck = "Dependency review / Dependency admission review"
+)
+
 func sharedLineStatusChecks(t *testing.T) []string {
 	t.Helper()
 
@@ -414,16 +425,7 @@ func sharedLineStatusChecks(t *testing.T) []string {
 func linuxOnlyStatusChecks(t *testing.T) []string {
 	t.Helper()
 
-	checks := make([]string, 0)
-	for _, check := range ciQualityStatusChecks(t) {
-		if strings.HasSuffix(check, "(linux-amd64)") {
-			checks = append(checks, check)
-		}
-	}
-	if len(checks) != 1 {
-		t.Fatalf("CI quality matrix must define exactly one linux-amd64 quality gate, got %#v", checks)
-	}
-	return append(checks, dependencyAdmissionReviewStatusCheck)
+	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck}
 }
 
 func ciQualityStatusChecks(t *testing.T) []string {

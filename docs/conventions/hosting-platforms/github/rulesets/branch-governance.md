@@ -36,9 +36,14 @@ Jede Shared Line erhält denselben Schutzkern:
   Review-Threads und **Code-Owner-Review** (`require_code_owner_review` gegen
   `.github/CODEOWNERS`). Ohne die versionierte Ownership-Datei blockiert die
   Linie fail-closed — der Vertrag MUSS vor der Aktivierung gemergt sein.
-- **required_status_checks** (strict): Die verbindlichen Kontexte lauten
-  `Quality gates (<os>)` je nach Klasse plus `Dependency admission review`.
-  Der strenge Modus bindet den Merge an einen aktuellen PR-Stand.
+- **required_status_checks** (strict): Die verbindlichen Kontexte folgen dem
+  Namensgesetz der komponierten Ära (Caller-Job = Lane-Identität, Callee-Job
+  = Gate-/Varianten-Identität): die Klasse `linux-only` bindet die
+  Composite-Kontexte `Quality gates / linux-amd64` und
+  `Dependency review / Dependency admission review`; die Klasse `full` trägt
+  bis zur Caller-Adoption ihrer Repositories die Inline-Ära-Kontexte
+  `Quality gates (<os>)` plus `Dependency admission review`. Der strenge
+  Modus bindet den Merge an einen aktuellen PR-Stand.
 - **code_scanning**: CodeQL mit Schwellen `all` für Alerts und Security-Alerts;
   auf öffentlichen Repositories ohne Zusatzkosten verfügbar.
 
