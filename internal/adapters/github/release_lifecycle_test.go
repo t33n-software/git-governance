@@ -556,7 +556,10 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 		if _, err := newReleaseRequestID(); err == nil {
 			t.Fatal("newReleaseRequestID accepted a failing random reader")
 		}
-		assertProblem(t, lifecycleResponseProblem(http.StatusForbidden, "retry"), problem.CodeExternalCommandFailed)
+		assertProblem(t, lifecycleResponseProblem(&http.Response{
+			StatusCode: http.StatusForbidden,
+			Body:       io.NopCloser(strings.NewReader(`{"message":"Forbidden"}`)),
+		}, "retry"), problem.CodeExternalCommandFailed)
 		assertProblem(t, lifecycleConfigurationProblem("field", "expected", "fix"), problem.CodeConfigurationInvalid)
 		assertProblem(t, lifecycleExternalProblem("retry", errors.New("network")), problem.CodeExternalCommandFailed)
 	})
@@ -633,6 +636,65 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 		if _, err := publisher.hasEffectiveReleaseDelta(context.Background(), base, repository, release.String()); err == nil {
 			t.Fatal("malformed comparison was accepted")
 		}
+	})
+}
+
+func TestLifecycleErrorDiagnostic(t *testing.T) {
+	t.Run("returns no diagnostic for a missing response or body", func(t *testing.T) {
+		if got := lifecycleErrorDiagnostic(nil); got != "" {
+			t.Fatalf("lifecycleErrorDiagnostic(nil) = %q", got)
+		}
+		if got := lifecycleErrorDiagnostic(&http.Response{StatusCode: http.StatusBadGateway}); got != "" {
+			t.Fatalf("lifecycleErrorDiagnostic(no body) = %q", got)
+		}
+	})
+
+	t.Run("returns no diagnostic for an unreadable or empty body", func(t *testing.T) {
+		if got := lifecycleErrorDiagnostic(&http.Response{Body: io.NopCloser(errReader{})}); got != "" {
+			t.Fatalf("lifecycleErrorDiagnostic(read error) = %q", got)
+		}
+		if got := lifecycleErrorDiagnostic(&http.Response{Body: io.NopCloser(strings.NewReader("  \n"))}); got != "" {
+			t.Fatalf("lifecycleErrorDiagnostic(empty) = %q", got)
+		}
+	})
+
+	t.Run("surfaces the provider message and validation entries", func(t *testing.T) {
+		response := &http.Response{Body: io.NopCloser(strings.NewReader(
+			`{"message":"Validation Failed","errors":[{"message":"ref is invalid"},{"message":""},{"resource":"deployment"}]}`,
+		))}
+		if got := lifecycleErrorDiagnostic(response); got != "Validation Failed; ref is invalid" {
+			t.Fatalf("lifecycleErrorDiagnostic() = %q", got)
+		}
+	})
+
+	t.Run("returns no diagnostic for a valid envelope without a message", func(t *testing.T) {
+		response := &http.Response{Body: io.NopCloser(strings.NewReader(`{"documentation_url":"https://example.invalid"}`))}
+		if got := lifecycleErrorDiagnostic(response); got != "" {
+			t.Fatalf("lifecycleErrorDiagnostic(no message) = %q", got)
+		}
+	})
+
+	t.Run("surfaces a non-JSON body verbatim and without redaction", func(t *testing.T) {
+		// No redaction occurs by construction: the request is secret-free and the
+		// credential is header-isolated, so the provider diagnostic cannot carry
+		// secrets. The helper surfaces the provider text unchanged.
+		response := &http.Response{Body: io.NopCloser(strings.NewReader("token=ghp_secret is surfaced unchanged"))}
+		if got := lifecycleErrorDiagnostic(response); got != "token=ghp_secret is surfaced unchanged" {
+			t.Fatalf("lifecycleErrorDiagnostic(non-JSON) = %q", got)
+		}
+	})
+
+	t.Run("bounds the diagnostic length and marks truncation", func(t *testing.T) {
+		large := strings.Repeat("a", lifecycleDiagnosticMaxBytes+100)
+		response := &http.Response{Body: io.NopCloser(strings.NewReader(large))}
+		got := lifecycleErrorDiagnostic(response)
+		if len(got) <= lifecycleDiagnosticMaxBytes || !strings.HasSuffix(got, "…[truncated]") {
+			t.Fatalf("lifecycleErrorDiagnostic(large) length = %d", len(got))
+		}
+	})
+
+	t.Run("the problem tolerates a missing response", func(t *testing.T) {
+		assertProblem(t, lifecycleResponseProblem(nil, "persist the record"), problem.CodeExternalCommandFailed)
 	})
 }
 

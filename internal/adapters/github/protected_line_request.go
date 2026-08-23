@@ -494,7 +494,7 @@ func (publisher *Publisher) createProtectedLineDeployment(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		return deploymentResponse{}, lifecycleResponseProblem(response.StatusCode, "persist the protected-line request record")
+		return deploymentResponse{}, lifecycleResponseProblem(response, "persist the protected-line request record")
 	}
 	var deployment deploymentResponse
 	if err := decodeResponse(response.Body, &deployment); err != nil {
@@ -534,7 +534,7 @@ func (publisher *Publisher) dispatchProtectedLineExecutor(
 	}
 	defer response.Body.Close()
 	if !isSuccessfulHTTPStatus(response.StatusCode) {
-		return lifecycleResponseProblem(response.StatusCode, "dispatch the bound protected-line executor")
+		return lifecycleResponseProblem(response, "dispatch the bound protected-line executor")
 	}
 	return nil
 }
@@ -568,7 +568,7 @@ func (publisher *Publisher) storeProtectedLineState(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusCreated {
-		return lifecycleResponseProblem(response.StatusCode, "write the protected-line request audit state")
+		return lifecycleResponseProblem(response, "write the protected-line request audit state")
 	}
 	return nil
 }
@@ -593,7 +593,7 @@ func (publisher *Publisher) findProtectedLineRequest(
 		}
 		if response.StatusCode != http.StatusOK {
 			_ = response.Body.Close()
-			return releaserequest.Request{}, false, lifecycleResponseProblem(response.StatusCode, "inspect protected-line request records")
+			return releaserequest.Request{}, false, lifecycleResponseProblem(response, "inspect protected-line request records")
 		}
 		var deployments []deploymentResponse
 		decodeErr := decodeResponse(response.Body, &deployments)
@@ -665,7 +665,7 @@ func (publisher *Publisher) protectedLineDeploymentState(
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
-		return "", "", lifecycleResponseProblem(response.StatusCode, "inspect the protected-line request audit state")
+		return "", "", lifecycleResponseProblem(response, "inspect the protected-line request audit state")
 	}
 	var statuses []deploymentStatusResponse
 	decodeErr := decodeResponse(response.Body, &statuses)
@@ -738,7 +738,7 @@ func (publisher *Publisher) protectedLineRefIfPresent(
 		return "", false, nil
 	}
 	if response.StatusCode != http.StatusOK {
-		return "", false, lifecycleResponseProblem(response.StatusCode, "inspect the protected-line source or target ref")
+		return "", false, lifecycleResponseProblem(response, "inspect the protected-line source or target ref")
 	}
 	var reference gitReferenceResponse
 	if err := decodeResponse(response.Body, &reference); err != nil {
@@ -779,7 +779,7 @@ func (publisher *Publisher) protectedLineExecutorSucceeded(
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
-		return false, lifecycleResponseProblem(response.StatusCode, "inspect the protected-line executor job")
+		return false, lifecycleResponseProblem(response, "inspect the protected-line executor job")
 	}
 	var jobs workflowJobsResponse
 	decodeErr := decodeResponse(response.Body, &jobs)
@@ -835,7 +835,7 @@ func (publisher *Publisher) validateProtectedLineWorkflowRun(
 	}
 	if response.StatusCode != http.StatusOK {
 		_ = response.Body.Close()
-		return lifecycleResponseProblem(response.StatusCode, "inspect the bound protected-line workflow run")
+		return lifecycleResponseProblem(response, "inspect the bound protected-line workflow run")
 	}
 	var run protectedLineWorkflowRunResponse
 	decodeErr := decodeResponse(response.Body, &run)
