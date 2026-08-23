@@ -93,6 +93,47 @@ func TestComposeBuildsValidatedCompleteMessages(t *testing.T) {
 	}
 }
 
+func TestComposeRejectsBodiesCollidingWithTheFooterGrammar(t *testing.T) {
+	t.Parallel()
+
+	id, err := ticket.ParseID("ABC-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Compose(Draft{
+		Family:  commitmsg.TypeFeat,
+		Ticket:  id,
+		Subject: "add export",
+		Body:    "Motivation: exports are needed.\n\nBehavioral change: clients can export.",
+	})
+	if err == nil || !strings.Contains(err.Error(), "COMMIT_DESCRIPTION_INVALID") {
+		t.Fatalf("Compose(footer-colliding body) error = %v", err)
+	}
+
+	message, err := Compose(Draft{
+		Family:  commitmsg.TypeFeat,
+		Ticket:  id,
+		Subject: "add export",
+		Body:    "## Motivation\n\nExports are needed.\n\n## Verification\n\nCovered by tests.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(message.Body(), "## Motivation") || !strings.Contains(message.Body(), "## Verification") {
+		t.Fatalf("Compose() body = %q", message.Body())
+	}
+
+	_, err = Compose(Draft{
+		Family:  commitmsg.TypeFeat,
+		Ticket:  id,
+		Subject: "add export",
+		Body:    "invalid\x00body",
+	})
+	if err == nil || !strings.Contains(err.Error(), "COMMIT_DESCRIPTION_INVALID") {
+		t.Fatalf("Compose(control-character body) error = %v", err)
+	}
+}
+
 func TestValidateMessageForBranchEnforcesTicketOwnership(t *testing.T) {
 	t.Parallel()
 

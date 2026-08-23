@@ -128,6 +128,15 @@ func (publisher *Publisher) publicationTarget(
 			"publish only a fully prepared provider-neutral pull-request intent",
 		)
 	}
+	// The pull-request description is mandatory; see
+	// docs/conventions/pull-requests/description-mandate.md.
+	if strings.TrimSpace(publication.PullRequest.Body) == "" {
+		return nil, repositoryRef{}, configurationProblem(
+			"pull request",
+			"a non-empty description (body) value",
+			"publish only a fully prepared provider-neutral pull-request intent with its mandatory description",
+		)
+	}
 	repository, err := parseRepositoryRemote(publication.RemoteURL)
 	if err != nil {
 		return nil, repositoryRef{}, err
@@ -162,6 +171,7 @@ type pullRequestResponse struct {
 
 type createPullRequestRequest struct {
 	Title string `json:"title"`
+	Body  string `json:"body"`
 	Head  string `json:"head"`
 	Base  string `json:"base"`
 	Draft bool   `json:"draft"`
@@ -221,6 +231,7 @@ func (publisher *Publisher) createPullRequest(
 ) (port.PublishedPullRequest, error) {
 	body, _ := json.Marshal(createPullRequestRequest{
 		Title: request.Title,
+		Body:  request.Body,
 		Head:  request.Source.String(),
 		Base:  request.Target.String(),
 		Draft: request.Draft,

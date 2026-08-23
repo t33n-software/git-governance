@@ -208,6 +208,7 @@ func TestReleaseAlignReconciliationBaseCommand(t *testing.T) {
 			"--interactive", "never", "--output", "json", "--yes", "--pull-request-provider", "github",
 			"workflow", "release", "align-reconciliation-base",
 			"--release", "release/1.0.1", "--push", "--create-pull-request",
+			"--body", "Summary: Align the reconciliation base with develop.",
 		)
 		if err != nil || !git.pushed || !strings.Contains(output, `"pushed":"true"`) {
 			t.Fatalf("publication = (%q, %v), pushed=%t", output, err, git.pushed)

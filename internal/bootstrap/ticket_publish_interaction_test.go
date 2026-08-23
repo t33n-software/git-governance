@@ -247,6 +247,7 @@ func TestTicketPublishCompletionInteractionPaths(t *testing.T) {
 			PullRequest: port.PullRequest{
 				Source: name,
 				Target: mustTicketPublishBranch(t, "develop"),
+				Body:   "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring.",
 			},
 		}
 	}
@@ -432,6 +433,7 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 		Source: name,
 		Target: mustTicketPublishBranch(t, "develop"),
 		Title:  "ABC-123: add export",
+		Body:   "Summary: Add the export button.\n\nScope and Non-Goals: The export button only.\n\nCommit Series:\n- feat(ABC-123): add export button\n\nRisk and Rollback: Low; revert the commit.\n\nVerification and Review Focus: Unit tests; review the button wiring.",
 	}
 	newResult := func() workflow.PublishTicketResult {
 		return workflow.PublishTicketResult{
@@ -446,15 +448,29 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 
 	t.Run("preflights explicit provider publication", func(t *testing.T) {
 		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
-		if err := application.validatePullRequestPublication(application.services(), false, true); err == nil {
+		if err := application.validatePullRequestPublication(application.services(), false, true, "Summary: add export."); err == nil {
 			t.Fatal("provider publication without a push unexpectedly succeeded")
 		}
-		if err := application.validatePullRequestPublication(application.services(), true, true); err == nil {
+		if err := application.validatePullRequestPublication(application.services(), true, true, "Summary: add export."); err == nil {
 			t.Fatal("provider publication without an adapter unexpectedly succeeded")
 		}
 		application.options.dryRun = true
-		if err := application.validatePullRequestPublication(application.services(), true, true); err != nil {
+		if err := application.validatePullRequestPublication(application.services(), true, true, "Summary: add export."); err != nil {
 			t.Fatalf("dry-run provider plan failed: %v", err)
+		}
+	})
+
+	t.Run("requires the mandatory pull-request description", func(t *testing.T) {
+		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
+		application.options.dryRun = true
+		if err := application.validatePullRequestPublication(application.services(), true, true, "   "); err == nil {
+			t.Fatal("provider publication with an empty description unexpectedly succeeded")
+		}
+		if err := validatePullRequestBody(true, ""); err == nil {
+			t.Fatal("pull-request body validation accepted an empty description")
+		}
+		if err := validatePullRequestBody(false, ""); err != nil {
+			t.Fatalf("pull-request body validation blocked an intent-only plan: %v", err)
 		}
 	})
 
@@ -464,7 +480,7 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 		application.options.yes = true
 		application.runtime.Publisher = &workflowRecordingPublisher{}
 
-		published, err := application.resolvePullRequestPublication(
+		_, published, err := application.resolvePullRequestPublication(
 			context.Background(),
 			application.services(),
 			request,
@@ -478,7 +494,7 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 	t.Run("requires explicit confirmation outside an interactive terminal", func(t *testing.T) {
 		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
 		application.runtime.Publisher = &workflowRecordingPublisher{}
-		_, err := application.resolvePullRequestPublication(context.Background(), application.services(), request, true)
+		_, _, err := application.resolvePullRequestPublication(context.Background(), application.services(), request, true)
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 	})
 
@@ -508,14 +524,64 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 
 	t.Run("reports an unavailable adapter only for an explicit request", func(t *testing.T) {
 		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
-		published, err := application.resolvePullRequestPublication(context.Background(), application.services(), request, false)
+		_, published, err := application.resolvePullRequestPublication(context.Background(), application.services(), request, false)
 		if err != nil || published {
 			t.Fatalf("intent-only publication = (%t, %v)", published, err)
 		}
-		_, err = application.resolvePullRequestPublication(context.Background(), application.services(), request, true)
+		_, _, err = application.resolvePullRequestPublication(context.Background(), application.services(), request, true)
 		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
 		assertProblemCode(t, pullRequestPublisherUnavailable(), problem.CodeExternalCommandFailed)
 		assertProblemCode(t, pullRequestConfirmationRequired(), problem.CodeInvalidInput)
+	})
+
+	t.Run("resolves a missing description interactively and validates it", func(t *testing.T) {
+		prompt := &commandHelperPrompt{
+			confirms: []commandHelperConfirmReply{{value: true}},
+			inputs:   []commandHelperStringReply{{value: "Summary: Added interactively."}},
+		}
+		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, prompt, "human")
+		application.runtime.Publisher = &workflowRecordingPublisher{}
+		emptyBody := request
+		emptyBody.Body = "  "
+		updated, create, err := application.resolvePullRequestPublication(context.Background(), application.services(), emptyBody, true)
+		if err != nil || !create || updated.Body != "Summary: Added interactively." {
+			t.Fatalf("interactive body resolution = (%#v, %t, %v)", updated, create, err)
+		}
+		if len(prompt.inputRequests) != 1 || prompt.inputRequests[0].Validate == nil {
+			t.Fatalf("body prompt requests = %#v", prompt.inputRequests)
+		}
+		if err := prompt.inputRequests[0].Validate(" "); err == nil {
+			t.Fatal("body validator accepted an empty description")
+		}
+		if err := prompt.inputRequests[0].Validate("Summary: ok."); err != nil {
+			t.Fatalf("body validator rejected a description: %v", err)
+		}
+	})
+
+	t.Run("fails closed for a missing description outside an interactive terminal", func(t *testing.T) {
+		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
+		application.options.yes = true
+		application.runtime.Publisher = &workflowRecordingPublisher{}
+		emptyBody := request
+		emptyBody.Body = ""
+		_, _, err := application.resolvePullRequestPublication(context.Background(), application.services(), emptyBody, true)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("propagates interactive description prompt failures", func(t *testing.T) {
+		promptErr := errors.New("input unavailable")
+		prompt := &commandHelperPrompt{
+			confirms: []commandHelperConfirmReply{{value: true}},
+			inputs:   []commandHelperStringReply{{err: promptErr}},
+		}
+		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, prompt, "human")
+		application.runtime.Publisher = &workflowRecordingPublisher{}
+		emptyBody := request
+		emptyBody.Body = ""
+		_, _, err := application.resolvePullRequestPublication(context.Background(), application.services(), emptyBody, true)
+		if !errors.Is(err, promptErr) {
+			t.Fatalf("body prompt error = %v, want %v", err, promptErr)
+		}
 	})
 
 	t.Run("preflights an interactively selected pull request before publication", func(t *testing.T) {

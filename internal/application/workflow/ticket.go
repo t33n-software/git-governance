@@ -4,6 +4,7 @@ package workflow
 
 import (
 	"context"
+	"strings"
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -143,7 +144,10 @@ func (service *TicketService) StartTicket(ctx context.Context, request StartTick
 }
 
 // PublishTicketRequest describes the handoff from completed local work to a
-// push and provider-neutral pull request.
+// push and provider-neutral pull request. Body carries the mandatory
+// pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md whenever
+// CreatePullRequest is set.
 type PublishTicketRequest struct {
 	Repository        port.RepositoryIdentity
 	Branch            branch.BranchName
@@ -155,6 +159,7 @@ type PublishTicketRequest struct {
 	Push              bool
 	CreatePullRequest bool
 	Draft             bool
+	Body              string
 	DryRun            bool
 }
 
@@ -195,6 +200,9 @@ func (service *TicketService) PublishTicket(ctx context.Context, request Publish
 			"pull-request creation requires an explicit branch push",
 			"set Push before requesting provider pull-request creation",
 		)
+	}
+	if request.CreatePullRequest && strings.TrimSpace(request.Body) == "" {
+		return PublishTicketResult{}, pullRequestBodyRequired()
 	}
 
 	repository := request.Repository
@@ -255,7 +263,7 @@ func (service *TicketService) PublishTicket(ctx context.Context, request Publish
 	if err != nil {
 		return PublishTicketResult{}, err
 	}
-	pullRequest := newTicketPullRequest(validation.Name, target, request.Draft)
+	pullRequest := newTicketPullRequest(validation.Name, target, request.Draft, request.Body)
 	if scratchMerge != nil && request.DryRun {
 		return PublishTicketResult{
 			Branch:       validation.Name,
@@ -342,7 +350,10 @@ func (service *TicketService) PublishTicket(ctx context.Context, request Publish
 
 // ResumeTicketPublishRequest identifies a ticket publication that paused on a
 // rebase conflict. The branch must be the official branch being published; a
-// scratch transfer is completed before the rebase can start.
+// scratch transfer is completed before the rebase can start. Body carries the
+// mandatory pull-request description required by
+// docs/conventions/pull-requests/description-mandate.md for the continued
+// publication.
 type ResumeTicketPublishRequest struct {
 	Repository      port.RepositoryIdentity
 	Branch          branch.BranchName
@@ -350,6 +361,7 @@ type ResumeTicketPublishRequest struct {
 	Target          *branch.BranchName
 	WorkflowManaged bool
 	Draft           bool
+	Body            string
 }
 
 // ResumeTicketPublish continues an already resolved rebase and revalidates the
@@ -417,7 +429,7 @@ func (service *TicketService) ResumeTicketPublish(ctx context.Context, request R
 	result := PublishTicketResult{
 		Branch:              validation.Name,
 		Sync:                syncResult,
-		PullRequest:         newTicketPullRequest(validation.Name, target, request.Draft),
+		PullRequest:         newTicketPullRequest(validation.Name, target, request.Draft, request.Body),
 		Quality:             quality,
 		PostMutationQuality: &quality,
 	}
@@ -522,6 +534,11 @@ func pullRequestPublication(
 	repository port.RepositoryIdentity,
 	request port.PullRequest,
 ) (port.PullRequestPublication, error) {
+	// The pull-request description is mandatory for every provider
+	// publication; see docs/conventions/pull-requests/description-mandate.md.
+	if strings.TrimSpace(request.Body) == "" {
+		return port.PullRequestPublication{}, pullRequestBodyRequired()
+	}
 	remoteURL, err := git.RemoteURL(ctx, repository)
 	if err != nil {
 		return port.PullRequestPublication{}, err
@@ -544,7 +561,21 @@ func pullRequestPublisherUnavailable() error {
 	})
 }
 
-func newTicketPullRequest(name, target branch.BranchName, draft bool) port.PullRequest {
+// pullRequestBodyRequired enforces the mandatory pull-request description
+// owned by docs/conventions/pull-requests/description-mandate.md.
+func pullRequestBodyRequired() error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeInvalidInput,
+		Category:    problem.CategoryGovernance,
+		Field:       "pull request body",
+		Expected:    "a non-empty pull-request description",
+		Rule:        "every governed pull request carries a mandatory description",
+		Example:     "--body \"Summary: ...\\n\\nScope and Non-Goals: ...\"",
+		Remediation: "compose the canonical pull-request description and pass it as the body input",
+	})
+}
+
+func newTicketPullRequest(name, target branch.BranchName, draft bool, body string) port.PullRequest {
 	branchTicket, _ := name.Ticket()
 	branchSlug, _ := name.Slug()
 	return port.PullRequest{
@@ -552,6 +583,7 @@ func newTicketPullRequest(name, target branch.BranchName, draft bool) port.PullR
 		Target: target,
 		Ticket: branchTicket,
 		Title:  branchTicket.String() + ": " + branchSlug.String(),
+		Body:   body,
 		Draft:  draft,
 	}
 }

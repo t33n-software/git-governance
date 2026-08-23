@@ -366,12 +366,16 @@ type HotfixManifestProgressStore interface {
 	) error
 }
 
-// PullRequest describes a provider-neutral pull request intent.
+// PullRequest describes a provider-neutral pull request intent. Body carries
+// the mandatory pull-request description; it is required whenever the intent
+// is published through a provider. The mandate and its canonical structure
+// are owned by docs/conventions/pull-requests/description-mandate.md.
 type PullRequest struct {
 	Source branch.BranchName
 	Target branch.BranchName
 	Ticket ticket.ID
 	Title  string
+	Body   string
 	Draft  bool
 }
 

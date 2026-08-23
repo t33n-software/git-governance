@@ -66,12 +66,21 @@ type Draft struct {
 }
 
 // Compose creates a validated complete commit message from structured input.
+// The composed message is round-trip parsed so a free-form body colliding
+// with the footer grammar fails at creation instead of at publish time.
 func Compose(draft Draft) (commitmsg.Message, error) {
 	header, err := commitmsg.NewHeader(draft.Family, draft.Ticket, draft.Subject, draft.Breaking)
 	if err != nil {
 		return commitmsg.Message{}, err
 	}
-	return commitmsg.NewMessage(header, draft.Body, draft.Footers)
+	message, err := commitmsg.NewMessage(header, draft.Body, draft.Footers)
+	if err != nil {
+		return commitmsg.Message{}, err
+	}
+	if _, err := commitmsg.Parse(message.String()); err != nil {
+		return commitmsg.Message{}, err
+	}
+	return message, nil
 }
 
 // ValidateMessageForBranch ensures that a ticket-scoped branch and commit use
