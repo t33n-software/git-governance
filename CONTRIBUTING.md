@@ -104,8 +104,9 @@ gate:
 
 ```json
 {
-  "schemaVersion": 3,
-  "toolchain": { "goVersion": "1.26.6" },
+  "schemaVersion": 4,
+  "toolchain": { "language": "go", "version": "1.26.6" },
+  "extends": [],
   "defaults": {
     "includeFamilies": [
       "feature", "fix", "docs", "refactor",
@@ -130,8 +131,9 @@ gate:
 ```
 
 The runner rejects shell strings, absolute or escaping working directories,
-unknown fields, duplicate names, invalid family scopes, a missing or unpinned
-toolchain, and invalid timeouts.
+unknown fields, duplicate names, invalid family scopes, a missing, malformed,
+or unpinned toolchain identity, malformed capability pack references, and
+invalid timeouts.
 No file means `qualityStatus=unconfigured`, not a successful
 project-quality result. Gates inherit the default family set unless they
 declare `includeFamilies` and/or `excludeFamilies`; private `scratch` work is
