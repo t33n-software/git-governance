@@ -11,8 +11,9 @@ array; no shell command string is interpreted.
 
 ```json
 {
-  "schemaVersion": 3,
-  "toolchain": { "goVersion": "1.26.6" },
+  "schemaVersion": 4,
+  "toolchain": { "language": "go", "version": "1.26.6" },
+  "extends": [],
   "defaults": {
     "includeFamilies": [
       "feature", "fix", "docs", "refactor",
@@ -48,10 +49,14 @@ duration timeout. Paths that escape the repository, shell control characters,
 unknown JSON fields, duplicate gate names, and unbounded configuration are
 rejected.
 
-The `toolchain` block is required and pins the Go toolchain identity
-(`goVersion`, for example `1.26.6`); a missing or unpinned version is
-rejected. The optional `project` block declares binary smoke contracts and
-fuzz execution budgets as data; both are strictly validated.
+The `toolchain` block is required and pins the toolchain identity by
+`language` and `version` (for example `go` and `1.26.6`); a missing,
+malformed, or unpinned identity is rejected. The optional `extends` list
+declares capability pack references in the `<capability>@<major>` form (for
+example `opentofu@1`); entries must be well-formed and unique, and the runner
+validates the declaration without resolving the referenced packs. The
+optional `project` block declares binary smoke contracts and fuzz execution
+budgets as data; both are strictly validated.
 
 If no configuration exists, the workflow reports `qualityStatus:
 unconfigured`; it does not claim that project-specific checks passed. The

@@ -25,19 +25,22 @@ import (
 
 const (
 	defaultConfigName = "git-governance.quality.json"
-	currentSchema     = 3
+	currentSchema     = 4
 	maxConfigBytes    = 1 << 20
 	maxGateCount      = 32
 	maxArgumentCount  = 64
 	maxBinaryCount    = 32
 	maxSmokeCount     = 16
 	maxFuzzCount      = 64
+	maxExtendsCount   = 32
 	defaultTimeout    = 5 * time.Minute
 )
 
 var (
 	gateNamePattern       = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-	goVersionPattern      = regexp.MustCompile(`^(go)?[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+	languagePattern       = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	versionPattern        = regexp.MustCompile(`^[0-9]+\.[0-9]+(\.[0-9]+)?$`)
+	packReferencePattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*@[0-9]+$`)
 	projectPackagePattern = regexp.MustCompile(`^\.?/[A-Za-z0-9_./-]+$`)
 	fuzzTargetPattern     = regexp.MustCompile(`^Fuzz[A-Za-z0-9_]*$`)
 	defaultFamilies       = []branch.Family{
@@ -278,13 +281,15 @@ func (runner *Runner) configPath(root string) string {
 type config struct {
 	SchemaVersion int          `json:"schemaVersion"`
 	Toolchain     toolchain    `json:"toolchain"`
+	Extends       []string     `json:"extends,omitempty"`
 	Defaults      familyScope  `json:"defaults,omitempty"`
 	Gates         []gate       `json:"gates"`
 	Project       projectScope `json:"project,omitempty"`
 }
 
 type toolchain struct {
-	GoVersion string `json:"goVersion"`
+	Language string `json:"language"`
+	Version  string `json:"version"`
 }
 
 type projectScope struct {
@@ -330,10 +335,16 @@ func decode(path string, contents []byte) (config, error) {
 		return config{}, invalid(path, "quality configuration must contain exactly one JSON document", nil)
 	}
 	if value.SchemaVersion != currentSchema {
-		return config{}, invalid(path, "schemaVersion must equal 3", nil)
+		return config{}, invalid(path, "schemaVersion must equal 4", nil)
 	}
-	if !goVersionPattern.MatchString(value.Toolchain.GoVersion) {
-		return config{}, invalid(path, "toolchain goVersion must be a pinned Go version such as 1.26.6", nil)
+	if !languagePattern.MatchString(value.Toolchain.Language) {
+		return config{}, invalid(path, "toolchain language must be a lowercase language identifier such as go", nil)
+	}
+	if !versionPattern.MatchString(value.Toolchain.Version) {
+		return config{}, invalid(path, "toolchain version must be a pinned version such as 1.26.6", nil)
+	}
+	if err := validateExtends(path, value.Extends); err != nil {
+		return config{}, err
 	}
 	if len(value.Gates) == 0 || len(value.Gates) > maxGateCount {
 		return config{}, invalid(path, "gates must contain between 1 and 32 entries", nil)
@@ -408,6 +419,26 @@ func validateScope(path, label string, scope familyScope) error {
 			return invalid(path, label+" cannot both include and exclude "+family.String(), nil)
 		}
 		excluded[family] = struct{}{}
+	}
+	return nil
+}
+
+// validateExtends checks the capability pack declaration form. The runner
+// validates the reference grammar only; resolving a pack against the registry
+// is the quality-gate toolchain's responsibility.
+func validateExtends(path string, references []string) error {
+	if len(references) > maxExtendsCount {
+		return invalid(path, "extends must contain at most 32 capability pack references", nil)
+	}
+	seen := make(map[string]struct{}, len(references))
+	for _, reference := range references {
+		if !packReferencePattern.MatchString(reference) {
+			return invalid(path, "extends entries must use the <capability>@<major> form such as opentofu@1", nil)
+		}
+		if _, found := seen[reference]; found {
+			return invalid(path, "extends entries must be unique", nil)
+		}
+		seen[reference] = struct{}{}
 	}
 	return nil
 }
@@ -625,7 +656,7 @@ func invalid(path, rule string, cause error) error {
 		Actual:      path,
 		Expected:    "a valid git-governance.quality.json document",
 		Rule:        rule,
-		Example:     `{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"unit-tests","command":"go","args":["test","./..."],"timeout":"2m"}]}`,
+		Example:     `{"schemaVersion":4,"toolchain":{"language":"go","version":"1.26.6"},"gates":[{"name":"unit-tests","command":"go","args":["test","./..."],"timeout":"2m"}]}`,
 		Remediation: "correct the repository-local quality configuration",
 	}, cause)
 }

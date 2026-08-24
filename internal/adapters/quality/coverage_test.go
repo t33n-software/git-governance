@@ -52,10 +52,10 @@ func TestQualityCoverageHelperPaths(t *testing.T) {
 	})
 
 	t.Run("decode and process error helpers", func(t *testing.T) {
-		if _, err := decode("quality.json", []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"bad\nname","command":"go"}]}`)); err == nil {
+		if _, err := decode("quality.json", []byte(`{"schemaVersion":4,"toolchain":{"language":"go","version":"1.26.6"},"gates":[{"name":"bad\nname","command":"go"}]}`)); err == nil {
 			t.Fatal("decode accepted a newline in a gate name")
 		}
-		if _, err := decode("quality.json", []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"test","command":"go","args":["ok"],"timeout":"0s"}]}`)); err == nil {
+		if _, err := decode("quality.json", []byte(`{"schemaVersion":4,"toolchain":{"language":"go","version":"1.26.6"},"gates":[{"name":"test","command":"go","args":["ok"],"timeout":"0s"}]}`)); err == nil {
 			t.Fatal("decode accepted a non-positive timeout")
 		}
 		if _, err := gateTimeout("-1s", time.Second); err == nil {
@@ -74,8 +74,8 @@ func TestQualityCoverageHelperPaths(t *testing.T) {
 	t.Run("configured gate output uses diagnostic stream", func(t *testing.T) {
 		root := t.TempDir()
 		if err := os.WriteFile(filepath.Join(root, defaultConfigName), []byte(`{
-  "schemaVersion": 3,
-  "toolchain": {"goVersion":"1.26.6"},
+  "schemaVersion": 4,
+  "toolchain": {"language":"go","version":"1.26.6"},
   "gates": [{"name":"version","command":"go","args":["version"]}]
 }`), 0o600); err != nil {
 			t.Fatal(err)

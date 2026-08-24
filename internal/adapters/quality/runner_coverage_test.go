@@ -21,8 +21,8 @@ func TestRunnerCoverageNormalizesNilContextAndAppliesDefaultExclusions(t *testin
 
 	root := t.TempDir()
 	writeConfig(t, filepath.Join(root, defaultConfigName), `{
-  "schemaVersion": 3,
-  "toolchain": {"goVersion":"1.26.6"},
+  "schemaVersion": 4,
+  "toolchain": {"language":"go","version":"1.26.6"},
   "defaults": {"excludeFamilies": ["docs"]},
   "gates": [
     {"name":"default","command":"default"},
@@ -61,7 +61,7 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 	arguments := make([]string, maxArgumentCount+1)
 	tooManyArguments, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
-		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
 		Gates: []gate{{
 			Name:    "many-arguments",
 			Command: "tool",
@@ -78,7 +78,7 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 	}
 	tooManyBinaries, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
-		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
 		Gates:         []gate{{Name: "build", Command: "go"}},
 		Project:       projectScope{Binaries: binaries},
 	})
@@ -89,7 +89,7 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 	smoke := make([]string, maxSmokeCount+1)
 	tooMuchSmoke, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
-		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
 		Gates:         []gate{{Name: "build", Command: "go"}},
 		Project:       projectScope{Binaries: []projectBinary{{Package: "./cmd/tool", Smoke: smoke}}},
 	})
@@ -103,12 +103,26 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 	}
 	tooManyFuzzTargets, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
-		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
 		Gates:         []gate{{Name: "build", Command: "go"}},
 		Project:       projectScope{Fuzz: targets},
 	})
 	if err != nil {
 		t.Fatalf("marshal fuzz-limit configuration: %v", err)
+	}
+
+	references := make([]string, maxExtendsCount+1)
+	for index := range references {
+		references[index] = fmt.Sprintf("capability-%d@1", index)
+	}
+	tooManyExtends, err := json.Marshal(config{
+		SchemaVersion: currentSchema,
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
+		Extends:       references,
+		Gates:         []gate{{Name: "build", Command: "go"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal extends-limit configuration: %v", err)
 	}
 
 	testCases := []struct {
@@ -119,8 +133,8 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 		{
 			name: "duplicate gate name",
 			raw: []byte(`{
-  "schemaVersion": 3,
-  "toolchain": {"goVersion":"1.26.6"},
+  "schemaVersion": 4,
+  "toolchain": {"language":"go","version":"1.26.6"},
   "gates": [
     {"name":"same","command":"first"},
     {"name":"same","command":"second"}
@@ -147,6 +161,11 @@ func TestRunnerCoverageRejectsDuplicateNamesAndTooManyArguments(t *testing.T) {
 			name: "too many fuzz targets",
 			raw:  tooManyFuzzTargets,
 			rule: "project fuzz must contain at most 64 entries",
+		},
+		{
+			name: "too many extends references",
+			raw:  tooManyExtends,
+			rule: "extends must contain at most 32 capability pack references",
 		},
 	}
 
@@ -278,7 +297,7 @@ func TestRunnerCoverageDistinguishesQualityStatuses(t *testing.T) {
 	t.Run("skipped", func(t *testing.T) {
 		runner := New(Options{
 			ReadFile: func(string) ([]byte, error) {
-				return []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"docs","command":"docs","includeFamilies":["docs"]}]}`), nil
+				return []byte(`{"schemaVersion":4,"toolchain":{"language":"go","version":"1.26.6"},"gates":[{"name":"docs","command":"docs","includeFamilies":["docs"]}]}`), nil
 			},
 			Run: func(context.Context, string, string, ...string) error {
 				t.Fatal("a skipped quality gate must not run")
@@ -297,7 +316,7 @@ func TestRunnerCoverageDistinguishesQualityStatuses(t *testing.T) {
 		var calls int
 		runner := New(Options{
 			ReadFile: func(string) ([]byte, error) {
-				return []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"verified","command":"tool","args":["verify"]}]}`), nil
+				return []byte(`{"schemaVersion":4,"toolchain":{"language":"go","version":"1.26.6"},"gates":[{"name":"verified","command":"tool","args":["verify"]}]}`), nil
 			},
 			Run: func(_ context.Context, directory, executable string, arguments ...string) error {
 				calls++
@@ -321,7 +340,7 @@ func TestRunnerCoverageHonorsTimeoutAndCancellation(t *testing.T) {
 	t.Run("configured timeout reaches command context", func(t *testing.T) {
 		runner := New(Options{
 			ReadFile: func(string) ([]byte, error) {
-				return []byte(`{"schemaVersion":3,"toolchain":{"goVersion":"1.26.6"},"gates":[{"name":"deadline","command":"tool","timeout":"10ms"}]}`), nil
+				return []byte(`{"schemaVersion":4,"toolchain":{"language":"go","version":"1.26.6"},"gates":[{"name":"deadline","command":"tool","timeout":"10ms"}]}`), nil
 			},
 			Run: func(ctx context.Context, _ string, _ string, _ ...string) error {
 				<-ctx.Done()
@@ -358,7 +377,7 @@ func TestRunnerCoverageWrapsExecutableFailure(t *testing.T) {
 	missingExecutable := filepath.Join(root, "missing-quality-executable")
 	contents, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
-		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
 		Gates: []gate{{
 			Name:    "missing-executable",
 			Command: missingExecutable,
@@ -379,7 +398,7 @@ func TestRunnerCoverageRoutesChildOutputAwayFromJSONResult(t *testing.T) {
 	root := t.TempDir()
 	contents, err := json.Marshal(config{
 		SchemaVersion: currentSchema,
-		Toolchain:     toolchain{GoVersion: "1.26.6"},
+		Toolchain:     toolchain{Language: "go", Version: "1.26.6"},
 		Gates: []gate{{
 			Name:    "output-routing",
 			Command: "go",
