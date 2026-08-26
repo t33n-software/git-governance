@@ -56,10 +56,15 @@ func (SyntaxOnlyKeyPolicy) Status(ctx context.Context, _ port.RepositoryIdentity
 	}, nil
 }
 
+// CommitSigningRequired is the local policy declaration for commit signing:
+// every commit the CLI creates must carry a valid, trusted signature.
+const CommitSigningRequired = "required"
+
 // Description describes the active machine-readable local policy.
 type Description struct {
 	SchemaVersion  int                    `json:"schemaVersion"`
 	KeyPolicy      string                 `json:"keyPolicy"`
+	CommitSigning  string                 `json:"commitSigning"`
 	BranchFamilies []branchapp.FamilyInfo `json:"branchFamilies"`
 	CommitTypes    []string               `json:"commitTypes"`
 	Limits         Limits                 `json:"limits"`
@@ -83,6 +88,7 @@ func Describe() Description {
 	return Description{
 		SchemaVersion:  schemaVersion,
 		KeyPolicy:      "syntax-only",
+		CommitSigning:  CommitSigningRequired,
 		BranchFamilies: branchapp.ListFamilies(),
 		CommitTypes:    commitTypes,
 		Limits: Limits{

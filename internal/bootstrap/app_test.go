@@ -586,12 +586,14 @@ func (*prePushGit) InspectPushUpdate(context.Context, port.RepositoryIdentity, b
 var _ port.GitRepository = (*prePushGit)(nil)
 
 type commandGit struct {
-	current       branch.BranchName
-	messages      []string
-	workflowBases map[string]branch.TargetBase
-	remoteURL     string
-	remoteURLErr  error
-	discoverErr   error
+	current         branch.BranchName
+	messages        []string
+	workflowBases   map[string]branch.TargetBase
+	remoteURL       string
+	remoteURLErr    error
+	discoverErr     error
+	signingConfig   port.SigningConfiguration
+	signingProofErr error
 }
 
 func newCommandGit(t *testing.T, current string, messages []string) *commandGit {
@@ -603,6 +605,15 @@ func newCommandGit(t *testing.T, current string, messages []string) *commandGit 
 	return &commandGit{
 		current:  name,
 		messages: append([]string(nil), messages...),
+		signingConfig: port.SigningConfiguration{
+			SigningEnabled:         true,
+			Format:                 "ssh",
+			SigningKey:             "C:/keys/signing.key",
+			SigningKeyReadable:     true,
+			UserEmail:              "lane@example.invalid",
+			AllowedSignersFile:     "C:/keys/allowed_signers",
+			AllowedSignersReadable: true,
+		},
 	}
 }
 
@@ -633,6 +644,14 @@ func (*commandGit) ActiveOperation(context.Context, port.RepositoryIdentity) (st
 
 func (*commandGit) CheckTransportAuthentication(context.Context, port.RepositoryIdentity) error {
 	return nil
+}
+
+func (git *commandGit) SigningConfiguration(context.Context, port.RepositoryIdentity) (port.SigningConfiguration, error) {
+	return git.signingConfig, nil
+}
+
+func (git *commandGit) ProveSigningCapability(context.Context, port.RepositoryIdentity, port.SigningConfiguration) error {
+	return git.signingProofErr
 }
 
 func (*commandGit) HasCommits(context.Context, port.RepositoryIdentity) (bool, error) {

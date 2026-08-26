@@ -48,12 +48,18 @@ type Options struct {
 	Binary         string
 	Timeout        time.Duration
 	MaxOutputBytes int
+	// RequireSignedCommits makes every commit the adapter creates verify its
+	// signature fail-closed. The composition root binds it from the active
+	// policy contract.
+	RequireSignedCommits bool
 }
 
 // Repository executes the Git commands needed by the application layer.
 type Repository struct {
-	runner  processRunner
-	timeout time.Duration
+	runner               processRunner
+	timeout              time.Duration
+	requireSignedCommits bool
+	programRunner        func(binary string) processRunner
 }
 
 // New constructs a Git CLI adapter with safe defaults.
@@ -71,7 +77,14 @@ func New(options Options) *Repository {
 			binary:         binary,
 			maxOutputBytes: options.MaxOutputBytes,
 		},
-		timeout: timeout,
+		timeout:              timeout,
+		requireSignedCommits: options.RequireSignedCommits,
+		programRunner: func(program string) processRunner {
+			return execRunner{
+				binary:         program,
+				maxOutputBytes: options.MaxOutputBytes,
+			}
+		},
 	}
 }
 
@@ -1056,14 +1069,19 @@ func (repository *Repository) Stage(ctx context.Context, identity port.Repositor
 	return nil
 }
 
-// Commit creates a commit by streaming its validated message to Git.
+// Commit creates a commit by streaming its validated message to Git. When the
+// composition requires signed commits, the created object must carry a valid,
+// trusted signature or the operation fails closed.
 func (repository *Repository) Commit(ctx context.Context, identity port.RepositoryIdentity, message commitmsg.Message) error {
 	stdin := strings.NewReader(message.String() + "\n")
 	result := repository.invoke(ctx, identity.Root, stdin, "commit", "--file=-")
 	if result.err != nil {
 		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "create the commit", result)
 	}
-	return nil
+	if !repository.requireSignedCommits {
+		return nil
+	}
+	return repository.verifyCreatedCommitSignature(ctx, identity)
 }
 
 // Push pushes the named branch, optionally configuring its upstream.

@@ -38,15 +38,18 @@ func (store *memoryStore) Save(_ context.Context, preferences port.Preferences) 
 }
 
 type doctorGit struct {
-	discoverErr error
-	versionErr  error
-	commits     bool
-	commitErr   error
-	remoteErr   error
-	activeName  string
-	active      bool
-	activeErr   error
-	authErr     error
+	discoverErr      error
+	versionErr       error
+	commits          bool
+	commitErr        error
+	remoteErr        error
+	activeName       string
+	active           bool
+	activeErr        error
+	authErr          error
+	signingConfig    port.SigningConfiguration
+	signingConfigErr error
+	signingProofErr  error
 }
 
 type doctorTools struct {
@@ -122,6 +125,26 @@ func (git doctorGit) ActiveOperation(context.Context, port.RepositoryIdentity) (
 
 func (git doctorGit) CheckTransportAuthentication(context.Context, port.RepositoryIdentity) error {
 	return git.authErr
+}
+
+func (git doctorGit) SigningConfiguration(context.Context, port.RepositoryIdentity) (port.SigningConfiguration, error) {
+	return git.signingConfig, git.signingConfigErr
+}
+
+func (git doctorGit) ProveSigningCapability(context.Context, port.RepositoryIdentity, port.SigningConfiguration) error {
+	return git.signingProofErr
+}
+
+func validSigningConfiguration() port.SigningConfiguration {
+	return port.SigningConfiguration{
+		SigningEnabled:         true,
+		Format:                 "ssh",
+		SigningKey:             "C:/keys/signing.key",
+		SigningKeyReadable:     true,
+		UserEmail:              "lane@example.invalid",
+		AllowedSignersFile:     "C:/keys/allowed_signers",
+		AllowedSignersReadable: true,
+	}
 }
 
 func (git doctorGit) HasCommits(context.Context, port.RepositoryIdentity) (bool, error) {
@@ -269,7 +292,7 @@ func TestDescriptionIsSelfContained(t *testing.T) {
 	t.Parallel()
 
 	actual := Describe()
-	if actual.SchemaVersion != schemaVersion || actual.KeyPolicy != "syntax-only" {
+	if actual.SchemaVersion != schemaVersion || actual.KeyPolicy != "syntax-only" || actual.CommitSigning != CommitSigningRequired {
 		t.Fatalf("Describe() = %#v", actual)
 	}
 	if len(actual.BranchFamilies) != 13 || len(actual.CommitTypes) != 11 {
@@ -387,11 +410,11 @@ func TestDoctorIsReadOnly(t *testing.T) {
 
 	store := &memoryStore{preferences: port.Preferences{SchemaVersion: 1}}
 	tools := doctorTools{version: "lefthook 2.1.8", exists: true}
-	result, err := NewDoctorServiceWithDependencies(doctorGit{commits: true}, store, SyntaxOnlyKeyPolicy{}, tools).Run(context.Background(), "C:/repo")
+	result, err := NewDoctorServiceWithDependencies(doctorGit{commits: true, signingConfig: validSigningConfiguration()}, store, SyntaxOnlyKeyPolicy{}, tools).Run(context.Background(), "C:/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Repository.Root != "C:/repo" || len(result.Checks) != 11 {
+	if result.Repository.Root != "C:/repo" || len(result.Checks) != 13 {
 		t.Fatalf("Doctor.Run() = %#v", result)
 	}
 	for _, check := range result.Checks {
@@ -428,7 +451,7 @@ func TestDoctorWhiteboxDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(result.Checks) != 7 {
+		if len(result.Checks) != 9 {
 			t.Fatalf("minimal doctor checks = %#v", result.Checks)
 		}
 		for _, check := range result.Checks {
@@ -460,7 +483,7 @@ func TestDoctorWhiteboxDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if result.Repository.Root == "" || len(result.Checks) != 11 {
+		if result.Repository.Root == "" || len(result.Checks) != 13 {
 			t.Fatalf("doctor failure result = %#v", result)
 		}
 		for _, name := range []string{
@@ -469,6 +492,8 @@ func TestDoctorWhiteboxDiagnostics(t *testing.T) {
 			"selected remote",
 			"Git operation state",
 			"Git authentication",
+			"Commit signing configuration",
+			"Commit signing proof",
 			"runtime platform",
 			"Lefthook executable",
 			"Lefthook configuration",
@@ -509,7 +534,7 @@ func TestDoctorWhiteboxDiagnostics(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(result.Checks) != 11 {
+		if len(result.Checks) != 13 {
 			t.Fatalf("doctor checks = %#v", result.Checks)
 		}
 		if checkByName(t, result.Checks, "Git operation state").OK ||
