@@ -309,12 +309,18 @@ func TestSigningConfigurationLaneInjection(t *testing.T) {
 func TestProveSigningCapability(t *testing.T) {
 	t.Parallel()
 
+	// The key and allowed-signers paths derive at runtime so they are absolute
+	// on every operating system; a hardcoded Windows form would resolve
+	// relative to the repository root on Linux and macOS.
+	keysDirectory := t.TempDir()
+	signingKey := filepath.Join(keysDirectory, "signing.key")
+	allowedSigners := filepath.Join(keysDirectory, "allowed_signers")
 	configuration := port.SigningConfiguration{
 		SigningEnabled:     true,
 		Format:             "ssh",
-		SigningKey:         "C:/keys/signing.key",
+		SigningKey:         signingKey,
 		UserEmail:          "lane@example.invalid",
-		AllowedSignersFile: "C:/keys/allowed_signers",
+		AllowedSignersFile: allowedSigners,
 	}
 
 	t.Run("signs and verifies the canary with the configured identity", func(t *testing.T) {
@@ -333,14 +339,14 @@ func TestProveSigningCapability(t *testing.T) {
 			t.Fatalf("program calls = %#v", program.calls)
 		}
 		sign := program.calls[0]
-		if strings.Join(sign.arguments, " ") != "-Y sign -f C:/keys/signing.key -n git "+filepath.Join(sign.directory, "payload") {
+		if strings.Join(sign.arguments, " ") != "-Y sign -f "+signingKey+" -n git "+filepath.Join(sign.directory, "payload") {
 			t.Fatalf("sign call = %#v", sign)
 		}
 		verify := program.calls[1]
 		if verify.stdin != signingCanaryPayload {
 			t.Fatalf("verify stdin = %q, want the canary payload", verify.stdin)
 		}
-		expectedVerify := "-Y verify -f C:/keys/allowed_signers -I lane@example.invalid -n git -s " +
+		expectedVerify := "-Y verify -f " + allowedSigners + " -I lane@example.invalid -n git -s " +
 			filepath.Join(verify.directory, "payload") + ".sig"
 		if strings.Join(verify.arguments, " ") != expectedVerify {
 			t.Fatalf("verify call = %#v", verify)
