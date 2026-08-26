@@ -48,6 +48,8 @@ does not rely on any external governance repository or unpublished rule set.
 | Explicit staging only | VERIFIED | application and Git adapter tests |
 | Commit creation through stdin | VERIFIED | real local Git integration test |
 | Fail-closed Git transport authentication diagnostic | VERIFIED | non-interactive dry-run push adapter and same-package whitebox tests |
+| Fail-closed commit-signing readiness diagnostic | VERIFIED | effective-configuration, non-mutating canary sign/verify, and lane machine-identity injection checks with same-package whitebox tests |
+| Commit signature verification on creation | VERIFIED | the policy contract declares `commitSigning: required`; the Git adapter verifies every created commit through `git verify-commit` and rejects unsigned or untrusted objects fail-closed; same-package whitebox tests |
 | First-push publication detection | VERIFIED | real local Git integration test |
 | Base delta, merge, and rebase paths | VERIFIED | real local Git integration test |
 | Scratch-to-official squash transfer | VERIFIED | whitebox, CLI-contract, Git-adapter, and real local Git integration tests |
@@ -73,8 +75,8 @@ does not rely on any external governance repository or unpublished rule set.
 | `auth login/status/logout github` | IMPLEMENTED | explicit Device Flow, redacted status, canonical native secret-store lifecycle scoped by host, account, and configured GitHub App client ID, repository-identity binding with capability discovery and stale-binding rebinding, legacy-storage rejection, and CLI contract tests |
 | `validate pre-push` | IMPLEMENTED | parses every Git stdin ref update, validates the actual remote target, and reuses final local quality evidence only when it exactly matches the outgoing candidate |
 | `config key` | IMPLEMENTED | OS configuration directory, atomic JSON storage |
-| `policy describe`, `completion`, `version` | IMPLEMENTED | policy and environment inspection are read-only |
-| `doctor` | IMPLEMENTED | Git version, remote, fail-closed Git transport dry-run authentication, Lefthook, policy, configuration, and in-progress-operation checks |
+| `policy describe`, `completion`, `version` | IMPLEMENTED | policy and environment inspection are read-only; the policy contract declares the required commit signing |
+| `doctor` | IMPLEMENTED | Git version, remote, fail-closed Git transport dry-run authentication, fail-closed commit-signing configuration, canary proof and lane machine-identity checks, Lefthook, policy, configuration, and in-progress-operation checks |
 | Interactive Huh forms and accessible prompts | IMPLEMENTED | tested with accessible form input |
 | Interactive field validation retries | VERIFIED | invalid ticket, slug, commit-subject, and breaking-change values show field diagnostics and retry in place |
 | Workflow input failure summaries | VERIFIED | accepted command inputs accompany classified workflow and branch-creation failures |

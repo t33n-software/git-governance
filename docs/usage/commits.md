@@ -47,6 +47,14 @@ commit-creation flows derive the ticket key and ticket ID from the current or
 resolved target branch. Direct commits on `main`, `develop`, `release/*`, and
 `support/*` remain forbidden.
 
+The active local policy requires signed commits (`policy describe` reports
+`commitSigning: required`). Every commit the CLI creates is verified against
+the configured signing identity immediately after creation; an unsigned or
+unverifiable commit fails closed with `COMMIT_SIGNATURE_REQUIRED`. Prove the
+local signing setup with `doctor` before creating commits; the signing
+configuration itself stays with Git (`commit.gpgsign`, `gpg.format`,
+`user.signingkey`, `gpg.ssh.allowedSignersFile`).
+
 In interactive mode, the CLI first shows that fixed context, then presents the
 canonical commit-family list, and finally asks for the one-line description.
 The description must be the non-empty, unpadded text after `: ` and must not
