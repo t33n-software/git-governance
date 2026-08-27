@@ -84,7 +84,10 @@ type services struct {
 func defaultRuntime() Runtime {
 	return Runtime{
 		GitFactory: func(timeout time.Duration) port.GitRepository {
-			return gitcli.New(gitcli.Options{Timeout: timeout})
+			return gitcli.New(gitcli.Options{
+				Timeout:              timeout,
+				RequireSignedCommits: policy.Describe().CommitSigning == policy.CommitSigningRequired,
+			})
 		},
 		StoreFactory: func(path string) port.PreferencesStore {
 			return configfs.New(configfs.Options{Path: path})

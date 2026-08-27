@@ -80,6 +80,31 @@ type GitTransportAuthenticator interface {
 	CheckTransportAuthentication(context.Context, RepositoryIdentity) error
 }
 
+// SigningConfiguration carries the effective commit-signing facts of one
+// repository context. It never carries key material, only references and
+// readiness facts.
+type SigningConfiguration struct {
+	SigningEnabled         bool
+	Format                 string
+	SigningKey             string
+	SigningKeyReadable     bool
+	UserEmail              string
+	SignProgram            string
+	AllowedSignersFile     string
+	AllowedSignersReadable bool
+	LaneInjection          bool
+	InjectedSigningKeys    []string
+}
+
+// GitSigningInspector is an optional diagnostic capability. It reads the
+// effective commit-signing configuration and proves signing capability through
+// a non-mutating canary signature that is verified against the configured
+// allowed-signers surface.
+type GitSigningInspector interface {
+	SigningConfiguration(ctx context.Context, repository RepositoryIdentity) (SigningConfiguration, error)
+	ProveSigningCapability(ctx context.Context, repository RepositoryIdentity, configuration SigningConfiguration) error
+}
+
 // CherryPickContinuator is consumed only by workflows that must resume a
 // user-resolved cherry-pick. Keeping it separate avoids forcing unrelated Git
 // adapters and test fakes to implement a mutation they never invoke.

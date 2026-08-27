@@ -285,6 +285,9 @@ func newDoctorCommand(application *application) *cobra.Command {
 			if err := result.AuthenticationError(); err != nil {
 				return err
 			}
+			if err := result.SigningError(); err != nil {
+				return err
+			}
 			fields := make(map[string]string, len(result.Checks))
 			for _, check := range result.Checks {
 				status := "ok"

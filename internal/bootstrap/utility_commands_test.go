@@ -582,6 +582,17 @@ func TestPolicyDoctorAndReportContracts(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
 	})
 
+	t.Run("fails the command when the commit-signing proof is unavailable", func(t *testing.T) {
+		expected := errors.New("canary verification failed")
+		git := newUtilityCommandGit(t, "feature/ABC-123-add-export", nil)
+		git.signingProofErr = expected
+		application := newUtilityCommandApplication(git, &utilityPreferencesStore{}, nil, nil)
+		_, _, err := executeUtilityCommand(t, newDoctorCommand(application), context.Background(), nil)
+		if !errors.Is(err, expected) {
+			t.Fatalf("doctor signing error = %v, want %v", err, expected)
+		}
+	})
+
 	t.Run("stops diagnostics when the command context is cancelled", func(t *testing.T) {
 		application := newUtilityCommandApplication(
 			newUtilityCommandGit(t, "main", nil),

@@ -64,6 +64,7 @@ const (
 	CodePolicyBundleStale            Code = "POLICY_BUNDLE_STALE"
 	CodeConfigurationInvalid         Code = "CONFIGURATION_INVALID"
 	CodeConfigurationUnavailable     Code = "CONFIGURATION_UNAVAILABLE"
+	CodeCommitSignatureRequired      Code = "COMMIT_SIGNATURE_REQUIRED"
 	CodeExternalCommandFailed        Code = "EXTERNAL_COMMAND_FAILED"
 	CodeOperationCancelled           Code = "OPERATION_CANCELLED"
 	CodeInternal                     Code = "INTERNAL"
