@@ -300,6 +300,43 @@ func TestTagPromotionPayloadDispatchesReleaseArtifacts(t *testing.T) {
 	}
 }
 
+func TestPublishPayloadProvisionsTheSignerViaTheGovernedChannel(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "reusable-publish-release-artifacts.yml")
+	for _, expected := range []string{
+		"name: Provision the bound signature verifier",
+		`verifier="$(go tool -modfile tools/go.mod quality-gate provision-verifier)"`,
+		`dirname "$verifier" >> "$GITHUB_PATH"`,
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("publish payload does not provision the signer via the governed channel with %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"sigstore/cosign-installer",
+		"cosign-release:",
+	} {
+		if strings.Contains(workflow, forbidden) {
+			t.Fatalf("publish payload must not carry the payload-level installer form %q: the signer identity is defined once in the registry and provisioned via the governed machinery", forbidden)
+		}
+	}
+
+	provisionIndex := strings.Index(workflow, "quality-gate provision-verifier")
+	signIndex := strings.Index(workflow, "name: Build, package, sign, and publish")
+	if provisionIndex == -1 || signIndex == -1 || provisionIndex > signIndex {
+		t.Fatal("publish payload must provision the signer before the signing release step")
+	}
+
+	githubOnlyStart := strings.Index(workflow, "  deliver-github:")
+	if githubOnlyStart == -1 {
+		t.Fatal("publish payload does not contain the github-only delivery job")
+	}
+	if strings.Contains(workflow[githubOnlyStart:], "provision-verifier") {
+		t.Fatal("the github-only delivery variant does not sign with cosign and must not provision the verifier")
+	}
+}
+
 func TestTagPromotionArtifactDispatchUsesJobToken(t *testing.T) {
 	t.Parallel()
 

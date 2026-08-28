@@ -12,6 +12,8 @@ tool (
 	honnef.co/go/tools/cmd/staticcheck
 )
 
+require github.com/t33n-software/supply-chain-governance v0.0.0-20260827105518-e2ca604c8e93
+
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
 	charm.land/lipgloss/v2 v2.0.5 // indirect
@@ -57,7 +59,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/schollz/progressbar/v3 v3.19.1 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
-	github.com/t33n-software/go-quality-authority v0.0.0-20260821160300-23de9d9abc77 // indirect
+	github.com/t33n-software/go-quality-authority v0.0.0-20260828084041-7f40c7b35782 // indirect
 	github.com/tidwall/jsonc v0.3.3 // indirect
 	github.com/urfave/cli/v3 v3.10.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
