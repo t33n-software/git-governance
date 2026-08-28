@@ -111,6 +111,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/t33n-software/go-quality-authority v0.0.0-20260828084041-7f40c7b35782 h1:efcAp10lPnoh8guWlP4y3WBqzMkgKB91UCnJY1Zqtko=
 github.com/t33n-software/go-quality-authority v0.0.0-20260828084041-7f40c7b35782/go.mod h1:H0V5sIHFhaZy7EE2auGh9rt8lTyorCFTtedQxYKB/OY=
+github.com/t33n-software/repository-governance v0.0.0-20260827184532-d30fd11588a2 h1:nLoEMmNR7uNulh+jV4ByNDnmJ9abyZIQrcvuLBS45ek=
+github.com/t33n-software/repository-governance v0.0.0-20260827184532-d30fd11588a2/go.mod h1:2h6FDH/31p9+RzQrMFb17yaLDYiKlCCrPT5GbBNyr7w=
 github.com/t33n-software/supply-chain-governance v0.0.0-20260827105518-e2ca604c8e93 h1:+sMrlOGgkD2nt8lshbkValJUInqMA7zkTTCUPhgbN5Y=
 github.com/t33n-software/supply-chain-governance v0.0.0-20260827105518-e2ca604c8e93/go.mod h1:Jjnj20CWgbHBJ+5CoOLWonqEIJ+8GOuKpjx4CdANygM=
 github.com/tidwall/jsonc v0.3.3 h1:RVQqL3xFfDkKKXIDsrBiVQiEpBtxoKbmMXONb2H/y2w=

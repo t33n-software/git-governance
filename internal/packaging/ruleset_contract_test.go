@@ -2,7 +2,6 @@ package packaging
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,16 +75,12 @@ func TestDependencyAdmissionReviewTargetsEverySharedLine(t *testing.T) {
 	workflow := strings.ReplaceAll(readWorkflow(t, "dependency-review.yml"), "\r\n", "\n")
 	const pullRequestContract = `on:
   pull_request:
-    branches:
-      - develop
-      - main
-      - release/**
-      - support/**`
+    branches: [main, develop, "release/**", "support/**"]`
 	if !strings.Contains(workflow, pullRequestContract) {
-		t.Fatalf("dependency-review workflow must target every shared line:\n%s", pullRequestContract)
+		t.Fatalf("dependency-review caller must target every shared line:\n%s", pullRequestContract)
 	}
-	if !strings.Contains(workflow, "\n  dependency-review:\n    name: "+dependencyAdmissionReviewStatusCheck+"\n") {
-		t.Fatalf("dependency-review workflow must publish %q", dependencyAdmissionReviewStatusCheck)
+	if !strings.Contains(workflow, "\n  dependency-review:\n    name: Dependency review\n") {
+		t.Fatal("dependency-review caller must publish the lane identity \"Dependency review\"")
 	}
 }
 
@@ -317,9 +312,9 @@ func expectedSharedLineChecks(t *testing.T, fileName string) []string {
 	t.Helper()
 
 	if rulesetClassFromFileName(t, fileName) == "linux-only" {
-		return linuxOnlyStatusChecks(t)
+		return linuxOnlyStatusChecks()
 	}
-	return sharedLineStatusChecks(t)
+	return sharedLineStatusChecks()
 }
 
 func readRepositoryDocument(t *testing.T, path string) string {
@@ -409,67 +404,31 @@ const dependencyAdmissionReviewStatusCheck = "Dependency admission review"
 // rulesets. The canonical callers (repository-governance) emit them per the
 // naming law (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job
 // carries the lane identity, the callee job carries the gate or variant
-// identity. The full-class variants keep the inline-era contexts until the
-// full-class repositories adopt the canonical callers.
+// identity.
 const (
 	compositeQualityGateLinuxStatusCheck = "Quality gates / linux-amd64"
 	compositeDependencyReviewStatusCheck = "Dependency review / Dependency admission review"
 )
 
-func sharedLineStatusChecks(t *testing.T) []string {
-	t.Helper()
-
-	return append(ciQualityStatusChecks(t), dependencyAdmissionReviewStatusCheck)
+// The inline-era check contexts the full-class shared-line rulesets keep
+// until their composite migration (GOV-98). They are static on purpose: the
+// dogfooded thin caller no longer carries the inline matrix they were derived
+// from, and the ruleset sources migrate only after the composite producer has
+// been proven on the real dogfooding pull request (the proof-before-binding
+// sequencing).
+var inlineEraFullClassQualityStatusChecks = []string{
+	"Quality gates (linux-amd64)",
+	"Quality gates (macos-arm64)",
+	"Quality gates (windows-amd64)",
 }
 
-func linuxOnlyStatusChecks(t *testing.T) []string {
-	t.Helper()
+func sharedLineStatusChecks() []string {
+	checks := append([]string{}, inlineEraFullClassQualityStatusChecks...)
+	return append(checks, dependencyAdmissionReviewStatusCheck)
+}
 
+func linuxOnlyStatusChecks() []string {
 	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck}
-}
-
-func ciQualityStatusChecks(t *testing.T) []string {
-	t.Helper()
-
-	workflow := strings.ReplaceAll(readWorkflow(t, "ci.yml"), "\r\n", "\n")
-	const (
-		qualityJobStart     = "\n  quality:\n"
-		nativeSmokeJobStart = "\n  native-smoke:\n"
-		matrixEntryPrefix   = "          - name: "
-	)
-	start := strings.Index(workflow, qualityJobStart)
-	if start == -1 {
-		t.Fatal("CI workflow does not define the quality job")
-	}
-	end := strings.Index(workflow[start+len(qualityJobStart):], nativeSmokeJobStart)
-	if end == -1 {
-		t.Fatal("CI workflow does not define the native-smoke job after the quality job")
-	}
-	qualityJob := workflow[start : start+len(qualityJobStart)+end]
-	if !strings.Contains(qualityJob, "name: Quality gates (${{ matrix.name }})") {
-		t.Fatal("CI quality job must publish matrix-specific Quality gates check names")
-	}
-
-	checks := make([]string, 0)
-	seen := make(map[string]struct{})
-	for _, line := range strings.Split(qualityJob, "\n") {
-		if !strings.HasPrefix(line, matrixEntryPrefix) {
-			continue
-		}
-		matrixName := strings.TrimPrefix(line, matrixEntryPrefix)
-		if matrixName == "" {
-			t.Fatal("CI quality matrix contains an empty check-name suffix")
-		}
-		if _, duplicate := seen[matrixName]; duplicate {
-			t.Fatalf("CI quality matrix repeats check-name suffix %q", matrixName)
-		}
-		seen[matrixName] = struct{}{}
-		checks = append(checks, fmt.Sprintf("Quality gates (%s)", matrixName))
-	}
-	if len(checks) == 0 {
-		t.Fatal("CI quality matrix does not define any required status checks")
-	}
-	return checks
 }
 
 func statusCheckContexts(checks []struct {

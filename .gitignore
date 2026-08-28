@@ -7,6 +7,8 @@
 *.test
 *.out
 *.cov
+
+# -- project additions below this line --
 cover-github
 *.txt
 !LICENSES/**
