@@ -2,7 +2,6 @@ package packaging
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -403,73 +402,39 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 	return false
 }
 
+// The lane name published by the still-inline dependency-review workflow. The
+// dogfooding adoption (GOV-97) replaces the workflow with the thin caller,
+// which publishes the lane identity "Dependency review" instead.
 const dependencyAdmissionReviewStatusCheck = "Dependency admission review"
 
-// The canonical composite check contexts bound by the linux-only shared-line
-// rulesets. The canonical callers (repository-governance) emit them per the
-// naming law (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job
-// carries the lane identity, the callee job carries the gate or variant
-// identity. The full-class variants keep the inline-era contexts until the
-// full-class repositories adopt the canonical callers.
+// The canonical composite check contexts bound by the shared-line rulesets.
+// The canonical callers (repository-governance) emit them per the naming law
+// (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job carries the lane
+// identity, the callee job carries the gate or variant identity. The
+// full-class variants carry them since the composite producer has been proven
+// on the real dogfooding pull request (the proof-before-binding sequencing).
 const (
-	compositeQualityGateLinuxStatusCheck = "Quality gates / linux-amd64"
-	compositeDependencyReviewStatusCheck = "Dependency review / Dependency admission review"
+	compositeQualityGateLinuxStatusCheck   = "Quality gates / linux-amd64"
+	compositeQualityGateMacosStatusCheck   = "Quality gates / macos-arm64"
+	compositeQualityGateWindowsStatusCheck = "Quality gates / windows-amd64"
+	compositeDependencyReviewStatusCheck   = "Dependency review / Dependency admission review"
 )
 
 func sharedLineStatusChecks(t *testing.T) []string {
 	t.Helper()
 
-	return append(ciQualityStatusChecks(t), dependencyAdmissionReviewStatusCheck)
+	return []string{
+		compositeQualityGateLinuxStatusCheck,
+		compositeQualityGateMacosStatusCheck,
+		compositeQualityGateWindowsStatusCheck,
+		compositeDependencyReviewStatusCheck,
+	}
 }
 
 func linuxOnlyStatusChecks(t *testing.T) []string {
 	t.Helper()
 
 	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck}
-}
-
-func ciQualityStatusChecks(t *testing.T) []string {
-	t.Helper()
-
-	workflow := strings.ReplaceAll(readWorkflow(t, "ci.yml"), "\r\n", "\n")
-	const (
-		qualityJobStart     = "\n  quality:\n"
-		nativeSmokeJobStart = "\n  native-smoke:\n"
-		matrixEntryPrefix   = "          - name: "
-	)
-	start := strings.Index(workflow, qualityJobStart)
-	if start == -1 {
-		t.Fatal("CI workflow does not define the quality job")
-	}
-	end := strings.Index(workflow[start+len(qualityJobStart):], nativeSmokeJobStart)
-	if end == -1 {
-		t.Fatal("CI workflow does not define the native-smoke job after the quality job")
-	}
-	qualityJob := workflow[start : start+len(qualityJobStart)+end]
-	if !strings.Contains(qualityJob, "name: Quality gates (${{ matrix.name }})") {
-		t.Fatal("CI quality job must publish matrix-specific Quality gates check names")
-	}
-
-	checks := make([]string, 0)
-	seen := make(map[string]struct{})
-	for _, line := range strings.Split(qualityJob, "\n") {
-		if !strings.HasPrefix(line, matrixEntryPrefix) {
-			continue
-		}
-		matrixName := strings.TrimPrefix(line, matrixEntryPrefix)
-		if matrixName == "" {
-			t.Fatal("CI quality matrix contains an empty check-name suffix")
-		}
-		if _, duplicate := seen[matrixName]; duplicate {
-			t.Fatalf("CI quality matrix repeats check-name suffix %q", matrixName)
-		}
-		seen[matrixName] = struct{}{}
-		checks = append(checks, fmt.Sprintf("Quality gates (%s)", matrixName))
-	}
-	if len(checks) == 0 {
-		t.Fatal("CI quality matrix does not define any required status checks")
-	}
-	return checks
 }
 
 func statusCheckContexts(checks []struct {
