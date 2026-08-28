@@ -398,33 +398,26 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 	return false
 }
 
-const dependencyAdmissionReviewStatusCheck = "Dependency admission review"
-
-// The canonical composite check contexts bound by the linux-only shared-line
-// rulesets. The canonical callers (repository-governance) emit them per the
-// naming law (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job
-// carries the lane identity, the callee job carries the gate or variant
-// identity.
+// The canonical composite check contexts bound by the shared-line rulesets.
+// The canonical callers (repository-governance) emit them per the naming law
+// (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job carries the lane
+// identity, the callee job carries the gate or variant identity. The
+// full-class variants carry them since the composite producer has been proven
+// on the real dogfooding pull request (the proof-before-binding sequencing).
 const (
-	compositeQualityGateLinuxStatusCheck = "Quality gates / linux-amd64"
-	compositeDependencyReviewStatusCheck = "Dependency review / Dependency admission review"
+	compositeQualityGateLinuxStatusCheck   = "Quality gates / linux-amd64"
+	compositeQualityGateMacosStatusCheck   = "Quality gates / macos-arm64"
+	compositeQualityGateWindowsStatusCheck = "Quality gates / windows-amd64"
+	compositeDependencyReviewStatusCheck   = "Dependency review / Dependency admission review"
 )
 
-// The inline-era check contexts the full-class shared-line rulesets keep
-// until their composite migration (GOV-98). They are static on purpose: the
-// dogfooded thin caller no longer carries the inline matrix they were derived
-// from, and the ruleset sources migrate only after the composite producer has
-// been proven on the real dogfooding pull request (the proof-before-binding
-// sequencing).
-var inlineEraFullClassQualityStatusChecks = []string{
-	"Quality gates (linux-amd64)",
-	"Quality gates (macos-arm64)",
-	"Quality gates (windows-amd64)",
-}
-
 func sharedLineStatusChecks() []string {
-	checks := append([]string{}, inlineEraFullClassQualityStatusChecks...)
-	return append(checks, dependencyAdmissionReviewStatusCheck)
+	return []string{
+		compositeQualityGateLinuxStatusCheck,
+		compositeQualityGateMacosStatusCheck,
+		compositeQualityGateWindowsStatusCheck,
+		compositeDependencyReviewStatusCheck,
+	}
 }
 
 func linuxOnlyStatusChecks() []string {
