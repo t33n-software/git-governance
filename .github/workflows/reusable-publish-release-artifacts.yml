@@ -96,10 +96,12 @@ jobs:
         with:
           syft-version: v1.46.0
 
-      - name: Install Cosign for checksum signing
-        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
-        with:
-          cosign-release: v3.0.6
+      - name: Provision the bound signature verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          verifier="$(go tool -modfile tools/go.mod quality-gate provision-verifier)"
+          dirname "$verifier" >> "$GITHUB_PATH"
 
       - name: Validate GoReleaser configuration
         uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
