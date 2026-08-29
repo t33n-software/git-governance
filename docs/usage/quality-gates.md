@@ -14,12 +14,6 @@ array; no shell command string is interpreted.
   "schemaVersion": 4,
   "toolchain": { "language": "go", "version": "1.26.6" },
   "extends": [],
-  "defaults": {
-    "includeFamilies": [
-      "feature", "fix", "docs", "refactor",
-      "chore", "test", "perf", "hotfix"
-    ]
-  },
   "gates": [
     {
       "name": "unit-tests",
@@ -64,8 +58,9 @@ configuration is a trust boundary because running project-defined commands can
 execute project code. Review it before using it in an unfamiliar repository.
 
 When a valid configuration exists, each gate receives a typed branch-family
-scope. A gate without `includeFamilies` or `excludeFamilies` inherits
-`defaults`. `includeFamilies` selects only the listed families;
+scope. A gate without `includeFamilies` or `excludeFamilies` inherits the
+schema-owned default family set, which a repository may override through a
+named `defaults` block. `includeFamilies` selects only the listed families;
 `excludeFamilies` is applied afterward and removes specific families. A
 multi-ref push runs every eligible gate once after its per-ref governance
 checks pass.
@@ -96,7 +91,7 @@ stress test that other families do not need.
 This repository configures one `full-local-build` gate:
 
 ```text
-go run -mod=readonly ./cmd/build
+go tool -modfile tools/go.mod quality-gate
 ```
 
 The repository configuration, rather than the generic CLI, owns that Go
