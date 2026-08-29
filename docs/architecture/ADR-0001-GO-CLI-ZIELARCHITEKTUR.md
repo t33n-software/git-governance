@@ -595,7 +595,7 @@ Pflichtgates:
 - Tests für unveröffentlichten und veröffentlichten Branch
 - Tests für no-op, Rebase- und Merge-Fälle der Basisfrische
 - `go test ./...`
-- `go run ./cmd/check-coverage`
+- `go tool -modfile tools/go.mod check-coverage`
 - `go test -race ./...`
 - `go vet ./...`
 - Vulnerability- und Dependency-Scan

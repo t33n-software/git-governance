@@ -12,10 +12,10 @@ alwaysApply: true
 - Add a regression test for every fixed defect and make assertions precise
   enough to fail when the defect returns.
 - For every substantive Go change, format changed Go files and run:
-  `go test ./...` and `go run ./cmd/check-coverage`.
-- `cmd/check-coverage` is a required release gate: every executable Go package
-  must reach exactly 100.0% statement coverage. Do not claim verification when
-  this command was not run or did not pass.
+  `go test ./...` and `go tool -modfile tools/go.mod check-coverage`.
+- The pinned `check-coverage` tool is a required release gate: every executable
+  Go package must reach exactly 100.0% statement coverage. Do not claim
+  verification when this command was not run or did not pass.
 - Follow the repository gate contracts in `CONTRIBUTING.md`,
   `README.md`, and `git-governance.quality.json`; preserve their command-array
   security model and do not hardcode project-specific checks into the CLI.

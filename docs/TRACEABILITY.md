@@ -116,7 +116,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Gate | Status | Latest local result |
 |---|---|---|
 | `go test ./...` | VERIFIED | passed after final remediation |
-| `go run ./cmd/check-coverage` | VERIFIED | every Go package had a `_test.go` file; every package with executable statements reached 100.0 % |
+| `go tool -modfile tools/go.mod check-coverage` | VERIFIED | every Go package had a `_test.go` file; every package with executable statements reached 100.0 % |
 | `go vet ./...` | VERIFIED | passed after final remediation |
 | Domain whitebox coverage | VERIFIED | 100.0 % in every domain package |
 | Git adapter whitebox coverage | VERIFIED | 100.0 % |
@@ -131,7 +131,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Vulnerability scan | VERIFIED | `govulncheck` v1.5.0 reported no vulnerabilities |
 | Windows amd64 native smoke | VERIFIED | version, policy, and branch-catalog commands passed; `doctor` is intentionally excluded because detached CI checkouts have no branch-bound Git credential |
 | Windows/macOS/Linux cross-builds | VERIFIED | all six promised OS/architecture binaries compiled with `CGO_ENABLED=0` |
-| Native primary-OS full-quality matrix | IMPLEMENTED | CI runs `cmd/build` natively on Linux, macOS, and Windows; each OS independently enforces lint, tests, uncached 100%-coverage, race, fuzz, and security gates |
+| Native primary-OS full-quality matrix | IMPLEMENTED | CI runs the canonical quality gate natively on Linux, macOS, and Windows; each OS independently enforces lint, tests, uncached 100%-coverage, race, fuzz, and security gates |
 | Native ARM64 smoke tests | IMPLEMENTED | CI matrix contains Ubuntu ARM64, Windows ARM64, and macOS ARM64 runners; remote execution requires the first push |
 | macOS/Linux native smoke tests | IMPLEMENTED | CI executes native smoke tests; local Windows execution is intentionally not a prerequisite |
 | Quality configuration schema v4 | VERIFIED | the quality runner strictly decodes schemaVersion 4 with the required language-keyed pinned toolchain block, the optional capability-pack `extends` declaration, and the optional project block (binary smoke contracts, fuzz budgets); schemaVersion 3 and unknown fields fail closed |
@@ -161,6 +161,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Internal Approved Proxy and registry admission | BLOCKED | intentionally deferred until the artifact-registry platform is provisioned; the repository does not change its current Go proxy configuration |
 | Hermetic release build enclave | BLOCKED | requires the deferred Approved Proxy plus an immutable, pre-provisioned build image and network isolation outside repository configuration |
 | Code owner review on shared lines | IMPLEMENTED / PROVISIONING REQUIRED | `.github/CODEOWNERS` binds the default owner and every shared-line ruleset class variant sets `require_code_owner_review: true`; importing the canonical organization rulesets remains an external prerequisite |
+| Canonical gate chain via tool pin | IMPLEMENTED | the repository references the canonical gate chain exactly once through the pinned `quality-gate` orchestrator (`go tool -modfile tools/go.mod quality-gate`); the chain copies `cmd/build` and `cmd/check-coverage` are removed; the quality configuration drops the restated family-defaults block because the schema owns the canonical default; the packaging contract tests prove the canonical invocation and the absence of the copies |
 
 ## Confirmed remediation work
 
