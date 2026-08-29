@@ -88,6 +88,11 @@ bound as data through the `delivery_variant` input — never a forked payload:
   (`go build -modfile tools/go.mod ... github.com/<home>/cmd/git-governance`).
   The CLI is a versioned, admitted tool — never a source checkout inside a
   tenant lane, never a long-lived artifact reference.
+- **The Go toolchain** at every lifecycle setup location is resolved
+  fail-closed from exactly one `toolchain goX.Y.Z` directive in the checked-out
+  tenant `go.mod`. `actions/setup-go` receives that exact version through
+  `go-version`; the `go` directive, `go-version-file`, and a latest-patch
+  resolution are never valid substitutes.
 - **The source verification** in the delivery lane runs the canonical quality
   gate (`go tool -modfile tools/go.mod quality-gate`) — the single gate form,
   pinned as a class-D tool; there is no per-tenant gate choice.
