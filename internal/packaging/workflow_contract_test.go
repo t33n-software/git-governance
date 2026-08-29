@@ -863,46 +863,193 @@ func TestWorkflowFilesUseBoundedLifecycleNames(t *testing.T) {
 	}
 }
 
-func TestCIWorkflowUsesBuildWorkspaceForNativeSmokeBinary(t *testing.T) {
+func TestReleaseGatesWorkflowValidatesMainHotfixRecord(t *testing.T) {
 	t.Parallel()
 
-	workflow := readWorkflow(t, "ci.yml")
+	workflow := readWorkflow(t, "release-gates.yml")
 	for _, expected := range []string{
-		"mkdir -p .build/bin",
-		`-o ".build/bin/git-governance${{ matrix.extension }}"`,
-		`"./.build/bin/git-governance${{ matrix.extension }}" --version`,
-		`"./.build/bin/git-governance${{ matrix.extension }}" --output json branch list`,
-		`"./.build/bin/git-governance${{ matrix.extension }}" --output json policy describe`,
-	} {
-		if !strings.Contains(workflow, expected) {
-			t.Fatalf("CI workflow does not contain %q", expected)
-		}
-	}
-	for _, forbidden := range []string{
-		"mkdir -p dist",
-		`-o "dist/git-governance${{ matrix.extension }}"`,
-		`"./dist/git-governance${{ matrix.extension }}"`,
-	} {
-		if strings.Contains(workflow, forbidden) {
-			t.Fatalf("CI workflow must not contain %q", forbidden)
-		}
-	}
-}
-
-func TestCIWorkflowValidatesMainHotfixRecordInsideRequiredQualityGate(t *testing.T) {
-	t.Parallel()
-
-	workflow := readWorkflow(t, "ci.yml")
-	for _, expected := range []string{
-		"name: Validate reviewed main hotfix release record",
-		"matrix.name == 'linux-amd64'",
-		"github.event.pull_request.base.ref == 'main'",
+		"  hotfix-record:\n",
+		"name: Hotfix release record",
+		"github.event_name == 'pull_request' &&",
+		"github.event.pull_request.base.ref == 'main' &&",
+		"github.event.pull_request.head.repo.full_name == github.repository &&",
 		"startsWith(github.event.pull_request.head.ref, 'hotfix/')",
+		"name: Validate reviewed main hotfix release record",
 		"workflow hotfix validate-record",
 		`--branch "$HOTFIX_BRANCH"`,
 	} {
 		if !strings.Contains(workflow, expected) {
-			t.Fatalf("CI workflow does not validate main hotfix records with %q", expected)
+			t.Fatalf("release-gates workflow does not validate main hotfix records with %q", expected)
+		}
+	}
+}
+
+func TestReleaseGatesWorkflowValidatesTheReleaseConfiguration(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, "release-gates.yml")
+	for _, expected := range []string{
+		"  release-config:\n",
+		"name: Release configuration",
+		"goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89",
+		"args: check",
+	} {
+		if !strings.Contains(workflow, expected) {
+			t.Fatalf("release-gates workflow does not validate the release configuration with %q", expected)
+		}
+	}
+}
+
+// bindingManifest mirrors the tenant binding manifest (repo-bindings/v1) for
+// the self-consistency proofs of the canonical adoption. The home-side proof
+// against the canonical masters is owned by the verify-canonical tool; these
+// tests bind the tenant files to the manifest.
+type bindingManifest struct {
+	Home struct {
+		Repository string `json:"repository"`
+		SHA        string `json:"sha"`
+	} `json:"home"`
+	Callers []struct {
+		File   string `json:"file"`
+		Master string `json:"master"`
+		SHA256 string `json:"sha256"`
+	} `json:"callers"`
+	Files struct {
+		Lefthook      fileBinding `json:"lefthook"`
+		Gitattributes fileBinding `json:"gitattributes"`
+		Gitignore     fileBinding `json:"gitignore"`
+		Dependabot    fileBinding `json:"dependabot"`
+	} `json:"files"`
+	Codeowners struct {
+		Path         string `json:"path"`
+		DefaultOwner string `json:"defaultOwner"`
+	} `json:"codeowners"`
+}
+
+type fileBinding struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}
+
+func readBindingManifest(t *testing.T) bindingManifest {
+	t.Helper()
+
+	var manifest bindingManifest
+	if err := json.Unmarshal([]byte(readRepositoryDocument(t, "repo-bindings.json")), &manifest); err != nil {
+		t.Fatalf("repo-bindings.json is not valid JSON: %v", err)
+	}
+	if manifest.Home.Repository != "t33n-software/repository-governance" {
+		t.Fatalf("the manifest binds home %q", manifest.Home.Repository)
+	}
+	return manifest
+}
+
+// hashRepositoryFile hashes the LF-normalized repository file; the canonical
+// .gitattributes makes the checkout LF, and the normalization keeps the
+// derivation tolerant as the second line of defense.
+func hashRepositoryFile(t *testing.T, path string) string {
+	t.Helper()
+
+	sum := sha256.Sum256([]byte(normalizeLineEndings(readRepositoryDocument(t, path))))
+	return fmt.Sprintf("%x", sum)
+}
+
+func TestCanonicalCallersMatchTheBindingManifest(t *testing.T) {
+	t.Parallel()
+
+	manifest := readBindingManifest(t)
+	want := map[string]string{
+		".github/workflows/ci.yml":                "hosting-platforms/github/workflows/callers/go/ci-full.yml",
+		".github/workflows/codeql.yml":            "hosting-platforms/github/workflows/callers/go/codeql.yml",
+		".github/workflows/dependency-review.yml": "hosting-platforms/github/workflows/callers/go/dependency-review.yml",
+	}
+	if len(manifest.Callers) != len(want) {
+		t.Fatalf("the manifest carries %d callers, want %d", len(manifest.Callers), len(want))
+	}
+	for _, caller := range manifest.Callers {
+		master, found := want[caller.File]
+		if !found {
+			t.Fatalf("the manifest carries an unexpected caller %q", caller.File)
+		}
+		if caller.Master != master {
+			t.Fatalf("caller %q binds master %q, want %q", caller.File, caller.Master, master)
+		}
+		if hash := hashRepositoryFile(t, caller.File); hash != caller.SHA256 {
+			t.Fatalf("the tenant caller %s hashes to %s, want the bound %s", caller.File, hash, caller.SHA256)
+		}
+		content := readRepositoryDocument(t, caller.File)
+		if !strings.Contains(content, "uses: "+manifest.Home.Repository+"/.github/workflows/reusable-") {
+			t.Fatalf("the tenant caller %s does not reference a home payload", caller.File)
+		}
+		if !strings.Contains(content, "@"+manifest.Home.SHA) {
+			t.Fatalf("the tenant caller %s does not pin the bound home SHA", caller.File)
+		}
+		if !strings.Contains(content, `branches: [main, develop, "release/**", "support/**"]`) {
+			t.Fatalf("the tenant caller %s does not cover every shared line", caller.File)
+		}
+	}
+}
+
+func TestCanonicalFileFamilyMatchesTheBindingManifest(t *testing.T) {
+	t.Parallel()
+
+	manifest := readBindingManifest(t)
+	for _, topic := range []fileBinding{
+		manifest.Files.Lefthook,
+		manifest.Files.Gitattributes,
+		manifest.Files.Dependabot,
+	} {
+		if hash := hashRepositoryFile(t, topic.Path); hash != topic.SHA256 {
+			t.Fatalf("the canonical file %s hashes to %s, want the bound %s", topic.Path, hash, topic.SHA256)
+		}
+	}
+	// The gitignore topic is prefix-mode in the home verifier: the canonical
+	// core is a verbatim prefix and the project additions live below the mark.
+	gitignore := normalizeLineEndings(readRepositoryDocument(t, manifest.Files.Gitignore.Path))
+	const canonicalGitignoreCore = "# Local build and test outputs.\n/.build/\n/dist/\n/coverage/\n/.cache/\n*.coverprofile\n*.test\n*.out\n*.cov\n\n# -- project additions below this line --\n"
+	if !strings.HasPrefix(gitignore, canonicalGitignoreCore) {
+		t.Fatal("the gitignore does not carry the canonical core as a verbatim prefix with the project-block mark")
+	}
+	for _, addition := range []string{"cover-github", "*.txt", "!LICENSES/**"} {
+		if !strings.Contains(gitignore[len(canonicalGitignoreCore):], addition) {
+			t.Fatalf("the gitignore project block misses %q", addition)
+		}
+	}
+
+	codeowners := readRepositoryDocument(t, manifest.Codeowners.Path)
+	if !strings.Contains(codeowners, "* "+manifest.Codeowners.DefaultOwner) {
+		t.Fatalf("the ownership file does not bind the default owner %q", manifest.Codeowners.DefaultOwner)
+	}
+}
+
+func TestConformanceWorkflowBindsTheVerifier(t *testing.T) {
+	t.Parallel()
+
+	manifest := readBindingManifest(t)
+	content := readRepositoryDocument(t, ".github/workflows/canonical-conformance.yml")
+	for _, required := range []string{
+		"permissions: {}",
+		"name: Canonical conformance",
+		"uses: " + manifest.Home.Repository + "/.github/actions/verify-canonical-files@" + manifest.Home.SHA,
+		`branches: [main, develop, "release/**", "support/**"]`,
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("the canonical conformance workflow does not contain %q", required)
+		}
+	}
+}
+
+func TestToolsModulePinsTheCanonicalVerifier(t *testing.T) {
+	t.Parallel()
+
+	toolsModule := readRepositoryDocument(t, filepath.Join("tools", "go.mod"))
+	for _, required := range []string{
+		"github.com/t33n-software/repository-governance/cmd/verify-canonical",
+		"github.com/t33n-software/go-quality-authority/cmd/quality-gate",
+		"github.com/t33n-software/go-quality-authority/cmd/check-coverage",
+	} {
+		if !strings.Contains(toolsModule, required) {
+			t.Fatalf("tools/go.mod does not pin %q", required)
 		}
 	}
 }

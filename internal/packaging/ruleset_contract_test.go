@@ -75,16 +75,12 @@ func TestDependencyAdmissionReviewTargetsEverySharedLine(t *testing.T) {
 	workflow := strings.ReplaceAll(readWorkflow(t, "dependency-review.yml"), "\r\n", "\n")
 	const pullRequestContract = `on:
   pull_request:
-    branches:
-      - develop
-      - main
-      - release/**
-      - support/**`
+    branches: [main, develop, "release/**", "support/**"]`
 	if !strings.Contains(workflow, pullRequestContract) {
-		t.Fatalf("dependency-review workflow must target every shared line:\n%s", pullRequestContract)
+		t.Fatalf("dependency-review caller must target every shared line:\n%s", pullRequestContract)
 	}
-	if !strings.Contains(workflow, "\n  dependency-review:\n    name: "+dependencyAdmissionReviewStatusCheck+"\n") {
-		t.Fatalf("dependency-review workflow must publish %q", dependencyAdmissionReviewStatusCheck)
+	if !strings.Contains(workflow, "\n  dependency-review:\n    name: Dependency review\n") {
+		t.Fatal("dependency-review caller must publish the lane identity \"Dependency review\"")
 	}
 }
 
@@ -316,9 +312,9 @@ func expectedSharedLineChecks(t *testing.T, fileName string) []string {
 	t.Helper()
 
 	if rulesetClassFromFileName(t, fileName) == "linux-only" {
-		return linuxOnlyStatusChecks(t)
+		return linuxOnlyStatusChecks()
 	}
-	return sharedLineStatusChecks(t)
+	return sharedLineStatusChecks()
 }
 
 func readRepositoryDocument(t *testing.T, path string) string {
@@ -402,11 +398,6 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 	return false
 }
 
-// The lane name published by the still-inline dependency-review workflow. The
-// dogfooding adoption (GOV-97) replaces the workflow with the thin caller,
-// which publishes the lane identity "Dependency review" instead.
-const dependencyAdmissionReviewStatusCheck = "Dependency admission review"
-
 // The canonical composite check contexts bound by the shared-line rulesets.
 // The canonical callers (repository-governance) emit them per the naming law
 // (GIT_GITHUB_ACTIONS_NAMING_CONVENTIONS_001): the caller job carries the lane
@@ -420,9 +411,7 @@ const (
 	compositeDependencyReviewStatusCheck   = "Dependency review / Dependency admission review"
 )
 
-func sharedLineStatusChecks(t *testing.T) []string {
-	t.Helper()
-
+func sharedLineStatusChecks() []string {
 	return []string{
 		compositeQualityGateLinuxStatusCheck,
 		compositeQualityGateMacosStatusCheck,
@@ -431,9 +420,7 @@ func sharedLineStatusChecks(t *testing.T) []string {
 	}
 }
 
-func linuxOnlyStatusChecks(t *testing.T) []string {
-	t.Helper()
-
+func linuxOnlyStatusChecks() []string {
 	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck}
 }
 

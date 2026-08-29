@@ -1,0 +1,70 @@
+name: Release gates
+
+on:
+  push:
+    branches: [main, develop, "release/**", "support/**"]
+  pull_request:
+    branches: [main, develop, "release/**", "support/**"]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  GOTOOLCHAIN: local
+  GOFLAGS: -mod=readonly
+  GOVCS: "*:off"
+
+concurrency:
+  group: release-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hotfix-record:
+    name: Hotfix release record
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'hotfix/')
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Set up controlled Go
+        uses: t33n-software/repository-governance/.github/actions/setup-controlled-go@397b6d987a624f176eb234829ae045cf4022f3e4
+        with:
+          goos: linux
+          goarch: amd64
+
+      - name: Validate reviewed main hotfix release record
+        shell: bash
+        env:
+          HOTFIX_BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          go run -mod=readonly ./cmd/git-governance \
+            --interactive never \
+            --output json \
+            workflow hotfix validate-record \
+            --branch "$HOTFIX_BRANCH"
+
+  release-config:
+    name: Release configuration
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9f698171ed81b15d1823a05fc7211befd50c8ae0 # v6.0.3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate GoReleaser configuration
+        uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
+        with:
+          distribution: goreleaser
+          version: v2.16.0
+          args: check

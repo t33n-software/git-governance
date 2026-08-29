@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "home": {
+    "repository": "t33n-software/repository-governance",
+    "sha": "38c8ea236b858828b4d0134e04577117f96d4879"
+  },
+  "class": {
+    "qualityGates": "full",
+    "codeScanning": true,
+    "licenseHub": false
+  },
+  "callers": [
+    {
+      "file": ".github/workflows/ci.yml",
+      "master": "hosting-platforms/github/workflows/callers/go/ci-full.yml",
+      "sha256": "fff288ed6633fc8cea6fc862560c10fb61d245120c560170e822af674c1752e8"
+    },
+    {
+      "file": ".github/workflows/codeql.yml",
+      "master": "hosting-platforms/github/workflows/callers/go/codeql.yml",
+      "sha256": "fd7578c8d5c35f84cc98cbfdee77e083fb78036c8c33452aab5dea07a8ae9265"
+    },
+    {
+      "file": ".github/workflows/dependency-review.yml",
+      "master": "hosting-platforms/github/workflows/callers/go/dependency-review.yml",
+      "sha256": "f11d2661ae6839607b4a0a515e7ed0c1ea51b3e8f5e7a51c451567d10ad7c1a1"
+    }
+  ],
+  "files": {
+    "lefthook": { "path": "lefthook.yml", "sha256": "86562f27a6a34b252028b74fb39ba0373636bf539e6c4d2d5b820a362971520a" },
+    "gitattributes": { "path": ".gitattributes", "sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c" },
+    "gitignore": { "path": ".gitignore", "sha256": "9093ce2107811c34afeecfa9b22101ac6b82d5dda40fa71cf90efbb23e51bbf5" },
+    "dependabot": { "path": ".github/dependabot.yml", "sha256": "a28369d1dc1b8eb6cdcef8405fccca644a509fc640fdc8ab3f12adbc0291940a" }
+  },
+  "codeowners": { "path": ".github/CODEOWNERS", "defaultOwner": "@CyberT33N" },
+  "quality": { "config": "git-governance.quality.json", "schemaVersion": 4 },
+  "tools": { "module": "tools/go.mod", "catalogVersion": 1 }
+}
