@@ -35,7 +35,8 @@ dist/
 GitHub Release, Checksums, SBOMs, Signaturen und Attestationen
 ```
 
-`cmd/build` und die nativen CI-Smoke-Tests schreiben ihre ausführbare Binary
+Die kanonische Quality-Gate (`go tool -modfile tools/go.mod quality-gate`)
+und die nativen CI-Smoke-Tests schreiben ihre ausführbare Binary
 nach `.build/bin/`. `cmd/generate-docs` erzeugt Shell-Completions und Manpages
 unter `.build/generated/`. GoReleaser nimmt diese Dateien als Packaging-Input
 auf, erzeugt seine eigenen Outputs aber ausschließlich in `dist/`.

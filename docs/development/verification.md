@@ -5,7 +5,7 @@ $env:GOTOOLCHAIN = "local"
 $env:GOFLAGS = "-mod=readonly"
 $env:GOVCS = "*:off"
 go test -mod=readonly ./...
-go run -mod=readonly .\cmd\check-coverage
+go tool -modfile tools/go.mod check-coverage
 CGO_ENABLED=1 go test -mod=readonly -race ./...
 go vet -mod=readonly ./...
 go test -mod=readonly ./internal/integration -count=1
@@ -31,7 +31,7 @@ The required model is:
 1. A developer runs the complete local gate on the operating system they use:
 
    ```powershell
-   go run -mod=readonly .\cmd\build
+   go tool -modfile tools/go.mod quality-gate
    ```
 
    During governed publication this same suite runs after the final allowed

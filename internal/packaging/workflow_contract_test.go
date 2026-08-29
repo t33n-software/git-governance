@@ -1054,6 +1054,41 @@ func TestToolsModulePinsTheCanonicalVerifier(t *testing.T) {
 	}
 }
 
+func TestQualityConfigRunsTheCanonicalGateChain(t *testing.T) {
+	t.Parallel()
+
+	configuration := readRepositoryDocument(t, "git-governance.quality.json")
+	var decoded struct {
+		Gates []struct {
+			Name    string   `json:"name"`
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"gates"`
+		Defaults json.RawMessage `json:"defaults"`
+	}
+	if err := json.Unmarshal([]byte(configuration), &decoded); err != nil {
+		t.Fatalf("git-governance.quality.json is not valid JSON: %v", err)
+	}
+	if len(decoded.Defaults) != 0 {
+		t.Fatal("the quality configuration must not restate the family defaults: the schema owns the canonical default set")
+	}
+	if len(decoded.Gates) != 1 {
+		t.Fatalf("the quality configuration carries %d gates, want exactly the canonical gate chain", len(decoded.Gates))
+	}
+	gate := decoded.Gates[0]
+	canonicalArgs := "tool -modfile tools/go.mod quality-gate"
+	if gate.Name != "full-local-build" || gate.Command != "go" || strings.Join(gate.Args, " ") != canonicalArgs {
+		t.Fatalf("the full-local-build gate must invoke the pinned canonical orchestrator (go %s), got %s %s", canonicalArgs, gate.Command, strings.Join(gate.Args, " "))
+	}
+
+	for _, copy := range []string{"cmd/build", "cmd/check-coverage"} {
+		path := filepath.Join(repositoryRoot(t), copy)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("the chain copy %s must be absent: the canonical gate chain is referenced via the tool pin, never re-implemented per repository", copy)
+		}
+	}
+}
+
 type lifecycleCallerHashRecord struct {
 	Home struct {
 		Repository string `json:"repository"`

@@ -23,16 +23,11 @@ go version go1.26.6
 Clone or open the repository, then run the full build gate:
 
 ```powershell
-go run .\cmd\build
+go tool -modfile tools/go.mod quality-gate
 ```
 
-On macOS or Linux:
-
-```bash
-go run ./cmd/build
-```
-
-`cmd/build` verifies root and build-tool module integrity, checks formatting,
+The command is identical on macOS and Linux. The pinned quality-gate
+orchestrator verifies root and build-tool module integrity, checks formatting,
 runs Staticcheck, typechecks packages and tests, runs unit, contract,
 integration, coverage, race, vet, vulnerability, fuzz, and Lefthook checks,
 then builds and smoke-tests the native binary. It stops at the first failed

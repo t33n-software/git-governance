@@ -25,7 +25,7 @@ repository policy because it mutates a developer's global Go configuration.
 
 ```powershell
 go test -mod=readonly ./...
-go run -mod=readonly .\cmd\check-coverage
+go tool -modfile tools/go.mod check-coverage
 go vet -mod=readonly ./...
 go run -mod=readonly .\cmd\git-governance --help
 ```
@@ -70,16 +70,17 @@ Every behavior change requires tests at the lowest meaningful boundary:
 Run the full local gate:
 
 ```powershell
-go run -mod=readonly .\cmd\build
+go tool -modfile tools/go.mod quality-gate
 ```
 
-The build runner owns the complete ordered quality sequence and resolves its
-pinned development tools from `tools/go.mod`; do not require globally installed
-linters, vulnerability scanners, or Lefthook binaries.
+The pinned quality-gate orchestrator owns the complete ordered quality
+sequence and resolves every development tool from `tools/go.mod`; do not
+require globally installed linters, vulnerability scanners, or Lefthook
+binaries.
 
-`cmd/check-coverage` runs its coverage tests uncached. It rejects every Go
-package reported without a `_test.go` file and every package with executable
-statements below `100.0%` coverage.
+The pinned `check-coverage` tool runs its coverage tests uncached. It rejects
+every Go package reported without a `_test.go` file and every package with
+executable statements below `100.0%` coverage.
 
 Dependency updates belong in a separately reviewed update lane. That lane is
 the only place allowed to run `go get` or a mutating `go mod tidy`; normal
@@ -107,12 +108,6 @@ gate:
   "schemaVersion": 4,
   "toolchain": { "language": "go", "version": "1.26.6" },
   "extends": [],
-  "defaults": {
-    "includeFamilies": [
-      "feature", "fix", "docs", "refactor",
-      "chore", "test", "perf", "hotfix"
-    ]
-  },
   "gates": [
     {
       "name": "unit-tests",
@@ -123,7 +118,7 @@ gate:
     {
       "name": "complete-statement-coverage",
       "command": "go",
-      "args": ["run", "./cmd/check-coverage"],
+      "args": ["tool", "-modfile", "tools/go.mod", "check-coverage"],
       "timeout": "5m"
     }
   ]

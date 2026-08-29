@@ -38,12 +38,12 @@ beschädigter oder unvollständiger Nachweis blockiert fail-closed. Weder
 `--no-verify` noch Hook-Deaktivierung oder ein ungebundener Skip-Schalter sind
 eine zulässige Deduplizierung.
 
-Dieses Repository verwendet zusätzlich den plattformneutralen
-`go run ./cmd/check-coverage`-Gate. Er führt
-`go test -count=1 -cover ./...` aus und bricht ab, wenn ein Go-Package keine
-`_test.go`-Datei enthält oder ein Package mit ausführbaren Statements nicht
-exakt `100.0 %` erreicht. Derselbe Gate läuft lokal, im Pre-Push-Pfad und in
-CI.
+Dieses Repository verwendet zusätzlich den plattformneutralen Coverage-Gate
+über das gepinnte Werkzeug (`go tool -modfile tools/go.mod check-coverage`).
+Er führt `go test -count=1 -cover ./...` aus und bricht ab, wenn ein
+Go-Package keine `_test.go`-Datei enthält oder ein Package mit ausführbaren
+Statements nicht exakt `100.0 %` erreicht. Derselbe Gate läuft lokal, im
+Pre-Push-Pfad und in CI.
 
 Die CLI löscht standardmäßig nur lokale `scratch/*`-Branches und entfernt dabei
 deren lokale Workflow-Basis-Metadaten. Sie löscht nie Remote-Branches und
