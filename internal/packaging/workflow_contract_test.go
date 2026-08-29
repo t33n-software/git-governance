@@ -212,6 +212,64 @@ func TestLifecyclePayloadsUseOnlyWorkflowCallInputTypes(t *testing.T) {
 	}
 }
 
+func TestLifecyclePayloadsProvisionTheExactPinnedToolchain(t *testing.T) {
+	t.Parallel()
+
+	expectedSetupCounts := map[string]int{
+		"reusable-release-control.yml":                1,
+		"reusable-execute-protected-line-request.yml": 3,
+		"reusable-release-reconciliation.yml":         1,
+		"reusable-tag-promoted-release.yml":           0,
+		"reusable-publish-release-artifacts.yml":      2,
+		"reusable-hotfix-delivery.yml":                1,
+		"reusable-hotfix-propagation.yml":             2,
+	}
+	if len(expectedSetupCounts) != len(lifecyclePayloads) {
+		t.Fatal("every lifecycle payload must declare its expected toolchain setup count")
+	}
+
+	for _, name := range lifecyclePayloads {
+		name := name
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			workflow := readWorkflow(t, name)
+			wantSetups, found := expectedSetupCounts[name]
+			if !found {
+				t.Fatalf("%s is missing from the expected setup-count contract", name)
+			}
+			if got := strings.Count(workflow, "uses: actions/setup-go@"); got != wantSetups {
+				t.Fatalf("%s carries %d setup-go invocations, want %d", name, got, wantSetups)
+			}
+			if strings.Contains(workflow, "go-version-file:") {
+				t.Fatalf("%s must not resolve Go from the go directive through go-version-file", name)
+			}
+			if got := strings.Count(workflow, "- name: Resolve the pinned toolchain"); got != wantSetups {
+				t.Fatalf("%s carries %d pinned-toolchain resolvers, want %d", name, got, wantSetups)
+			}
+			if got := strings.Count(workflow, `go-version: ${{ steps.toolchain.outputs.version }}`); got != wantSetups {
+				t.Fatalf("%s carries %d exact setup-go versions, want %d", name, got, wantSetups)
+			}
+			if wantSetups == 0 {
+				return
+			}
+
+			for _, required := range []string{
+				`awk '{ sub(/\r$/, "") }`,
+				`$1 == "toolchain" { count += 1; directive = $2; trailing = $3 }`,
+				`if (count != 1) exit 1`,
+				`if (trailing != "" && trailing !~ /^\/\//) exit 1`,
+				`if (directive !~ /^go[0-9]+\.[0-9]+\.[0-9]+$/) exit 1`,
+				`echo "version=${directive#go}" >> "$GITHUB_OUTPUT"`,
+			} {
+				if !strings.Contains(workflow, required) {
+					t.Fatalf("%s does not validate the pinned toolchain directive with %q", name, required)
+				}
+			}
+		})
+	}
+}
+
 func TestLifecyclePayloadsBindTheGovernanceCLIWithoutMigrationSeams(t *testing.T) {
 	t.Parallel()
 
