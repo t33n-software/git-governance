@@ -56,6 +56,7 @@ const (
 	CodeCommitDescriptionInvalid     Code = "COMMIT_DESCRIPTION_INVALID"
 	CodeCommitTicketMismatch         Code = "COMMIT_TICKET_MISMATCH"
 	CodeBreakingChangeInvalid        Code = "BREAKING_CHANGE_INVALID"
+	CodeCommitBodyRequired           Code = "COMMIT_BODY_REQUIRED"
 	CodeWorktreeNotClean             Code = "WORKTREE_NOT_CLEAN"
 	CodeRepositoryNotFound           Code = "REPOSITORY_NOT_FOUND"
 	CodeRepositoryHasNoCommits       Code = "REPOSITORY_HAS_NO_COMMITS"

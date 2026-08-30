@@ -74,6 +74,7 @@ func TestParseHeader(t *testing.T) {
 		{raw: "feat(ABC-123): ", valid: false, code: problem.CodeCommitHeaderInvalid},
 		{raw: "feat(ABC-123): add\nexport", valid: false, code: problem.CodeCommitHeaderInvalid},
 		{raw: "feat(ABC-123): " + strings.Repeat("a", maxSubjectRunes+1), valid: false, code: problem.CodeCommitDescriptionInvalid},
+		{raw: "feat(ABC-123): feat(ABC-123): add export button", valid: false, code: problem.CodeCommitDescriptionInvalid},
 	} {
 		testCase := testCase
 		t.Run(testCase.raw, func(t *testing.T) {
@@ -406,6 +407,51 @@ func TestInternalSectionAndFooterHelpers(t *testing.T) {
 	}
 	if err := validateText("line one\nline two", false); err == nil {
 		t.Fatal("validateText allowed forbidden newline")
+	}
+}
+
+func TestValidateSubjectRejectsMetadataEnvelope(t *testing.T) {
+	t.Parallel()
+
+	id, err := ticket.ParseID("GQA-19")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, testCase := range []struct {
+		name    string
+		subject string
+		valid   bool
+	}{
+		{name: "reported double prefix", subject: "feat(GQA-19): admit the governance CLI in the canonical tool catalog", valid: false},
+		{name: "bare family prefix at start", subject: "feat: admit the governance CLI", valid: false},
+		{name: "family with scope at start", subject: "fix(GQA-19): resolve timeout", valid: false},
+		{name: "breaking prefix at start", subject: "feat!: replace export contract", valid: false},
+		{name: "mixed case envelope at start", subject: "Feat(GQA-19): admit the CLI", valid: false},
+		{name: "uppercase envelope at start", subject: "FEAT(GQA-19): admit the CLI", valid: false},
+		{name: "mismatched family envelope", subject: "fix(GQA-19): admit the governance CLI", valid: false},
+		{name: "envelope embedded mid subject", subject: "note see fix(GQA-19): for the embedded envelope", valid: false},
+		{name: "envelope at the subject end", subject: "reference the documented feat(GQA-19):", valid: false},
+		{name: "plain subject", subject: "admit the governance CLI in the canonical tool catalog", valid: true},
+		{name: "family token as imperative verb", subject: "test the export button flow", valid: true},
+		{name: "family token inside another word", subject: "defeat(GQA-19): is not a family prefix", valid: true},
+		{name: "parenthesized prose mid subject", subject: "document fix(parser) behavior", valid: true},
+		{name: "scope reference without colon", subject: "reference feat(GQA-19) for context", valid: true},
+		{name: "slash after family word", subject: "ci/cd pipeline notes", valid: true},
+		{name: "colon after non family word", subject: "note: explain the export flow", valid: true},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewHeader(TypeFeat, id, testCase.subject, false)
+			if testCase.valid {
+				if err != nil {
+					t.Fatalf("NewHeader() error = %v for subject %q", err, testCase.subject)
+				}
+				return
+			}
+			assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
+		})
 	}
 }
 

@@ -361,21 +361,33 @@ func (application *application) resolveSlug(ctx context.Context, raw string, lab
 	)
 }
 
+// resolveScratchMergeMessage binds the squash transfer commit from structured
+// values only. The body is mandatory: the transfer commit is the only record
+// of the discarded experiment paths. Canonical convention:
+// docs/conventions/commits/family-selection.md.
 func (application *application) resolveScratchMergeMessage(
 	ctx context.Context,
-	completeMessage string,
+	repository port.RepositoryIdentity,
+	target branch.BranchName,
 	family string,
 	description string,
-	target branch.BranchName,
+	body string,
+	breaking bool,
+	breakingDescription string,
+	footerSpecs []string,
 ) (commitmsg.Message, error) {
 	return application.resolveCommitMessage(ctx, commitMessageInput{
-		Branch:           target,
-		CompleteMessage:  completeMessage,
-		Family:           family,
-		Description:      description,
-		RequireFamily:    true,
-		DescriptionLabel: "Squash commit description",
-		Operation:        "the scratch squash transfer",
+		Branch:               target,
+		Repository:           repository,
+		Family:               family,
+		Description:          description,
+		Body:                 body,
+		Breaking:             breaking,
+		BreakingDescription:  breakingDescription,
+		FooterSpecifications: footerSpecs,
+		RequireBody:          true,
+		DescriptionLabel:     "Squash commit description",
+		Operation:            "the scratch squash transfer",
 		Validate: func(message commitmsg.Message) error {
 			return branchapp.ValidateScratchMergeMessage(target, message)
 		},

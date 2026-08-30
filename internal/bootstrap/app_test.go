@@ -589,6 +589,7 @@ type commandGit struct {
 	current         branch.BranchName
 	messages        []string
 	workflowBases   map[string]branch.TargetBase
+	workflowBaseErr error
 	remoteURL       string
 	remoteURLErr    error
 	discoverErr     error
@@ -704,6 +705,9 @@ func (git *commandGit) ClearWorkflowBase(_ context.Context, _ port.RepositoryIde
 }
 
 func (git *commandGit) WorkflowBase(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName) (branch.TargetBase, bool, error) {
+	if git.workflowBaseErr != nil {
+		return branch.TargetBase{}, false, git.workflowBaseErr
+	}
 	base, found := git.workflowBases[name.String()]
 	return base, found, nil
 }

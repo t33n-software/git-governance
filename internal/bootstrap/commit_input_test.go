@@ -8,6 +8,7 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 func TestResolveCommitMessageInputRepresentations(t *testing.T) {
@@ -19,53 +20,27 @@ func TestResolveCommitMessageInputRepresentations(t *testing.T) {
 	}
 	application := newCommitCommandApplication(newCommitCommandGit(t, feature.String()), nil)
 
-	t.Run("accepts a complete compatibility message", func(t *testing.T) {
-		message, err := application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:          feature,
-			CompleteMessage: "feat(ABC-123): add export",
-		})
-		if err != nil || message.Header().String() != "feat(ABC-123): add export" {
-			t.Fatalf("resolve complete message = (%q, %v)", message.String(), err)
-		}
-
-		_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:          feature,
-			CompleteMessage: "feat(ABC-124): wrong ticket",
-		})
-		assertProblemCode(t, err, problem.CodeCommitTicketMismatch)
-	})
-
-	t.Run("rejects mixed complete and structured input", func(t *testing.T) {
+	t.Run("requires an explicit family in non-interactive mode", func(t *testing.T) {
 		_, err := application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:          feature,
-			CompleteMessage: "feat(ABC-123): add export",
-			Family:          "feat",
-		})
-		assertProblemCode(t, err, problem.CodeInvalidInput)
-	})
-
-	t.Run("uses the branch-derived default only when allowed", func(t *testing.T) {
-		message, err := application.resolveCommitMessage(context.Background(), commitMessageInput{
 			Branch:      feature,
 			Description: "add export",
 		})
-		if err != nil || message.Header().Type() != commitmsg.TypeFeat {
-			t.Fatalf("default structured message = (%q, %v)", message.String(), err)
-		}
-
-		_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:        feature,
-			Description:   "add export",
-			RequireFamily: true,
-		})
 		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("rejects an envelope in the subject", func(t *testing.T) {
+		_, err := application.resolveCommitMessage(context.Background(), commitMessageInput{
+			Branch:      feature,
+			Family:      "feat",
+			Description: "feat(ABC-123): add export",
+		})
+		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 	})
 
 	t.Run("validates descriptions, breaking details, footers, and custom rules", func(t *testing.T) {
 		_, err := application.resolveCommitMessage(context.Background(), commitMessageInput{
 			Branch:           feature,
 			Family:           "feat",
-			RequireFamily:    true,
 			DescriptionLabel: "Commit description",
 		})
 		assertProblemCode(t, err, problem.CodeInvalidInput)
@@ -76,8 +51,8 @@ func TestResolveCommitMessageInputRepresentations(t *testing.T) {
 			Description:          "replace export contract",
 			Breaking:             true,
 			BreakingDescription:  "Clients must use the new export endpoint.",
+			Body:                 "## Motivation\n\nThe export contract changed.",
 			FooterSpecifications: []string{"Refs=#123"},
-			RequireFamily:        true,
 		})
 		if err != nil || !message.IsBreaking() || len(message.Footers()) != 2 {
 			t.Fatalf("breaking structured message = (%#v, %v)", message, err)
@@ -97,19 +72,17 @@ func TestResolveCommitMessageInputRepresentations(t *testing.T) {
 		}
 
 		_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:        feature,
-			Family:        "feat",
-			Description:   "replace export contract",
-			Breaking:      true,
-			RequireFamily: true,
+			Branch:      feature,
+			Family:      "feat",
+			Description: "replace export contract",
+			Breaking:    true,
 		})
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 
 		_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:        feature,
-			Family:        "revert",
-			Description:   "revert export",
-			RequireFamily: true,
+			Branch:      feature,
+			Family:      "revert",
+			Description: "revert export",
 		})
 		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 
@@ -118,7 +91,6 @@ func TestResolveCommitMessageInputRepresentations(t *testing.T) {
 			Family:               "feat",
 			Description:          "add export",
 			FooterSpecifications: []string{"invalid"},
-			RequireFamily:        true,
 		})
 		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 
@@ -128,27 +100,24 @@ func TestResolveCommitMessageInputRepresentations(t *testing.T) {
 			Description:         "replace export contract",
 			Breaking:            true,
 			BreakingDescription: " ",
-			RequireFamily:       true,
 		})
 		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 
 		revert, err := application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:        feature,
-			Family:        "revert",
-			Description:   "revert export",
-			Body:          "Reverts 0123456789abcdef.",
-			RequireFamily: true,
+			Branch:      feature,
+			Family:      "revert",
+			Description: "revert export",
+			Body:        "Reverts 0123456789abcdef.",
 		})
 		if err != nil || revert.Header().Type() != commitmsg.TypeRevert {
 			t.Fatalf("valid revert = (%#v, %v)", revert, err)
 		}
 
 		_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-			Branch:        feature,
-			Family:        "feat",
-			Description:   "add export",
-			Body:          "invalid\x00body",
-			RequireFamily: true,
+			Branch:      feature,
+			Family:      "feat",
+			Description: "add export",
+			Body:        "invalid\x00body",
 		})
 		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 	})
@@ -164,6 +133,23 @@ func TestResolveCommitMessageInputRepresentations(t *testing.T) {
 			Description: "add export",
 		})
 		assertProblemCode(t, err, problem.CodeSharedLineMutationForbidden)
+	})
+
+	t.Run("rejects a mismatched message ticket at the delivery seam", func(t *testing.T) {
+		other, err := ticket.ParseID("ABC-124")
+		if err != nil {
+			t.Fatal(err)
+		}
+		header, err := commitmsg.NewHeader(commitmsg.TypeFeat, other, "add export", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mismatched, err := commitmsg.NewMessage(header, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = validateResolvedCommitMessage(commitMessageInput{Branch: feature}, mismatched)
+		assertProblemCode(t, err, problem.CodeCommitTicketMismatch)
 	})
 }
 
@@ -182,8 +168,7 @@ func TestResolveCommitMessageInputPromptErrors(t *testing.T) {
 	application := newCommitCommandApplication(newCommitCommandGit(t, feature.String()), prompt)
 	enableCommitPrompt(application, prompt)
 	_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-		Branch:        feature,
-		RequireFamily: true,
+		Branch: feature,
 	})
 	if !errors.Is(err, selectErr) {
 		t.Fatalf("family selection error = %v, want %v", err, selectErr)
@@ -197,8 +182,7 @@ func TestResolveCommitMessageInputPromptErrors(t *testing.T) {
 	application = newCommitCommandApplication(newCommitCommandGit(t, feature.String()), prompt)
 	enableCommitPrompt(application, prompt)
 	_, err = application.resolveCommitMessage(context.Background(), commitMessageInput{
-		Branch:        feature,
-		RequireFamily: true,
+		Branch: feature,
 	})
 	if !errors.Is(err, descriptionErr) {
 		t.Fatalf("description input error = %v, want %v", err, descriptionErr)

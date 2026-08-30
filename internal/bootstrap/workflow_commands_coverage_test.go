@@ -785,7 +785,9 @@ func TestInteractiveTicketPublishFromScratchConfirmsSquashTransfer(t *testing.T)
 		t,
 		newTicketPublishCommand(application),
 		context.Background(),
-		"--message", "feat(ABC-123): add export",
+		"--type", "feat",
+		"--subject", "add export",
+		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 	)
 	if err != nil {
 		t.Fatalf("scratch ticket publish error = %v", err)
@@ -910,7 +912,9 @@ func TestInteractiveScratchTicketPublishResumesRebaseWithoutRepeatingTransfer(t 
 		t,
 		newTicketPublishCommand(application),
 		context.Background(),
-		"--message", "feat(ABC-123): add export",
+		"--type", "feat",
+		"--subject", "add export",
+		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 	)
 	if err != nil || stderr != "" {
 		t.Fatalf("scratch rebase retry = (%q, %q, %v)", stdout, stderr, err)
@@ -959,7 +963,9 @@ func TestInteractiveScratchTicketPublishResumesSquashMergeConflict(t *testing.T)
 		t,
 		newTicketPublishCommand(application),
 		context.Background(),
-		"--message", "feat(ABC-123): add export",
+		"--type", "feat",
+		"--subject", "add export",
+		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 	)
 	if err != nil || stderr != "" {
 		t.Fatalf("scratch squash retry = (%q, %q, %v)", stdout, stderr, err)
@@ -1041,7 +1047,9 @@ func TestTicketPublishInteractionFailureAndProviderIntentPaths(t *testing.T) {
 			t,
 			newTicketPublishCommand(application),
 			context.Background(),
-			"--message", "feat(ABC-123): add export",
+			"--type", "feat",
+			"--subject", "add export",
+			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 		)
 		assertProblemCode(t, err, problem.CodeOperationCancelled)
 	})
@@ -1110,7 +1118,9 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			newTicketPublishCommand(application),
 			context.Background(),
 			"--target", target.String(),
-			"--message", "feat(ABC-123): add export",
+			"--type", "feat",
+			"--subject", "add export",
+			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 		)
 		if err != nil {
 			t.Fatalf("explicit scratch target dry-run error = %v", err)
@@ -1139,7 +1149,9 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			t,
 			newTicketPublishCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--message", "feat(ABC-123): add export",
+			"--type", "feat",
+			"--subject", "add export",
+			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 		)
 		assertProblemCode(t, err, problem.CodeScratchSourceBranchMissing)
 
@@ -1148,9 +1160,11 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			t,
 			newTicketPublishCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--message", "not a Conventional Commit",
+			"--type", "feat",
+			"--subject", "feat(ABC-123): add export",
+			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
 		)
-		assertProblemCode(t, err, problem.CodeCommitHeaderInvalid)
+		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 	})
 
 	t.Run("rejects scratch-only options for official branches", func(t *testing.T) {
@@ -1159,7 +1173,7 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			t,
 			newTicketPublishCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--message", "feat(ABC-123): add export",
+			"--type", "feat",
 		)
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 	})

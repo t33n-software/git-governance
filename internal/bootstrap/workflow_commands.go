@@ -147,17 +147,20 @@ func newTicketStartCommand(application *application) *cobra.Command {
 
 func newTicketPublishCommand(application *application) *cobra.Command {
 	var (
-		branchRaw         string
-		baseRaw           string
-		scratchTargetRaw  string
-		scratchMessageRaw string
-		scratchFamilyRaw  string
-		scratchSubjectRaw string
-		bodyRaw           string
-		push              bool
-		createPullRequest bool
-		draft             bool
-		resume            bool
+		branchRaw                string
+		baseRaw                  string
+		scratchTargetRaw         string
+		scratchFamilyRaw         string
+		scratchSubjectRaw        string
+		scratchBodyRaw           string
+		scratchFootersRaw        []string
+		scratchBreakingRaw       bool
+		scratchBreakingImpactRaw string
+		bodyRaw                  string
+		push                     bool
+		createPullRequest        bool
+		draft                    bool
+		resume                   bool
 	)
 	command := &cobra.Command{
 		Use:   "publish",
@@ -194,10 +197,14 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 				inputs.add("official ticket branch", target.String())
 				message, err := application.resolveScratchMergeMessage(
 					command.Context(),
-					scratchMessageRaw,
+					repository,
+					target,
 					scratchFamilyRaw,
 					scratchSubjectRaw,
-					target,
+					scratchBodyRaw,
+					scratchBreakingRaw,
+					scratchBreakingImpactRaw,
+					scratchFootersRaw,
 				)
 				if err != nil {
 					return err
@@ -205,8 +212,8 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 				scratchMessage = &message
 				inputs.add("squash commit family", message.Header().Type().String())
 				inputs.add("squash commit description", message.Header().Subject())
-			} else if scratchTargetRaw != "" || scratchMessageRaw != "" || scratchFamilyRaw != "" || scratchSubjectRaw != "" {
-				return invalidOption("scratch transfer", "configured", "--target, --message, --type, and --subject are only supported when publishing from scratch")
+			} else if scratchTargetRaw != "" || scratchFamilyRaw != "" || scratchSubjectRaw != "" || scratchBodyRaw != "" || len(scratchFootersRaw) > 0 || scratchBreakingRaw || scratchBreakingImpactRaw != "" {
+				return invalidOption("scratch transfer", "configured", "--target, --type, --subject, --commit-body, --commit-footer, --commit-breaking, and --commit-breaking-description are only supported when publishing from scratch")
 			}
 			base, err := parseBase(baseRaw, repository.Remote)
 			if err != nil {
@@ -393,7 +400,10 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 	command.Flags().StringVar(&scratchTargetRaw, "target", "", "optional local official target when publishing from scratch")
 	command.Flags().StringVar(&scratchFamilyRaw, "type", "", "commit family for a scratch squash transfer")
 	command.Flags().StringVar(&scratchSubjectRaw, "subject", "", "commit description for a scratch squash transfer")
-	command.Flags().StringVar(&scratchMessageRaw, "message", "", "complete commit message compatibility input for a scratch squash transfer")
+	command.Flags().StringVar(&scratchBodyRaw, "commit-body", "", "mandatory commit body documenting the discarded experiment paths for a scratch squash transfer")
+	command.Flags().StringSliceVar(&scratchFootersRaw, "commit-footer", nil, "commit footer as TOKEN=VALUE for a scratch squash transfer; repeatable")
+	command.Flags().BoolVar(&scratchBreakingRaw, "commit-breaking", false, "mark an incompatible public contract change in the scratch squash transfer commit")
+	command.Flags().StringVar(&scratchBreakingImpactRaw, "commit-breaking-description", "", "breaking change migration impact for the scratch squash transfer commit")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")

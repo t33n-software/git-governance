@@ -14,11 +14,19 @@ import (
 
 const maxSubjectRunes = 200
 
+// ticketScopeShape is the canonical ticket scope grammar shared by the header
+// pattern and the subject envelope invariant, so both surfaces parse the same
+// ticket identity.
+const ticketScopeShape = `[A-Z][A-Z0-9]*-[1-9][0-9]*`
+
 var (
-	headerPattern      = regexp.MustCompile(`^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)\(([A-Z][A-Z0-9]*-[1-9][0-9]*)\)(!)?: ([^\r\n]+)$`)
+	headerPattern      = regexp.MustCompile(`^(` + familyTokenAlternation() + `)\((` + ticketScopeShape + `)\)(!)?: ([^\r\n]+)$`)
 	footerPattern      = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9-]*|BREAKING CHANGE|BREAKING-CHANGE)(: | #)(.+)$`)
 	footerTokenPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 	shaPattern         = regexp.MustCompile(`(?i)\b[0-9a-f]{7,64}\b`)
+
+	subjectEnvelopeStartPattern = regexp.MustCompile(`(?i)^(?:` + familyTokenAlternation() + `)[(!:]`)
+	subjectEnvelopePattern      = regexp.MustCompile(`(?i)\b(?:` + familyTokenAlternation() + `)\(` + ticketScopeShape + `\)!?:(?:\s|$)`)
 )
 
 // Type classifies a Conventional Commit.
@@ -57,6 +65,17 @@ func Types() []Type {
 	result := make([]Type, len(types))
 	copy(result, types)
 	return result
+}
+
+// familyTokenAlternation builds the regex alternation of the canonical commit
+// families from the type registry, so the header grammar and the subject
+// envelope invariant never duplicate the family list as a literal.
+func familyTokenAlternation() string {
+	tokens := make([]string, 0, len(types))
+	for _, kind := range types {
+		tokens = append(tokens, regexp.QuoteMeta(kind.String()))
+	}
+	return strings.Join(tokens, "|")
 }
 
 // ParseType validates a commit type.
@@ -464,7 +483,39 @@ func validateSubject(subject string) error {
 			"use a concise subject such as add export button",
 		)
 	}
+	if err := validateSubjectEnvelopeFree(subject); err != nil {
+		return err
+	}
 	return validateText(subject, false)
+}
+
+// validateSubjectEnvelopeFree enforces the canonical subject contract: the
+// header metadata envelope (commit family, ticket scope, breaking marker) is
+// assembly-owned by the CLI and is therefore never legitimate subject content.
+// The invariant has two complementary match arms. R1 rejects a family token at
+// the subject start directly followed by '(', '!', or ':', because after
+// assembly the line reads as a doubled header prefix even without a ticket
+// scope. R2 rejects the full envelope <family>(<KEY>-<NUMBER>)[!]: at any
+// position, so mid-subject placement by humans or agents fails closed as well;
+// requiring the ticket shape keeps legitimate prose such as "document
+// fix(parser) behavior" allowed. The family tokens derive from the canonical
+// type registry and the ticket shape from the header grammar, never from a
+// duplicated literal list. Canonical convention:
+// docs/conventions/commits/subject-contract.md.
+func validateSubjectEnvelopeFree(subject string) error {
+	if subjectEnvelopeStartPattern.MatchString(subject) || subjectEnvelopePattern.MatchString(subject) {
+		return problem.New(problem.Details{
+			Code:        problem.CodeCommitDescriptionInvalid,
+			Category:    problem.CategoryGovernance,
+			Field:       "commit subject",
+			Actual:      subject,
+			Expected:    "a subject without the commit metadata envelope",
+			Rule:        "the type(TICKET)[!]: envelope is assembly-owned and must never appear inside the subject",
+			Example:     "add export button",
+			Remediation: "remove the family, ticket, and breaking marker from the subject; the CLI assembles the envelope from --type and the branch ticket",
+		})
+	}
+	return nil
 }
 
 func validateText(value string, allowNewline bool) error {

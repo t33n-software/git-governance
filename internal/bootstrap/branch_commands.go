@@ -181,11 +181,14 @@ func newBranchCreateCommand(application *application) *cobra.Command {
 
 func newScratchMergeCommand(application *application) *cobra.Command {
 	var (
-		sourceRaw     string
-		targetRaw     string
-		messageRaw    string
-		commitFamily  string
-		commitSubject string
+		sourceRaw            string
+		targetRaw            string
+		commitFamily         string
+		commitSubject        string
+		commitBody           string
+		commitFooters        []string
+		commitBreaking       bool
+		commitBreakingImpact string
 	)
 	command := &cobra.Command{
 		Use:   "merge-scratch",
@@ -217,10 +220,14 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 			inputs.add("official ticket branch", target.String())
 			message, err := application.resolveScratchMergeMessage(
 				command.Context(),
-				messageRaw,
+				repository,
+				target,
 				commitFamily,
 				commitSubject,
-				target,
+				commitBody,
+				commitBreaking,
+				commitBreakingImpact,
+				commitFooters,
 			)
 			if err != nil {
 				return err
@@ -263,19 +270,25 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 	command.Flags().StringVar(&targetRaw, "target", "", "optional local official ticket branch target")
 	command.Flags().StringVar(&commitFamily, "type", "", "commit family for the squashed change")
 	command.Flags().StringVar(&commitSubject, "subject", "", "commit description for the squashed change")
-	command.Flags().StringVar(&messageRaw, "message", "", "complete commit message compatibility input for the squashed change")
+	command.Flags().StringVar(&commitBody, "body", "", "mandatory commit body documenting the discarded experiment paths")
+	command.Flags().StringSliceVar(&commitFooters, "footer", nil, "commit footer as TOKEN=VALUE; repeatable")
+	command.Flags().BoolVar(&commitBreaking, "breaking", false, "mark an incompatible public contract change")
+	command.Flags().StringVar(&commitBreakingImpact, "breaking-description", "", "breaking change migration impact")
 	return command
 }
 
 func newBranchSyncBaseCommand(application *application) *cobra.Command {
 	var (
-		nameRaw      string
-		baseRaw      string
-		strategyRaw  string
-		mergeMessage string
-		mergeFamily  string
-		mergeSubject string
-		resume       bool
+		nameRaw             string
+		baseRaw             string
+		strategyRaw         string
+		mergeFamily         string
+		mergeSubject        string
+		mergeBody           string
+		mergeFooters        []string
+		mergeBreaking       bool
+		mergeBreakingImpact string
+		resume              bool
 	)
 	command := &cobra.Command{
 		Use:   "sync-base",
@@ -311,7 +324,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 				if command.Flags().Changed("strategy") {
 					return invalidOption("strategy", strategyRaw, "omitted; --resume continues the paused Git operation")
 				}
-				if mergeMessage != "" || mergeFamily != "" || mergeSubject != "" {
+				if mergeFamily != "" || mergeSubject != "" || mergeBody != "" || len(mergeFooters) > 0 || mergeBreaking || mergeBreakingImpact != "" {
 					return invalidOption("merge commit input", "configured", "omitted; --resume continues the paused Git operation")
 				}
 				if err := application.confirmMutation(
@@ -334,19 +347,22 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 				var parsedMergeMessage *commitmsg.Message
 				if strategy == branchapp.SyncMerge {
 					message, err := application.resolveCommitMessage(command.Context(), commitMessageInput{
-						Branch:           name,
-						CompleteMessage:  mergeMessage,
-						Family:           mergeFamily,
-						Description:      mergeSubject,
-						RequireFamily:    true,
-						DescriptionLabel: "Merge commit description",
-						Operation:        "the branch-base synchronization merge",
+						Branch:               name,
+						Repository:           repository,
+						Family:               mergeFamily,
+						Description:          mergeSubject,
+						Body:                 mergeBody,
+						Breaking:             mergeBreaking,
+						BreakingDescription:  mergeBreakingImpact,
+						FooterSpecifications: mergeFooters,
+						DescriptionLabel:     "Merge commit description",
+						Operation:            "the branch-base synchronization merge",
 					})
 					if err != nil {
 						return err
 					}
 					parsedMergeMessage = &message
-				} else if mergeMessage != "" || mergeFamily != "" || mergeSubject != "" {
+				} else if mergeFamily != "" || mergeSubject != "" || mergeBody != "" || len(mergeFooters) > 0 || mergeBreaking || mergeBreakingImpact != "" {
 					return invalidOption("merge commit input", "configured", "merge commit inputs are only supported with --strategy merge")
 				}
 				if strategy == branchapp.SyncRebase || strategy == branchapp.SyncMerge {
@@ -394,7 +410,10 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 	command.Flags().StringVar(&strategyRaw, "strategy", string(branchapp.SyncCheck), "check, auto, rebase, or merge")
 	command.Flags().StringVar(&mergeFamily, "merge-type", "", "commit family for --strategy merge")
 	command.Flags().StringVar(&mergeSubject, "merge-subject", "", "commit description for --strategy merge")
-	command.Flags().StringVar(&mergeMessage, "merge-message", "", "complete merge message compatibility input for --strategy merge")
+	command.Flags().StringVar(&mergeBody, "merge-body", "", "merge commit body for --strategy merge")
+	command.Flags().StringSliceVar(&mergeFooters, "merge-footer", nil, "merge commit footer as TOKEN=VALUE; repeatable")
+	command.Flags().BoolVar(&mergeBreaking, "merge-breaking", false, "mark an incompatible public contract change in the merge commit")
+	command.Flags().StringVar(&mergeBreakingImpact, "merge-breaking-description", "", "breaking change migration impact for the merge commit")
 	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved rebase or merge")
 	return command
 }
