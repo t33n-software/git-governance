@@ -54,6 +54,9 @@ does not rely on any external governance repository or unpublished rule set.
 | Base delta, merge, and rebase paths | VERIFIED | real local Git integration test |
 | Scratch-to-official squash transfer | VERIFIED | whitebox, CLI-contract, Git-adapter, and real local Git integration tests |
 | Structured commit-family composition | VERIFIED | canonical commit application module and same-package whitebox tests |
+| Subject envelope prohibition | VERIFIED | the subject never carries the metadata envelope (family, ticket scope, breaking marker) in header form at any position; the canonical domain invariant rejects it fail-closed per `docs/conventions/commits/subject-contract.md`; same-package whitebox tests cover the reported double-prefix case, mid-subject placement, case variants, the breaking marker, and false-positive guards |
+| Explicit commit family without silent derivation | VERIFIED | non-interactive creation fails closed without `--type`; the interactive select keeps the branch-family expectation as a confirmed preselection only; canonical contract in `docs/conventions/commits/family-selection.md`; CLI contract tests |
+| Machine-known body duty | VERIFIED | breaking changes, hotfix-lane commits, release-stabilization branches (recorded workflow base), and the scratch squash transfer fail closed without a body (`COMMIT_BODY_REQUIRED`); CLI contract and same-package whitebox tests |
 | Rebase, merge, and scratch-squash continuation after conflict resolution | VERIFIED | synchronizer, scratch merger, workflow, CLI interaction, and Git adapter whitebox tests |
 | No automatic amend or force push | VERIFIED | absent from public command tree and application APIs |
 
@@ -61,8 +64,8 @@ does not rely on any external governance repository or unpublished rule set.
 
 | Command area | Status | Notes |
 |---|---|---|
-| `branch list`, `validate`, `create`, `merge-scratch`, `sync-base` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, structured commit composition, and the governed `sync-base --resume` continuation of conflicted rebase and merge synchronizations |
-| `commit create`, `validate` | IMPLEMENTED | explicit staging, branch-derived ticket context, and canonical family selection are enforced |
+| `branch list`, `validate`, `create`, `merge-scratch`, `sync-base` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, structured-only commit composition with the mandatory scratch-transfer body, and the governed `sync-base --resume` continuation of conflicted rebase and merge synchronizations |
+| `commit create`, `validate` | IMPLEMENTED | explicit staging, branch-derived ticket context, explicit family selection, the envelope-free subject, and the machine-known body duty are enforced |
 | `workflow ticket start` | IMPLEMENTED | optional scratch branch and provider-neutral PR intent |
 | `workflow ticket publish` | IMPLEMENTED | reports conditional rebase state, runs final local quality only after synchronization, records revision-bound local Git metadata, resumes resolved rebase and scratch-transfer conflicts interactively or with `--resume`, and creates a PR only through an explicit configured provider with the mandatory canonically structured description |
 | `workflow hotfix start` | IMPLEMENTED | affected-line selection is mandatory |

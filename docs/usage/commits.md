@@ -56,11 +56,19 @@ configuration itself stays with Git (`commit.gpgsign`, `gpg.format`,
 `user.signingkey`, `gpg.ssh.allowedSignersFile`).
 
 In interactive mode, the CLI first shows that fixed context, then presents the
-canonical commit-family list, and finally asks for the one-line description.
-The description must be the non-empty, unpadded text after `: ` and must not
-contain control characters. `commit validate --message` and `--message-file`
-remain full-message validation inputs because hooks validate the exact message
-that Git supplies.
+canonical commit-family list with the branch-family expectation preselected,
+and finally asks for the one-line description. The family is always an
+explicit decision: non-interactive calls fail closed without `--type`, and the
+interactive preselection is a proposal the author confirms, never a silent
+derivation. The description must be the non-empty, unpadded text after `: `,
+must not contain control characters, and never carries the metadata envelope
+(family, ticket, breaking marker) in header form at any position. The body is
+mandatory for breaking changes, hotfix-lane commits, release-stabilization
+commits, and the scratch squash transfer. The canonical contracts live in
+[Commit subject contract](../conventions/commits/subject-contract.md) and
+[Commit family selection](../conventions/commits/family-selection.md).
+`commit validate --message` and `--message-file` remain full-message
+validation inputs because hooks validate the exact message that Git supplies.
 
 Add a breaking change:
 
@@ -68,6 +76,7 @@ Add a breaking change:
 git governance --yes commit create `
   --type feat `
   --subject "replace export contract" `
+  --body "## Motivation`n`nThe export contract changed incompatibly." `
   --breaking `
   --breaking-description "Clients must read the new resource envelope." `
   --stage internal/domain/commitmsg/message.go

@@ -8,6 +8,7 @@
 - [GitHub ruleset conventions](conventions/hosting-platforms/github/rulesets/README.md)
 - [Development verification](development/verification.md)
 - [Build and release artifact ownership](conventions/BUILD-UND-RELEASE-ARTEFAKT-OWNERSHIP.md)
+- [Commit conventions](conventions/commits/README.md)
 - [Architecture decision record](architecture/ADR-0001-GO-CLI-ZIELARCHITEKTUR.md)
 - [CLI contract](specification/CLI-VERTRAG.md)
 - [Policy and validation](specification/POLICY-UND-VALIDIERUNG.md)

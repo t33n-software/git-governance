@@ -36,12 +36,14 @@ branches for the ticket, specify the intended target explicitly:
 git governance branch merge-scratch `
   --target feature/ABC-123-add-export-button `
   --type feat `
-  --subject "add export button"
+  --subject "add export button" `
+  --body "## Motivation`n`nDocuments the discarded experiment paths."
 ```
 
 The standard human flow first displays the fixed target branch, ticket key, and
-ticket ID. It then presents every supported commit family and asks only for the
-description that follows `: ` in the generated header. The key and ticket are
+ticket ID. It then presents every supported commit family and asks for the
+description that follows `: ` in the generated header and for the mandatory
+body that documents the discarded experiment paths. The key and ticket are
 derived from the resolved target and are never selectable in this flow.
 
 Non-interactive automation uses the existing interaction contract rather than a
@@ -50,14 +52,16 @@ separate `--silent` flag:
 ```powershell
 git governance --interactive never --yes branch merge-scratch `
   --type feat `
-  --subject "add export button"
+  --subject "add export button" `
+  --body "## Motivation`n`nDocuments the discarded experiment paths."
 ```
 
 The command switches to the official branch, applies `git merge --squash`, and
 creates the generated Conventional Commit. It never runs `git add .`, pushes,
-or deletes the scratch branch. `--message` remains a compatibility input for
-automation that must provide a complete multiline message; it cannot be mixed
-with `--type` or `--subject`. A squash-merge conflict remains in Git for
-explicit user resolution; the direct command does not hide or automatically
-discard it. Use `workflow ticket publish --resume` after resolving and staging
-a paused scratch transfer.
+or deletes the scratch branch. The body is always mandatory for the squash
+transfer: it is the only place that records the discarded experiment paths.
+Optional `--footer`, `--breaking`, and `--breaking-description` inputs follow
+the same structured contract as `commit create`. A squash-merge conflict
+remains in Git for explicit user resolution; the direct command does not hide
+or automatically discard it. Use `workflow ticket publish --resume` after
+resolving and staging a paused scratch transfer.
