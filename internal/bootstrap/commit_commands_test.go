@@ -28,6 +28,7 @@ func TestCommitCommandTreeHonorsRootFlagsForDryRunPush(t *testing.T) {
 		"--dry-run",
 		"--output", "json",
 		"commit", "create",
+		"--type", "feat",
 		"--subject", "add export",
 		"--stage", "README.md",
 		"--push",
@@ -53,7 +54,8 @@ func TestCommitCreateRetriesInteractiveSubjectAndBreakingDescription(t *testing.
 		Input: strings.NewReader(
 			"\n" + // select the default feat type
 				" add export\nadd export\n" +
-				" clients must migrate\nclients must migrate\n",
+				" clients must migrate\nclients must migrate\n" +
+				" Documents the contract change.\nDocuments the contract change.\n",
 		),
 		Output: promptOutput,
 	})
@@ -87,6 +89,7 @@ func TestCommitCreateRetriesInteractiveSubjectAndBreakingDescription(t *testing.
 	for _, expected := range []string{
 		"Invalid value for Commit description.",
 		"Invalid value for Breaking change impact.",
+		"Invalid value for Commit body.",
 		"Enter a new value.",
 	} {
 		if !strings.Contains(promptOutput.String(), expected) {
@@ -187,22 +190,22 @@ func TestCommitCreateCommandFailureContracts(t *testing.T) {
 		},
 		{
 			name:     "validates the constructed header",
-			args:     []string{"--subject", " "},
+			args:     []string{"--type", "feat", "--subject", " "},
 			wantCode: problem.CodeCommitDescriptionInvalid,
 		},
 		{
 			name:     "rejects malformed footer flags",
-			args:     []string{"--subject", "add export", "--footer", "invalid"},
+			args:     []string{"--type", "feat", "--subject", "add export", "--footer", "invalid"},
 			wantCode: problem.CodeCommitDescriptionInvalid,
 		},
 		{
 			name:     "requires a breaking change description",
-			args:     []string{"--subject", "add export", "--breaking"},
+			args:     []string{"--type", "feat", "--subject", "add export", "--breaking"},
 			wantCode: problem.CodeInvalidInput,
 		},
 		{
 			name:     "validates explicit breaking descriptions",
-			args:     []string{"--subject", "add export", "--breaking", "--breaking-description", " "},
+			args:     []string{"--type", "feat", "--subject", "add export", "--breaking", "--breaking-description", " "},
 			wantCode: problem.CodeCommitDescriptionInvalid,
 		},
 		{
@@ -212,7 +215,7 @@ func TestCommitCreateCommandFailureContracts(t *testing.T) {
 		},
 		{
 			name:     "accepts bases only from the selected remote",
-			args:     []string{"--subject", "add export", "--base", "upstream/main"},
+			args:     []string{"--type", "feat", "--subject", "add export", "--base", "upstream/main"},
 			wantCode: problem.CodeBranchBaseInvalid,
 		},
 		{
@@ -265,6 +268,94 @@ func TestCommitCreateCommandFailureContracts(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCommitCreateEnforcesTheBodyDuty(t *testing.T) {
+	t.Run("requires a body on the hotfix lane", func(t *testing.T) {
+		git := newCommitCommandGit(t, "hotfix/ABC-123-payment-timeout")
+		application := newCommitCommandApplication(git, nil)
+		application.options.yes = true
+
+		_, err := executeBootstrapCommand(t, newCommitCreateCommand(application),
+			"--type", "fix", "--subject", "reject expired session tokens", "--stage", "README.md")
+		assertProblemCode(t, err, problem.CodeCommitBodyRequired)
+		if len(git.committedMessages) != 0 {
+			t.Fatalf("body-less hotfix commit committed %d messages", len(git.committedMessages))
+		}
+
+		git = newCommitCommandGit(t, "hotfix/ABC-123-payment-timeout")
+		application = newCommitCommandApplication(git, nil)
+		application.options.yes = true
+		_, err = executeBootstrapCommand(t, newCommitCreateCommand(application),
+			"--type", "fix", "--subject", "reject expired session tokens",
+			"--body", "## Motivation\n\nExpired tokens were accepted when the clock skew exceeded the leeway.",
+			"--stage", "README.md")
+		if err != nil {
+			t.Fatalf("hotfix commit with body error = %v", err)
+		}
+		if len(git.committedMessages) != 1 || git.committedMessages[0].Body() == "" {
+			t.Fatalf("hotfix commit with body = %#v", git.committedMessages)
+		}
+	})
+
+	t.Run("requires a body on a release stabilization branch", func(t *testing.T) {
+		releaseLine, err := branch.ParseName("release/1.2.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		base, err := branch.NewTargetBase("origin", releaseLine)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		git := newCommitCommandGit(t, "fix/ABC-123-restore-session-renewal")
+		git.workflowBases = map[string]branch.TargetBase{"fix/ABC-123-restore-session-renewal": base}
+		application := newCommitCommandApplication(git, nil)
+		application.options.yes = true
+
+		_, err = executeBootstrapCommand(t, newCommitCreateCommand(application),
+			"--type", "fix", "--subject", "restore the session renewal window", "--stage", "README.md")
+		assertProblemCode(t, err, problem.CodeCommitBodyRequired)
+	})
+
+	t.Run("keeps the body optional on a regular ticket branch with a recorded develop base", func(t *testing.T) {
+		develop, err := branch.ParseName("develop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		base, err := branch.NewTargetBase("origin", develop)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		git := newCommitCommandGit(t, "feature/ABC-123-add-export")
+		git.workflowBases = map[string]branch.TargetBase{"feature/ABC-123-add-export": base}
+		application := newCommitCommandApplication(git, nil)
+		application.options.yes = true
+
+		_, err = executeBootstrapCommand(t, newCommitCreateCommand(application),
+			"--type", "feat", "--subject", "add export", "--stage", "README.md")
+		if err != nil {
+			t.Fatalf("regular ticket commit error = %v", err)
+		}
+		if len(git.committedMessages) != 1 {
+			t.Fatalf("regular ticket commit = %d messages", len(git.committedMessages))
+		}
+	})
+
+	t.Run("propagates workflow base lookup failures", func(t *testing.T) {
+		baseErr := errors.New("workflow base unreadable")
+		git := newCommitCommandGit(t, "feature/ABC-123-add-export")
+		git.workflowBaseErr = baseErr
+		application := newCommitCommandApplication(git, nil)
+		application.options.yes = true
+
+		_, err := executeBootstrapCommand(t, newCommitCreateCommand(application),
+			"--type", "feat", "--subject", "add export", "--stage", "README.md")
+		if !errors.Is(err, baseErr) {
+			t.Fatalf("workflow base error = %v, want %v", err, baseErr)
+		}
+	})
 }
 
 func TestCommitValidateCommandParsesMessagesAndRespectsFlagPrecedence(t *testing.T) {
@@ -432,7 +523,6 @@ func TestResolveStructuredCommitMessageContracts(t *testing.T) {
 		Branch:           feature,
 		Family:           "fix",
 		Description:      "correct export validation",
-		RequireFamily:    true,
 		DescriptionLabel: "Commit description",
 		Operation:        "this commit",
 	})
@@ -441,9 +531,8 @@ func TestResolveStructuredCommitMessageContracts(t *testing.T) {
 	}
 
 	_, err = noninteractive.resolveCommitMessage(context.Background(), commitMessageInput{
-		Branch:        feature,
-		Description:   "add export",
-		RequireFamily: true,
+		Branch:      feature,
+		Description: "add export",
 	})
 	assertProblemCode(t, err, problem.CodeInvalidInput)
 
@@ -451,7 +540,6 @@ func TestResolveStructuredCommitMessageContracts(t *testing.T) {
 		Branch:           feature,
 		Family:           "feature",
 		Description:      "add export",
-		RequireFamily:    true,
 		DescriptionLabel: "Commit description",
 	})
 	assertProblemCode(t, err, problem.CodeCommitTypeInvalid)
@@ -464,7 +552,6 @@ func TestResolveStructuredCommitMessageContracts(t *testing.T) {
 	enableCommitPrompt(interactive, prompt)
 	message, err = interactive.resolveCommitMessage(context.Background(), commitMessageInput{
 		Branch:           feature,
-		RequireFamily:    true,
 		DescriptionLabel: "Commit description",
 		Operation:        "this commit",
 	})

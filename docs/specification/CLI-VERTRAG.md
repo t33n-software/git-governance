@@ -283,8 +283,8 @@ Arbeitsbranch wechseln: ja
 git governance branch merge-scratch \
   [--branch scratch/<ticket>-<slug>] \
   [--target <official-ticket-branch>] \
-  [--type <commit-family> --subject <description> | \
-   --message "<complete Conventional Commit>"]
+  --type <commit-family> --subject <description> --body <text> \
+  [--footer <TOKEN=VALUE>]... [--breaking [--breaking-description <text>]]
 ```
 
 Ohne `--branch` ist der aktuelle Branch die Scratch-Quelle. Das Kommando
@@ -308,23 +308,26 @@ Interaktiv zeigt zuerst Scratch-Quelle und Zielbranch sowie den daraus
 abgeleiteten, nicht editierbaren Ticket-Key und die Ticket-ID. Danach zeigt es
 die vollständige kanonische Commit-Familienansicht (`build`, `chore`, `ci`,
 `docs`, `feat`, `fix`, `perf`, `refactor`, `revert`, `style`, `test`) und fragt
-anschließend nur die Beschreibung ab. Die Beschreibung ist genau der
-nichtleere, ungepolsterte Text nach `: ` im erzeugten Header; sie darf keine
-Steuerzeichen enthalten und höchstens 200 Unicode-Codepoints lang sein.
+anschließend die Beschreibung und den verpflichtenden Body ab. Die Beschreibung
+ist genau der nichtleere, ungepolsterte Text nach `: ` im erzeugten Header; sie
+darf keine Steuerzeichen enthalten, höchstens 200 Unicode-Codepoints lang sein
+und die Metadaten-Hülle niemals in Header-Form tragen. Der Body dokumentiert
+die verworfenen Experimentpfade des Scratch-Verlaufs.
 
 Für Automation sind die vorhandenen globalen Optionen maßgeblich:
 
 ```text
 git governance --interactive never --yes branch merge-scratch \
   --type feat \
-  --subject "add export button"
+  --subject "add export button" \
+  --body "## Motivation\n\nDocuments the discarded experiment paths."
 ```
 
 Die Ausführung wechselt auf das Ziel, führt `git merge --squash` aus und
 erstellt den daraus erzeugten, ticket-konsistenten Conventional Commit. Sie
-führt nie `git add .`, Push oder Scratch-Löschung aus. `--message` ist ein
-vollständiger Kompatibilitätseingang für bestehende Automation und darf nicht
-mit `--type` oder `--subject` kombiniert werden. Bei einem Konflikt bleibt der
+führt nie `git add .`, Push oder Scratch-Löschung aus. Der Body ist beim
+Scratch-Squash-Transfer immer verpflichtend: Er ist der einzige Ort, der die
+verworfenen Experimentpfade dokumentiert. Bei einem Konflikt bleibt der
 normale Git-Konfliktzustand für explizite Auflösung erhalten. Der direkte
 Command setzt keinen automatischen Merge fort; innerhalb von `workflow ticket
 publish` wird derselbe Konfliktzustand dagegen über eine Retry-Auswahl
@@ -362,9 +365,9 @@ git governance branch sync-base --resume
 
 Für `--strategy merge` erzeugt die interaktive Oberfläche denselben
 strukturierten Commit-Ablauf mit festem Branch-Ticket. Nicht-interaktive Aufrufe
-verwenden `--merge-type <family>` und `--merge-subject <description>`;
-`--merge-message` bleibt ausschließlich als vollständiger
-Kompatibilitätseingang erhalten.
+verwenden `--merge-type <family>` und `--merge-subject <description>`; optional
+ergänzen `--merge-body`, `--merge-footer`, `--merge-breaking` und
+`--merge-breaking-description` den Merge-Commit.
 
 `--resume` setzt einen durch dieses Kommando pausierten Rebase oder Merge fort,
 nachdem alle Konfliktpfade aufgelöst und explizit gestagt wurden. Der
@@ -407,9 +410,11 @@ Nach einer Mutation laufen Governance-Checks und konfigurierte Quality Checks er
 
 ```text
 --type build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test
+                                 Pflicht im nicht-interaktiven Modus
 --ticket <KEY-NUMBER>            Kompatibilitätsprüfung gegen den Branch
---subject <text>                 Commit-Beschreibung
---body <text>
+--subject <text>                 Commit-Beschreibung (niemals mit Metadaten-Hülle)
+--body <text>                    bei Breaking, Hotfix-Lane, Release-Stabilisierung
+                                 und Scratch-Squash-Transfer verpflichtend
 --breaking
 --breaking-description <text>
 --footer <token=value>           wiederholbar
@@ -422,12 +427,22 @@ Nach einer Mutation laufen Governance-Checks und konfigurierte Quality Checks er
 - Das Ticket wird auf einem Ticket-Branch aus dem Branch-Namen abgeleitet.
 - Ein explizites `--ticket` muss exakt zum Branch passen und ändert den
   abgeleiteten Scope nicht.
-- Der Commit-Typ wird aus der Branch-Familie vorgeschlagen, aber nicht blind erzwungen.
-- `feature` schlägt `feat`, `fix` und `hotfix` schlagen `fix` vor.
-- `docs`, `refactor`, `chore`, `test` und `perf` schlagen den gleichnamigen Typ vor.
+- Der Commit-Typ ist immer eine explizite Entscheidung: Nicht-interaktiv ist
+  `--type` Pflicht und fehlt er, scheitert der Aufruf fail-closed; eine stille
+  Ableitung aus der Branch-Familie existiert nicht.
 - Interaktiv zeigt die feste Branch-, Key- und Ticket-ID-Kontextzeile, dann die
-  kanonische Commit-Familienansicht und zuletzt die Beschreibung. Key und
-  Ticket sind in diesem Ablauf nicht auswählbar.
+  kanonische Commit-Familienansicht mit der Branch-Familien-Erwartung als
+  Vorauswahl und zuletzt die Beschreibung. Die Vorauswahl ist ein Vorschlag,
+  den der Autor explizit bestätigt oder ändert. Key und Ticket sind in diesem
+  Ablauf nicht auswählbar.
+- Die Beschreibung trägt die Metadaten-Hülle (Typ, Ticket, Breaking-Marker)
+  niemals in Header-Form — weder am Anfang noch eingebettet; die Validierung
+  lehnt Hüllen-Inhalt fail-closed ab. Die kanonischen Konventionen liegen in
+  `docs/conventions/commits/subject-contract.md` und
+  `docs/conventions/commits/family-selection.md`.
+- Der Body ist der Default: Bei `--breaking`, auf der Hotfix-Lane, auf einer
+  Release-Stabilisierungs-Branch und beim Scratch-Squash-Transfer ist er
+  verpflichtend und fehlt er, scheitert die Erzeugung fail-closed.
 - Das Kommando prüft, ob Änderungen gestaged sind.
 - Ohne `--stage` wird niemals automatisch `git add .` ausgeführt.
 - `--stage` akzeptiert explizite Pfade und zeigt sie vor der Mutation.
@@ -440,8 +455,15 @@ Bei `--breaking` erzeugt die UI standardmäßig:
 ```text
 feat(ABC-123)!: replace the export contract
 
+## Motivation
+
+The export contract changed incompatibly.
+
 BREAKING CHANGE: clients must consume the new resource envelope.
 ```
+
+Ein Breaking-Commit ohne Body ist unzulässig: Die Migrationsauswirkung steht im
+Footer, der fachliche Grund im Body.
 
 Der Benutzer erhält eine Erklärung:
 
@@ -465,7 +487,7 @@ Prüfungen:
 - Header-Grammatik
 - Commit-Typ
 - Ticket-ID
-- Beschreibung
+- Beschreibung inklusive Hüllen-Freiheit (keine Metadaten-Hülle im Subject)
 - Body-/Footer-Struktur
 - Breaking-Change-Semantik
 - Ticketkonsistenz zum aktuellen Branch
@@ -553,20 +575,22 @@ Ablauf:
     ohne Provider nur den providerneutralen PR-Intent ausgeben
 
 Für einen Scratch-Start benötigt der nicht-interaktive Modus eine
-Commit-Familie, eine Beschreibung und die bestehende Mutationsfreigabe:
+Commit-Familie, eine Beschreibung, den verpflichtenden Commit-Body und die
+bestehende Mutationsfreigabe:
 
 ```text
 git governance --interactive never --yes workflow ticket publish \
   --type feat \
   --subject "add export button" \
+  --commit-body "## Motivation\n\nDocuments the discarded experiment paths." \
   --push
 ```
 
 `--target <official-ticket-branch>` ist nur auf `scratch/*` zulässig und löst
 manuelle Mehrdeutigkeit auf. Auf einem offiziellen Branch bleiben `--target`
-und die Scratch-Transfer-Eingaben `--type`, `--subject` und `--message`
-ungültig. `--message` bleibt als vollständiger Kompatibilitätseingang
-erhalten und darf nicht mit den strukturierten Eingaben kombiniert werden.
+und die Scratch-Transfer-Eingaben `--type`, `--subject`, `--commit-body`,
+`--commit-footer`, `--commit-breaking` und `--commit-breaking-description`
+ungültig.
 
 Ohne Provider-Adapter wird kein Hosting-API-Aufruf erfunden. Die JSON-Ausgabe
 ist eine stabile Übergabeoberfläche für GitHub-, GitLab-, Bitbucket- oder
@@ -590,8 +614,9 @@ git governance --interactive never --yes workflow ticket publish \
   --resume --push
 ```
 
-Auf `scratch/*` bleiben die ursprünglichen `--type`/`--subject`- oder
-`--message`-Eingaben erforderlich; bei Mehrdeutigkeit bleibt `--target` Pflicht.
+Auf `scratch/*` bleiben die ursprünglichen `--type`/`--subject`- und
+`--commit-body`-Eingaben erforderlich; bei Mehrdeutigkeit bleibt `--target`
+Pflicht.
 
 ## 13. `workflow hotfix start`
 

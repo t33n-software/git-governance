@@ -565,6 +565,9 @@ Zusätzliche Regeln für die Beschreibung:
 - genau eine Header-Zeile
 - technische Obergrenze: 200 Unicode-Codepoints
 - keine automatische Änderung der Groß-/Kleinschreibung
+- niemals die Metadaten-Hülle (Typ, Ticket, Breaking-Marker) in Header-Form —
+  weder am Anfang noch eingebettet; die Hülle ist Assemblierungs-Eigentum und
+  wird fail-closed abgelehnt (kanonisch: `docs/conventions/commits/subject-contract.md`)
 
 Beispiele:
 
@@ -641,9 +644,11 @@ Detached HEAD kann keinen governeten Commit-Erstellungspfad ausführen.
 Die interaktive Erstellung besteht aus zwei Ebenen: zuerst wird eine der
 kanonischen Commit-Familien aus Abschnitt 7 ausgewählt, danach wird nur die
 Beschreibung für den Header eingegeben. Die UI zeigt den abgeleiteten Key und
-die Ticket-ID als feste Information. Vollständige Nachrichten bleiben für
-`commit validate` und den expliziten Kompatibilitätseingang verfügbar, weil
-Body und Footer dort Teil des zu prüfenden Git-Texts sind.
+die Ticket-ID als feste Information. Die Familie ist immer eine explizite
+Entscheidung: Nicht-interaktiv ist `--type` Pflicht; interaktiv ist die
+Branch-Familien-Erwartung eine Vorauswahl zur bestätigten Entscheidung, keine
+stille Ableitung. Vollständige Nachrichten bleiben für `commit validate`
+verfügbar, weil Body und Footer dort Teil des zu prüfenden Git-Texts sind.
 
 ## 11. Initial Commit
 

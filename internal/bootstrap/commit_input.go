@@ -13,11 +13,14 @@ import (
 )
 
 // commitMessageInput is the shared delivery-level input model for every
-// command that creates a governed commit. CompleteMessage is retained only for
-// compatibility and machine automation that needs bodies or footers.
+// command that creates a governed commit. Creation speaks structured values
+// only; a raw complete message exists exclusively at the verification
+// boundary (commit validate and the commit-msg hook), never as a creation
+// input. Canonical convention:
+// docs/conventions/commits/family-selection.md.
 type commitMessageInput struct {
 	Branch               branch.BranchName
-	CompleteMessage      string
+	Repository           port.RepositoryIdentity
 	Family               string
 	Description          string
 	Body                 string
@@ -25,7 +28,7 @@ type commitMessageInput struct {
 	BreakingDescription  string
 	FooterSpecifications []string
 	DefaultFamily        commitmsg.Type
-	RequireFamily        bool
+	RequireBody          bool
 	DescriptionLabel     string
 	Operation            string
 	Validate             func(commitmsg.Message) error
@@ -38,16 +41,6 @@ func (application *application) resolveCommitMessage(
 	ticketID, ticketScoped := input.Branch.Ticket()
 	if !ticketScoped {
 		return commitmsg.Message{}, missingCommitContext(input.Branch)
-	}
-	if input.CompleteMessage != "" {
-		if hasStructuredCommitInput(input) {
-			return commitmsg.Message{}, conflictingCommitInput()
-		}
-		message, err := commitmsg.Parse(input.CompleteMessage)
-		if err != nil {
-			return commitmsg.Message{}, err
-		}
-		return validateResolvedCommitMessage(input, message)
 	}
 
 	family, err := application.resolveCommitFamily(ctx, input, ticketID)
@@ -85,12 +78,16 @@ func (application *application) resolveCommitMessage(
 		}
 		footers = append(footers, breakingFooter)
 	}
+	body, err := application.resolveCommitBody(ctx, input)
+	if err != nil {
+		return commitmsg.Message{}, err
+	}
 	message, err := commitapp.Compose(commitapp.Draft{
 		Family:   family,
 		Ticket:   ticketID,
 		Subject:  description,
 		Breaking: input.Breaking,
-		Body:     input.Body,
+		Body:     body,
 		Footers:  footers,
 	})
 	if err != nil {
@@ -99,6 +96,13 @@ func (application *application) resolveCommitMessage(
 	return validateResolvedCommitMessage(input, message)
 }
 
+// resolveCommitFamily binds the commit family as an explicit author decision.
+// Non-interactive invocation without --type fails closed: the family steers
+// body duty, release semantics, and history readability, so it is never
+// silently derived from the branch family. The branch-family default remains
+// as the preselected proposal in the interactive select, which the author
+// confirms explicitly. Canonical convention:
+// docs/conventions/commits/family-selection.md.
 func (application *application) resolveCommitFamily(
 	ctx context.Context,
 	input commitMessageInput,
@@ -108,10 +112,7 @@ func (application *application) resolveCommitFamily(
 		return commitmsg.ParseType(input.Family)
 	}
 	if !application.promptAvailable() {
-		if input.RequireFamily {
-			return "", missingInput("commit family")
-		}
-		return defaultCommitFamily(input), nil
+		return "", missingInput("commit family")
 	}
 
 	families := commitapp.Families()
@@ -161,6 +162,80 @@ func (application *application) resolveCommitDescription(
 	)
 }
 
+// resolveCommitBody binds the commit body. The body is the default, not an
+// option: wherever the body-duty matrix marks the context as always mandatory
+// and that context is machine-known — a breaking change, the scratch squash
+// transfer, the hotfix lane, or a release-line stabilization branch — a
+// missing body is prompted for interactively or fails closed. All other units
+// keep the matrix as a content contract. Canonical convention:
+// docs/conventions/commits/family-selection.md.
+func (application *application) resolveCommitBody(
+	ctx context.Context,
+	input commitMessageInput,
+) (string, error) {
+	rule, required, err := application.bodyDutyRule(ctx, input)
+	if err != nil {
+		return "", err
+	}
+	if !required || input.Body != "" {
+		return input.Body, nil
+	}
+	if !application.promptAvailable() {
+		return "", bodyRequired(input, rule)
+	}
+	return application.requireInput(
+		ctx,
+		"",
+		"Commit body",
+		rule+" Provide the canonical body layout (Motivation, Behavioral Change, Contracts and Invariants, Verification, Risks and Follow-ups — only the applicable categories, in this order).",
+		func(value string) error {
+			if value == "" || strings.TrimSpace(value) != value {
+				return bodyRequired(input, rule)
+			}
+			return nil
+		},
+	)
+}
+
+// bodyDutyRule reports whether the body-duty matrix marks the current context
+// as always mandatory using only machine-known signals: the breaking marker,
+// the scratch squash transfer operation, the hotfix lane, and the recorded
+// workflow base of the branch for release-line stabilization.
+func (application *application) bodyDutyRule(
+	ctx context.Context,
+	input commitMessageInput,
+) (string, bool, error) {
+	if input.Breaking {
+		return "a breaking change carries the migration impact in the body.", true, nil
+	}
+	if input.RequireBody {
+		return "the scratch squash transfer documents the discarded experiment paths in the body.", true, nil
+	}
+	if input.Branch.Family() == branch.FamilyHotfix {
+		return "the hotfix lane carries incident context, root cause, and risk in the body.", true, nil
+	}
+	storedBase, found, err := application.services().git.WorkflowBase(ctx, input.Repository, input.Branch)
+	if err != nil {
+		return "", false, err
+	}
+	if found && storedBase.Branch().Family() == branch.FamilyRelease {
+		return "release-line stabilization carries the frozen-line burden of proof in the body.", true, nil
+	}
+	return "", false, nil
+}
+
+func bodyRequired(input commitMessageInput, rule string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeCommitBodyRequired,
+		Category:    problem.CategoryGovernance,
+		Field:       "commit body",
+		Expected:    "a body for " + input.Operation,
+		Rule:        rule,
+		Example:     "## Motivation\n\nWhy the unit changes.",
+		Remediation: "supply the body via the body input of this command",
+	})
+}
+
 func validateResolvedCommitMessage(input commitMessageInput, message commitmsg.Message) (commitmsg.Message, error) {
 	if input.Validate != nil {
 		if err := input.Validate(message); err != nil {
@@ -178,15 +253,6 @@ func defaultCommitFamily(input commitMessageInput) commitmsg.Type {
 		return input.DefaultFamily
 	}
 	return commitapp.DefaultFamily(input.Branch.Family())
-}
-
-func hasStructuredCommitInput(input commitMessageInput) bool {
-	return input.Family != "" ||
-		input.Description != "" ||
-		input.Body != "" ||
-		input.Breaking ||
-		input.BreakingDescription != "" ||
-		len(input.FooterSpecifications) > 0
 }
 
 func commitContextDescription(operation string, name branch.BranchName, ticketID, family string) string {
@@ -218,17 +284,5 @@ func missingCommitContext(name branch.BranchName) error {
 		Rule:        "governed commit creation derives its ticket context from the current working branch",
 		Example:     "feature/ABC-123-add-export",
 		Remediation: "switch to an official ticket branch or use the relevant governed workflow",
-	})
-}
-
-func conflictingCommitInput() error {
-	return problem.New(problem.Details{
-		Code:        problem.CodeInvalidInput,
-		Category:    problem.CategoryUsage,
-		Field:       "commit message",
-		Expected:    "either a complete --message or structured family and description inputs",
-		Rule:        "a commit is composed from exactly one input representation",
-		Example:     "--type feat --subject \"add export button\"",
-		Remediation: "remove --message or remove the structured commit flags",
 	})
 }

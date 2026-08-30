@@ -57,6 +57,7 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 			inputs.add("ticket", commitTicket.String())
 			message, err := application.resolveCommitMessage(command.Context(), commitMessageInput{
 				Branch:               currentBranch,
+				Repository:           repository,
 				Family:               typeRaw,
 				Description:          subject,
 				Body:                 body,
@@ -109,8 +110,8 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 	}
 	command.Flags().StringVar(&typeRaw, "type", "", "commit family")
 	command.Flags().StringVar(&ticketRaw, "ticket", "", "ticket ID compatibility check; the current branch is authoritative")
-	command.Flags().StringVar(&subject, "subject", "", "commit description")
-	command.Flags().StringVar(&body, "body", "", "optional commit body")
+	command.Flags().StringVar(&subject, "subject", "", "commit description; never carries the type/ticket envelope")
+	command.Flags().StringVar(&body, "body", "", "commit body; mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")
 	command.Flags().BoolVar(&breaking, "breaking", false, "mark an incompatible public contract change")
 	command.Flags().StringVar(&breakingDescription, "breaking-description", "", "breaking change migration impact")
 	command.Flags().StringSliceVar(&footerSpecs, "footer", nil, "footer as TOKEN=VALUE; repeatable")

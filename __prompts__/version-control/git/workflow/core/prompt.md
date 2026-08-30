@@ -766,6 +766,9 @@ Ein Commit muss:
 - fachlich vollständig und unabhängig reviewbar sein;
 - explizit gestagte Pfade enthalten;
 - zur Ticket-ID des aktuellen offiziellen Branches passen;
+- eine Familie tragen, die der Agent immer explizit aus dem fachlichen
+  Outcome der Einheit entscheidet — niemals eine stille Ableitung aus der
+  Branch-Familie;
 - die aktuelle CLI-Validierung bestehen;
 - keine WIP-, Checkpoint- oder fremde Änderungen enthalten;
 - nach dem ersten Push append-only bleiben.
@@ -824,6 +827,10 @@ Stilregeln:
   Berührung;
 - verbotene Leerformeln: "update", "fix stuff", "changes", "misc", "wip"
   und jede Form ohne benanntes Verhalten;
+- der Betreff trägt die Metadaten-Hülle (Familie, Ticket-Scope,
+  Breaking-Marker) niemals in Header-Form, weder am Anfang noch
+  eingebettet; die Hülle ist Assemblierungs-Eigentum der Binary, die
+  Hüllen-Inhalt im Betreff fail-closed ablehnt;
 - Grammatik, Länge und Zeichenvorrat bleiben Eigentum der Binary und Policy.
 ```
 

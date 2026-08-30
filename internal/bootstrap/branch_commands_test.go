@@ -531,7 +531,7 @@ func TestBranchSyncBaseCommandContracts(t *testing.T) {
 			context.Background(),
 			"--branch", "fix/ABC-123-other-work",
 			"--strategy", "merge",
-			"--merge-message", "fix(ABC-123): synchronize develop",
+			"--merge-type", "fix", "--merge-subject", "synchronize develop",
 		)
 		assertProblemCode(t, err, problem.CodeInvalidInput)
 		if git.fetchCalls != 0 || len(git.mergedBranches) != 0 {
@@ -579,7 +579,7 @@ func TestBranchSyncBaseCommandContracts(t *testing.T) {
 			"--branch", "feature/ABC-123-add-export",
 			"--base", "origin/develop",
 			"--strategy", "merge",
-			"--merge-message", "chore(ABC-123): merge origin/develop",
+			"--merge-type", "chore", "--merge-subject", "merge origin/develop",
 		)
 		if err != nil {
 			t.Fatalf("merge sync error = %v", err)
@@ -682,9 +682,9 @@ func TestBranchSyncBaseCommandContracts(t *testing.T) {
 			wantCode:  problem.CodeBranchBaseInvalid,
 		},
 		{
-			name:      "rejects malformed merge messages before confirmation",
-			arguments: []string{"--branch", "feature/ABC-123-add-export", "--strategy", "merge", "--merge-message", "not a commit message"},
-			wantCode:  problem.CodeCommitHeaderInvalid,
+			name:      "rejects invalid merge commit inputs before confirmation",
+			arguments: []string{"--branch", "feature/ABC-123-add-export", "--strategy", "merge", "--merge-type", "chore", "--merge-subject", " padded"},
+			wantCode:  problem.CodeCommitDescriptionInvalid,
 		},
 		{
 			name:      "preserves synchronization service failures",
@@ -840,7 +840,7 @@ func TestBranchSyncBaseResumeContracts(t *testing.T) {
 		}{
 			{name: "dry-run", arguments: []string{"--resume"}, dryRun: true},
 			{name: "strategy", arguments: []string{"--resume", "--strategy", "rebase"}},
-			{name: "merge message", arguments: []string{"--resume", "--merge-message", "chore(ABC-123): merge origin/develop"}},
+			{name: "merge body", arguments: []string{"--resume", "--merge-body", "merge origin/develop"}},
 			{name: "merge type", arguments: []string{"--resume", "--merge-type", "chore"}},
 			{name: "merge subject", arguments: []string{"--resume", "--merge-subject", "merge origin/develop"}},
 		} {
@@ -937,7 +937,7 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	message := "feat(ABC-123): add export"
+	body := "## Motivation\n\nDocuments the discarded experiment paths."
 	newGit := func() *branchCommandGit {
 		git := newBranchCommandGit(t, source)
 		git.officialBranches = []branch.BranchName{target}
@@ -990,7 +990,7 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--message", message,
+			"--type", "feat", "--subject", "add export", "--body", body,
 		)
 		assertProblemCode(t, err, problem.CodeScratchSourceBranchMissing)
 
@@ -999,9 +999,9 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--message", "not a Conventional Commit",
+			"--type", "feat", "--subject", "feat(ABC-123): add export", "--body", body,
 		)
-		assertProblemCode(t, err, problem.CodeCommitHeaderInvalid)
+		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 	})
 
 	t.Run("propagates squash merge failures after confirmation", func(t *testing.T) {
@@ -1014,7 +1014,7 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(application),
 			context.Background(),
-			"--message", message,
+			"--type", "feat", "--subject", "add export", "--body", body,
 		)
 		if !errors.Is(err, squashErr) {
 			t.Fatalf("squash merge error = %v, want %v", err, squashErr)
@@ -1029,6 +1029,7 @@ func TestScratchMergeCommandContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	message := "feat(ABC-123): add export"
+	body := "## Motivation\n\nDocuments the discarded experiment paths."
 
 	t.Run("squashes the current scratch branch in noninteractive automation", func(t *testing.T) {
 		git := newBranchCommandGit(t, source)
@@ -1045,7 +1046,7 @@ func TestScratchMergeCommandContracts(t *testing.T) {
 			newScratchMergeCommand(application),
 			context.Background(),
 			"--target", target.String(),
-			"--message", message,
+			"--type", "feat", "--subject", "add export", "--body", body,
 		)
 		if err != nil {
 			t.Fatalf("scratch merge error = %v", err)
@@ -1064,7 +1065,7 @@ func TestScratchMergeCommandContracts(t *testing.T) {
 		}
 		if len(git.switchedBranches) != 1 || git.switchedBranches[0] != target ||
 			len(git.squashedBranches) != 1 || git.squashedBranches[0].String() != source ||
-			len(git.committedMessages) != 1 || git.committedMessages[0].String() != message {
+			len(git.committedMessages) != 1 || git.committedMessages[0].String() != message+"\n\n"+body {
 			t.Fatalf(
 				"scratch merge calls = switched:%#v squashed:%#v committed:%#v",
 				git.switchedBranches,
@@ -1090,7 +1091,7 @@ func TestScratchMergeCommandContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(application),
 			context.Background(),
-			"--message", message,
+			"--type", "feat", "--subject", "add export", "--body", body,
 		)
 		assertProblemCode(t, err, problem.CodeOperationCancelled)
 		if len(prompt.confirmRequests) != 1 ||

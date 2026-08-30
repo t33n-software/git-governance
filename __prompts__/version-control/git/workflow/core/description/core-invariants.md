@@ -394,7 +394,12 @@ subject and body without loading the diff (filter before fetch).
 The agent makes only generic decisions (the ticket's actual content); every
 architectural decision is bound by the contract. The subject formulation
 contract fixes language (English), imperative mood, behavior-over-file
-naming, and forbidden filler forms. The canonical body layout fixes the
+naming, and forbidden filler forms. The subject never carries the metadata
+envelope (family, ticket scope, breaking marker) in header form at any
+position: the envelope is assembly-owned by the binary, which rejects
+envelope content in the subject fail-closed. The commit family is always an
+explicit decision from the unit's functional outcome, never a silent
+derivation from the branch family. The canonical body layout fixes the
 category order (Motivation, Behavioral Change, Contracts and Invariants,
 Verification, Risks and Follow-ups) with a short-form rule for narrow
 scopes. An executable acceptance gate makes `commit_content_verified`

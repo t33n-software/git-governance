@@ -17,6 +17,7 @@ optionally pushing the official branch:
 git governance workflow ticket publish `
   --type feat `
   --subject "add export button" `
+  --commit-body "## Motivation`n`nDocuments the discarded experiment paths." `
   --push
 ```
 
@@ -40,10 +41,10 @@ the structural hook with `--no-verify` or a hook-disable switch.
 ## Non-interactive publication
 
 For non-interactive execution, use `--interactive never --yes` and provide
-the commit family and description when publishing from scratch. `--message`
-remains available only as the complete-message compatibility input. Use
-`--target <official-branch>` only when a manually created repository has more
-than one local official branch for the ticket.
+the commit family, the description, and the mandatory commit body when
+publishing from scratch. Use `--target <official-branch>` only when a
+manually created repository has more than one local official branch for the
+ticket.
 
 ```powershell
 git governance --interactive never --output json --yes workflow ticket publish `
@@ -54,6 +55,7 @@ git governance --interactive never --output json --yes workflow ticket publish `
 git governance --interactive never --output json --yes workflow ticket publish `
   --type feat `
   --subject "add export button" `
+  --commit-body "## Motivation`n`nDocuments the discarded experiment paths." `
   --push
 ```
 

@@ -16,7 +16,9 @@ is ambiguous:
 
 ```powershell
 git governance --interactive never --output json --yes workflow ticket publish `
-  --message "feat(ABC-123): add export button" `
+  --type feat `
+  --subject "add export button" `
+  --commit-body "## Motivation`n`nDocuments the discarded experiment paths." `
   --resume `
   --push
 ```
