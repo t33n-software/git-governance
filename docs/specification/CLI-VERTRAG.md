@@ -99,7 +99,54 @@ einzelnes leichtgewichtiges Gate eingeschlossen werden. Das ist keine globale
 Sonderregel, sondern dieselbe Scope-Semantik wie für Dokumentations-, Test-,
 Performance- oder Stress-Gates.
 
-## 3. Command Tree
+## 3. Flag-Hilfe und Wertedomänen
+
+Die Hilfe ist die autoritative Vertragsfläche dieses CLI: Alles, was die
+Validierung weiß, ist vor dem Aufruf über die Hilfe erfahrbar
+(discoverable-closed). Mensch und LLM-Agent müssen aus der Hilfe allein einen
+validen Aufruf ableiten können. Die kanonischen, sprach- und
+themenagnostischen Konventionen liegen in `docs/conventions/cli/`; dieser
+Abschnitt bindet ihre Pflichten an die konkrete Laufzeit dieses Projekts.
+
+**Werteklassen-Pflicht.** Jede Flagge und jedes positionale Argument gehört
+genau einer der acht Werteklassen gemäß
+`docs/conventions/cli/value-domain-model.md`:
+
+- `closed-enum`: die Hilfe zeigt 100 % der für diesen Endpunkt akzeptierten
+  Werte (Endpunkt-Teilmenge, niemals die Gesamtdomäne und niemals eine
+  Handkopie).
+- `free-constrained`: die Hilfe zeigt den kompakten Regelsatz — Zeichenklasse,
+  Länge, Namenskonvention, Regex/Grammatik, kanonisches Beispiel und die
+  primären Ablehnungsbedingungen.
+- `shaped`: die Hilfe zeigt Grammatik, kanonisches Beispiel und
+  Teilmengen-Regeln des Endpunkts.
+- `structural-reference`: die Hilfe zeigt Form und Auflösungsregel und
+  verspricht keine laufzeitunabhängige Vollprävention.
+- `scalar-bounded`, `boolean-switch`, `composite-token` und
+  `secret-reference` folgen den Kompaktpflichten der Konvention.
+
+**Label-Gesetz.** Die Hilfe unterscheidet verbindlich zwischen „wird von der
+Validierung abgelehnt" (Maschinenregel mit harter Ablehnung) und „ist
+konventionswidrig" (Inhaltsvertrag ohne maschinelle Erzwingung).
+
+**Single Source of Truth.** Jede Wertedomäne ist genau einmal im kanonischen
+Register der Application-Ebene (`internal/application/cliparam`) definiert.
+Statische Hilfe, interaktive Prompts, Fehlerverträge, Shell-Completion und
+der Discovery-Endpunkt `policy describe` rendern aus diesem Register.
+Literal-Duplikate sind verboten; Endpunkt-Teilmengen entstehen über
+deklarierte Filter (z. B. `DirectlyCreatable`), niemals über Handkopien.
+Drift zwischen Projektion und Quelle ist ein release-blockierender Defekt:
+Contract-Tests pinnen jede Projektion gegen das Register, property-basierte
+Tests beweisen Akzeptanz und Ablehnung je dokumentiertem Wert und je
+dokumentierter Regel, und ein Help-first-Consumer-Test beweist, dass ein
+valider Aufruf aus der Hilfe allein ableitbar ist — kanonisch niedergelegt in
+`docs/conventions/cli/testing-and-verification.md`.
+
+**Tiefenreferenz.** Die Hilfe jedes wertetragenden Endpunkts trägt genau eine
+Verweiszeile auf die Discovery-Endpunkte `policy describe` (Wertedomänen und
+Limits) und `branch list` (Familien-Muster).
+
+## 4. Command Tree
 
 ```text
 git governance
@@ -155,7 +202,7 @@ git governance
 └── doctor
 ```
 
-## 4. `auth`
+## 5. `auth`
 
 ```text
 git governance auth login github
@@ -183,7 +230,7 @@ keinen GitHub-App-Client-Secret besitzen darf. Der vollständige Ablauf, das
 Bindungs- und Discovery-Modell sowie der Brokervertrag stehen in
 [`docs/usage/authentication.md`](../usage/authentication.md).
 
-## 5. `branch list`
+## 6. `branch list`
 
 Zeigt alle Branch-Familien einschließlich Shared Lines und governance-gebundener Linien:
 
@@ -212,7 +259,7 @@ Jeder Eintrag enthält:
 
 `branch list` ist die vollständige Informationsoberfläche. `branch create` zeigt nur auswählbare Familien für den konkreten Kontext und erklärt, warum andere Familien nicht direkt erzeugt werden dürfen.
 
-## 6. `branch create`
+## 7. `branch create`
 
 ### 5.1 Zweck
 
@@ -333,7 +380,7 @@ Command setzt keinen automatischen Merge fort; innerhalb von `workflow ticket
 publish` wird derselbe Konfliktzustand dagegen über eine Retry-Auswahl
 fortgesetzt, nachdem der Benutzer ihn aufgelöst und gestaged hat.
 
-## 7. `branch validate`
+## 8. `branch validate`
 
 ```text
 git governance branch validate [<branch-name>]
@@ -350,7 +397,7 @@ Ohne Argument wird der aktuelle Branch verwendet. Das Kommando prüft:
 
 Es mutiert nichts und eignet sich für lokale Diagnose und CI.
 
-## 8. `branch sync-base`
+## 9. `branch sync-base`
 
 ### 7.1 Zweck
 
@@ -404,7 +451,7 @@ Branch-Validierung und die konfigurierten Quality Checks erneut ausgeführt.
 
 Nach einer Mutation laufen Governance-Checks und konfigurierte Quality Checks erneut. Schlägt ein direkter `branch sync-base`-Rebase oder -Merge konfliktbedingt fehl, bleibt Git im normalen Rebase- beziehungsweise Merge-Zustand und wird nicht verborgen. Nach Auflösung und explizitem Staging setzt `branch sync-base --resume` die pausierte Operation governet fort. Im `workflow ticket publish` wird derselbe Zustand zusätzlich als Retry-Schritt dargestellt: Nach Auflösung und Staging setzt Retry den bestehenden Rebase fort.
 
-## 9. `commit create`
+## 10. `commit create`
 
 ### 8.1 Optionen
 
@@ -475,7 +522,7 @@ Der Benutzer erhält eine Erklärung:
 
 `commit create` bietet kein Amend-Flag. Vor dem ersten Push wäre ein lokales Amend gemäß Referenz-Governance zwar grundsätzlich zulässig, ist aber kein notwendiger Produkt-Use-Case. Nach dem ersten Push ist Amend als Routine verboten. Force Push wird von keinem Kommando angeboten.
 
-## 10. `commit validate`
+## 11. `commit validate`
 
 ```text
 git governance commit validate --message-file <path>
@@ -496,7 +543,7 @@ Prüfungen:
 
 Für `commit-msg` wird immer `--message-file` verwendet. Die Datei wird begrenzt gelesen; NUL und unzulässige Kontrollzeichen werden abgewiesen.
 
-## 11. `workflow ticket start`
+## 12. `workflow ticket start`
 
 ### 10.1 Zweck
 
@@ -538,7 +585,7 @@ Arbeitsbranch. Übernimm stabile Ergebnisse später kontrolliert per Squash
 oder Cherry-Pick in den offiziellen Ticket-Branch.
 ```
 
-## 12. `workflow ticket publish`
+## 13. `workflow ticket publish`
 
 Dieses Kommando wird nach Entwicklung und lokalen Tests aufgerufen. Es ist kein automatisch fortlaufender Teil von `ticket start`.
 
@@ -618,7 +665,7 @@ Auf `scratch/*` bleiben die ursprünglichen `--type`/`--subject`- und
 `--commit-body`-Eingaben erforderlich; bei Mehrdeutigkeit bleibt `--target`
 Pflicht.
 
-## 13. `workflow hotfix start`
+## 14. `workflow hotfix start`
 
 Pflichtoptionen:
 
@@ -724,7 +771,7 @@ prüft ihn erneut, pusht nur den nicht-shared `fix/*`-Branch und erstellt dessen
 PR. Ohne diese serverseitige Boundary endet `--publish` fail-closed; lokale
 Kandidaten bleiben nicht veröffentlichend.
 
-## 14. Release-Kommandos
+## 15. Release-Kommandos
 
 ### 13.1 `workflow release cut`
 
@@ -944,7 +991,7 @@ und Support-Branches sind keine lokalen CLI-Cleanup-Ziele. Das Kommando
 behauptet nicht, einen Hosting-Merge oder Forward-/Backport-Abschluss beweisen
 zu können.
 
-## 15. `validate pre-push`
+## 16. `validate pre-push`
 
 Dieses Kommando ist die Lefthook- und manuelle Pre-Push-Oberfläche.
 
@@ -970,7 +1017,7 @@ Der Validator führt nie selbst Rebase oder Merge aus. Fehlt ein passender
 finaler Nachweis, läuft die konfigurierte Vollsuite als lokaler Raw-Push-
 Fallback. Er blockiert mit einer konkreten, policy-konformen Handlungsanweisung.
 
-## 16. Konfigurationskommandos
+## 17. Konfigurationskommandos
 
 ```text
 git governance config key add PLATFORM2
@@ -987,7 +1034,7 @@ Regeln:
 - Ticketnummern werden nicht als globaler Default gespeichert
 - Commits leiten das Ticket aus dem aktuellen Branch ab
 
-## 17. `policy describe`
+## 18. `policy describe`
 
 Gibt die aktive ausführbare Policy versioniert aus:
 
@@ -1007,7 +1054,7 @@ Enthalten sind:
 
 Dokumentations- und Conformance-Tests verwenden diese Ausgabe, damit keine zweite Regex-Wahrheit in Hooks oder Beispielen entsteht.
 
-## 18. `doctor`
+## 19. `doctor`
 
 Read-only-Diagnose:
 
@@ -1032,7 +1079,7 @@ den Publish-Preflight geprüft.
 
 `doctor` installiert, repariert oder mutiert nichts ohne ein separates explizites Kommando.
 
-## 19. Human- und JSON-Ausgabe
+## 20. Human- und JSON-Ausgabe
 
 ### 19.1 Human
 
@@ -1090,7 +1137,7 @@ Behebung:
 
 JSON-Feldnamen und Exitcodes sind öffentliche Verträge und werden kompatibel versioniert.
 
-## 20. Interne Komposition
+## 21. Interne Komposition
 
 Delivery-Adapter sammeln Eingaben und erzeugen Commands. Workflows rufen Application Services direkt auf:
 
@@ -1113,7 +1160,7 @@ workflow command
 
 Nur externe Consumer und Automation verwenden die CLI-Oberfläche.
 
-## 21. Übernahme aus dem bisherigen Tool
+## 22. Übernahme aus dem bisherigen Tool
 
 | Bestehende Fähigkeit | Zielentscheidung |
 |---|---|
