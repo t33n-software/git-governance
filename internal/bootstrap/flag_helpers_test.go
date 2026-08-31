@@ -573,6 +573,111 @@ func TestPromptRuleTextsRenderFromTheRegister(t *testing.T) {
 	})
 }
 
+// TestCompletionProjectionOnTheProductionTree pins the completion channel K4
+// on the production command tree: closed-enum flags serve every register
+// value, shaped flags serve the static prefix forms, free-constrained flags
+// suppress file completion, and path flags keep the framework's file
+// completion. Every subtest builds its own tree because command execution
+// mutates flag state.
+func TestCompletionProjectionOnTheProductionTree(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		args          []string
+		wantContains  []string
+		wantExcludes  []string
+		wantDirective string
+	}{
+		{
+			name:          "commit type serves every commit family",
+			args:          []string{"__complete", "commit", "create", "--type", ""},
+			wantContains:  cliparam.CommitType().Values,
+			wantDirective: ":4",
+		},
+		{
+			name:          "branch family serves only the directly creatable subset",
+			args:          []string{"__complete", "branch", "create", "--family", ""},
+			wantContains:  cliparam.DirectlyCreatableBranchFamily().Values,
+			wantExcludes:  []string{"main", "develop", "release", "support", "hotfix"},
+			wantDirective: ":4",
+		},
+		{
+			name:          "sync strategy serves the strategy values",
+			args:          []string{"__complete", "branch", "sync-base", "--strategy", ""},
+			wantContains:  cliparam.SyncStrategy().Values,
+			wantDirective: ":4",
+		},
+		{
+			name:          "affected line serves the prefix forms",
+			args:          []string{"__complete", "workflow", "hotfix", "start", "--affected-line", "re"},
+			wantContains:  []string{"release/"},
+			wantExcludes:  []string{"main", "support/"},
+			wantDirective: ":4",
+		},
+		{
+			name:          "free-constrained key suppresses file completion without values",
+			args:          []string{"__complete", "workflow", "ticket", "start", "--key", ""},
+			wantDirective: ":4",
+		},
+		{
+			name:          "completion positional serves the shells",
+			args:          []string{"__complete", "completion", ""},
+			wantContains:  cliparam.CompletionShell().Values,
+			wantDirective: ":4",
+		},
+		{
+			name:          "record path keeps the framework file completion",
+			args:          []string{"__complete", "workflow", "hotfix", "validate-record", "--record", ""},
+			wantDirective: ":0",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := New(BuildInfo{Version: "test"})
+			var output strings.Builder
+			root.SetOut(&output)
+			root.SetErr(&output)
+			root.SetArgs(test.args)
+			if err := root.Execute(); err != nil {
+				t.Fatalf("__complete %v failed: %v", test.args, err)
+			}
+
+			lines := strings.Split(output.String(), "\n")
+			for _, want := range test.wantContains {
+				found := false
+				for _, line := range lines {
+					if line == want {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("completion %v misses candidate %q in %q", test.args, want, output.String())
+				}
+			}
+			for _, unwanted := range test.wantExcludes {
+				for _, line := range lines {
+					if line == unwanted {
+						t.Fatalf("completion %v serves excluded candidate %q", test.args, unwanted)
+					}
+				}
+			}
+			directiveFound := false
+			for _, line := range lines {
+				if line == test.wantDirective {
+					directiveFound = true
+				}
+			}
+			if !directiveFound {
+				t.Fatalf("completion %v directive line %q missing in %q", test.args, test.wantDirective, output.String())
+			}
+		})
+	}
+}
+
 // TestRegisterGlobalValueDomainFlags pins the global persistent flags onto the
 // register projection.
 func TestRegisterGlobalValueDomainFlags(t *testing.T) {
