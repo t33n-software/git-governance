@@ -466,6 +466,26 @@ func mustParseBranch(t *testing.T, raw string) BranchName {
 	return actual
 }
 
+// TestInvalidFamilyExpectedRendersTheFamilyRegistry pins the error contract
+// against the canonical family registry: when the registry gains a branch
+// family, the error surface must show it without any literal edit.
+func TestInvalidFamilyExpectedRendersTheFamilyRegistry(t *testing.T) {
+	t.Parallel()
+
+	typed, ok := problem.As(invalidFamily("feat"))
+	if !ok {
+		t.Fatal("invalidFamily must return a typed problem")
+	}
+	names := make([]string, 0, len(families))
+	for _, family := range Families() {
+		names = append(names, family.String())
+	}
+	want := "one of " + strings.Join(names, ", ")
+	if typed.Expected != want {
+		t.Fatalf("invalidFamily Expected = %q, want registry-derived %q", typed.Expected, want)
+	}
+}
+
 func FuzzParseBranchValues(f *testing.F) {
 	for _, seed := range []string{
 		"feature/ABC-123-add-export",

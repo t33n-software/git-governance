@@ -18,6 +18,7 @@ import (
 	"github.com/t33n-software/git-governance/internal/adapters/system"
 	"github.com/t33n-software/git-governance/internal/adapters/terminal"
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
+	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	commitapp "github.com/t33n-software/git-governance/internal/application/commit"
 	"github.com/t33n-software/git-governance/internal/application/policy"
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -282,7 +283,7 @@ func (application *application) outputFormat() (report.Format, error) {
 			Category:    problem.CategoryUsage,
 			Field:       "output",
 			Actual:      application.options.output,
-			Expected:    "human or json",
+			Expected:    cliparam.OutputMode().ValueList(),
 			Rule:        "output format must be explicit and stable",
 			Example:     "--output json",
 			Remediation: "select human or json output",

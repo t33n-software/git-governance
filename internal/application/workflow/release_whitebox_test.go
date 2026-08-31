@@ -1228,8 +1228,8 @@ func TestReleaseWhiteboxStartHotfixBoundaries(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeInternal)
 	})
 
-	t.Run("rejects absent and non-shared affected lines before Git", func(t *testing.T) {
-		for _, affected := range []branch.BranchName{{}, mustBranch("feature/ABC-999-payment-timeout")} {
+	t.Run("rejects absent, non-shared, and integration-line affected lines before Git", func(t *testing.T) {
+		for _, affected := range []branch.BranchName{{}, mustBranch("feature/ABC-999-payment-timeout"), mustBranch("develop")} {
 			git := newReleaseWhiteboxGit()
 			request := releaseHotfixRequest()
 			request.AffectedLine = affected

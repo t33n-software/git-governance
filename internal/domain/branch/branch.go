@@ -451,13 +451,25 @@ func (state PublicationState) CanRewriteHistory(family Family) bool {
 	return state == PublicationUnpublished && family.IsOfficialWorkingBranch()
 }
 
+// familyEnumeration renders the canonical branch-family list from the family
+// registry, so the error contract never carries the value set as a duplicated
+// literal. Canonical convention:
+// docs/conventions/cli/single-source-of-truth.md.
+func familyEnumeration() string {
+	names := make([]string, 0, len(families))
+	for _, family := range families {
+		names = append(names, family.String())
+	}
+	return strings.Join(names, ", ")
+}
+
 func invalidFamily(actual string) error {
 	return problem.New(problem.Details{
 		Code:        problem.CodeBranchFamilyInvalid,
 		Category:    problem.CategoryGovernance,
 		Field:       "branch family",
 		Actual:      actual,
-		Expected:    "one of main, develop, release, support, feature, fix, docs, refactor, chore, test, perf, hotfix, scratch",
+		Expected:    "one of " + familyEnumeration(),
 		Rule:        "branch families use the canonical taxonomy",
 		Example:     "feature",
 		Remediation: "select a supported branch family",

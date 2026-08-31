@@ -44,6 +44,14 @@ The subject character inventory is free by convention:
 - forbidden empty formulas: `update`, `fix stuff`, `changes`, `misc`, `wip`,
   and any form without a named behavior.
 
+The CLI help and the interactive prompt carry the compact form of this
+contract — the length, padding, control-character, and envelope rules as
+validation rejections, the empty formulas as convention-violating — rendered
+from the canonical value-domain register; the binding help duty is specified
+in `docs/specification/CLI-VERTRAG.md`, section 3 (Flag-Hilfe und
+Wertedomänen). This document remains the content owner; the help projection
+never duplicates or extends it.
+
 ## 4. Forbidden Content: The Metadata Envelope
 
 The subject must never carry the header metadata envelope — the commit

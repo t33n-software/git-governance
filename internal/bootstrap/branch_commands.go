@@ -84,7 +84,7 @@ func newBranchValidateCommand(application *application) *cobra.Command {
 	// class-specific help duty. Canonical conventions:
 	// docs/conventions/cli/value-domain-model.md and
 	// docs/conventions/cli/help-contract.md.
-	command.Flags().StringVar(&nameRaw, "branch", "", "branch name; defaults to the current branch")
+	registerBranchReferenceFlag(command, &nameRaw, "branch", "branch name; defaults to the current branch")
 	return command
 }
 
@@ -175,11 +175,11 @@ func newBranchCreateCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&familyRaw, "family", "", "branch family")
-	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
-	command.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")
-	command.Flags().StringVar(&slugRaw, "slug", "", "kebab-case branch description")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for eligible branch families")
+	registerBranchFamilyFlag(command, &familyRaw, "")
+	registerTicketKeyFlag(command, &keyRaw)
+	registerTicketNumberFlag(command, &numberRaw)
+	registerSlugFlag(command, &slugRaw, "slug", "")
+	registerBaseFlag(command, &baseRaw, "for eligible branch families")
 	command.Flags().BoolVar(&switchTo, "switch", true, "switch to the branch after creating it")
 	return command
 }
@@ -271,14 +271,14 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&sourceRaw, "branch", "", "scratch branch; defaults to the current branch")
-	command.Flags().StringVar(&targetRaw, "target", "", "optional local official ticket branch target")
-	command.Flags().StringVar(&commitFamily, "type", "", "commit family for the squashed change")
-	command.Flags().StringVar(&commitSubject, "subject", "", "commit description for the squashed change")
-	command.Flags().StringVar(&commitBody, "body", "", "mandatory commit body documenting the discarded experiment paths")
-	command.Flags().StringSliceVar(&commitFooters, "footer", nil, "commit footer as TOKEN=VALUE; repeatable")
+	registerBranchReferenceFlag(command, &sourceRaw, "branch", "scratch branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &targetRaw, "target", "optional local official ticket branch target")
+	registerCommitTypeFlag(command, &commitFamily, "for the squashed change")
+	registerSubjectFlag(command, &commitSubject, "subject", "for the squashed change")
+	registerBodyFlag(command, &commitBody, "body", "documenting the discarded experiment paths (mandatory)")
+	registerFooterFlag(command, &commitFooters, "footer", "")
 	command.Flags().BoolVar(&commitBreaking, "breaking", false, "mark an incompatible public contract change")
-	command.Flags().StringVar(&commitBreakingImpact, "breaking-description", "", "breaking change migration impact")
+	registerBreakingDescriptionFlag(command, &commitBreakingImpact, "breaking-description", "")
 	return command
 }
 
@@ -410,15 +410,15 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&nameRaw, "branch", "", "branch name; must match the current branch when supplied")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit remote target base")
-	command.Flags().StringVar(&strategyRaw, "strategy", string(branchapp.SyncCheck), "check, auto, rebase, or merge")
-	command.Flags().StringVar(&mergeFamily, "merge-type", "", "commit family for --strategy merge")
-	command.Flags().StringVar(&mergeSubject, "merge-subject", "", "commit description for --strategy merge")
-	command.Flags().StringVar(&mergeBody, "merge-body", "", "merge commit body for --strategy merge")
-	command.Flags().StringSliceVar(&mergeFooters, "merge-footer", nil, "merge commit footer as TOKEN=VALUE; repeatable")
+	registerBranchReferenceFlag(command, &nameRaw, "branch", "branch name; must match the current branch when supplied")
+	registerBaseFlag(command, &baseRaw, "for synchronization")
+	registerSyncStrategyFlag(command, &strategyRaw)
+	registerMergeTypeFlag(command, &mergeFamily)
+	registerSubjectFlag(command, &mergeSubject, "merge-subject", "for --strategy merge")
+	registerBodyFlag(command, &mergeBody, "merge-body", "for the --strategy merge commit")
+	registerFooterFlag(command, &mergeFooters, "merge-footer", "for the merge commit")
 	command.Flags().BoolVar(&mergeBreaking, "merge-breaking", false, "mark an incompatible public contract change in the merge commit")
-	command.Flags().StringVar(&mergeBreakingImpact, "merge-breaking-description", "", "breaking change migration impact for the merge commit")
+	registerBreakingDescriptionFlag(command, &mergeBreakingImpact, "merge-breaking-description", "for the merge commit")
 	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved rebase or merge")
 	return command
 }

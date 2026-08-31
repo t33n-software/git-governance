@@ -469,6 +469,26 @@ func assertProblemCode(t *testing.T, err error, expected problem.Code) {
 	}
 }
 
+// TestInvalidTypeExpectedRendersTheTypeRegistry pins the error contract
+// against the canonical type registry: when the registry gains a commit
+// family, the error surface must show it without any literal edit.
+func TestInvalidTypeExpectedRendersTheTypeRegistry(t *testing.T) {
+	t.Parallel()
+
+	typed, ok := problem.As(invalidType("feature"))
+	if !ok {
+		t.Fatal("invalidType must return a typed problem")
+	}
+	names := make([]string, 0, len(types))
+	for _, kind := range Types() {
+		names = append(names, kind.String())
+	}
+	want := strings.Join(names[:len(names)-1], ", ") + ", or " + names[len(names)-1]
+	if typed.Expected != want {
+		t.Fatalf("invalidType Expected = %q, want registry-derived %q", typed.Expected, want)
+	}
+}
+
 func FuzzParseCommitMessage(f *testing.F) {
 	for _, seed := range []string{
 		"feat(ABC-123): add export",

@@ -113,16 +113,16 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 	// class-specific help duty. Canonical conventions:
 	// docs/conventions/cli/value-domain-model.md and
 	// docs/conventions/cli/help-contract.md.
-	command.Flags().StringVar(&typeRaw, "type", "", "commit family")
-	command.Flags().StringVar(&ticketRaw, "ticket", "", "ticket ID compatibility check; the current branch is authoritative")
-	command.Flags().StringVar(&subject, "subject", "", "commit description; never carries the type/ticket envelope")
-	command.Flags().StringVar(&body, "body", "", "commit body; mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")
+	registerCommitTypeFlag(command, &typeRaw, "")
+	registerTicketIDFlag(command, &ticketRaw, "compatibility check; the current branch is authoritative")
+	registerSubjectFlag(command, &subject, "subject", "")
+	registerBodyFlag(command, &body, "body", "mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")
 	command.Flags().BoolVar(&breaking, "breaking", false, "mark an incompatible public contract change")
-	command.Flags().StringVar(&breakingDescription, "breaking-description", "", "breaking change migration impact")
-	command.Flags().StringSliceVar(&footerSpecs, "footer", nil, "footer as TOKEN=VALUE; repeatable")
-	command.Flags().StringSliceVar(&stagePaths, "stage", nil, "explicit path to stage; repeatable")
+	registerBreakingDescriptionFlag(command, &breakingDescription, "breaking-description", "")
+	registerFooterFlag(command, &footerSpecs, "footer", "")
+	registerStageFlag(command, &stagePaths)
 	command.Flags().BoolVar(&push, "push", false, "validate and push after committing")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for pre-push validation")
+	registerBaseFlag(command, &baseRaw, "for pre-push validation")
 	return command
 }
 
@@ -172,9 +172,9 @@ func newCommitValidateCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&messageFile, "message-file", "", "file containing the complete commit message")
-	command.Flags().StringVar(&messageRaw, "message", "", "complete commit message")
-	command.Flags().StringVar(&branchRaw, "branch", "", "branch name; defaults to the current branch")
+	registerCommitMessageFileFlag(command, &messageFile)
+	registerCommitMessageFlag(command, &messageRaw)
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "branch name; defaults to the current branch")
 	return command
 }
 
