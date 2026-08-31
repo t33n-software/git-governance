@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/t33n-software/git-governance/internal/application/cliparam"
 )
 
@@ -24,6 +25,10 @@ const valueDomainCommandAnnotation = "git-governance.t33n-software/value-domain-
 // docs/conventions/cli/help-contract.md.
 const discoveryReferenceLine = `Canonical value domains and limits: "policy describe"; branch family patterns: "branch list".`
 
+// valueDomainFlagAnnotation marks a flag as bound to the canonical register;
+// the help contract test rejects any value-carrying flag without the mark.
+const valueDomainFlagAnnotation = "git-governance.t33n-software/value-domain"
+
 // markValueDomainCommand records that the command binds at least one flag to
 // the value-domain register.
 func markValueDomainCommand(command *cobra.Command) {
@@ -33,12 +38,24 @@ func markValueDomainCommand(command *cobra.Command) {
 	command.Annotations[valueDomainCommandAnnotation] = "true"
 }
 
+// markValueDomainFlag records the register binding on the flag itself. The
+// flag is always present because every helper registers it immediately before
+// marking.
+func markValueDomainFlag(flags *pflag.FlagSet, name string) {
+	flag := flags.Lookup(name)
+	if flag.Annotations == nil {
+		flag.Annotations = map[string][]string{}
+	}
+	flag.Annotations[valueDomainFlagAnnotation] = []string{"true"}
+}
+
 // registerValueDomainFlag binds one string flag to the canonical value-domain
 // register: the help renders from the register descriptor and the completion
 // channel K4 serves the same values.
 func registerValueDomainFlag(command *cobra.Command, target *string, name, defaultValue string, domain cliparam.Domain, context string) {
 	command.Flags().StringVar(target, name, defaultValue, domain.HelpText(context))
 	registerValueCompletion(command, name, domain)
+	markValueDomainFlag(command.Flags(), name)
 	markValueDomainCommand(command)
 }
 
@@ -47,6 +64,7 @@ func registerValueDomainFlag(command *cobra.Command, target *string, name, defau
 func registerValueDomainSliceFlag(command *cobra.Command, target *[]string, name string, domain cliparam.Domain, context string) {
 	command.Flags().StringSliceVar(target, name, nil, domain.HelpText(context))
 	registerValueCompletion(command, name, domain)
+	markValueDomainFlag(command.Flags(), name)
 	markValueDomainCommand(command)
 }
 
@@ -54,6 +72,7 @@ func registerValueDomainSliceFlag(command *cobra.Command, target *[]string, name
 // repository paths; completion stays with the framework's file completion.
 func registerPathDomainFlag(command *cobra.Command, target *string, name string, domain cliparam.Domain, context string) {
 	command.Flags().StringVar(target, name, "", domain.HelpText(context))
+	markValueDomainFlag(command.Flags(), name)
 	markValueDomainCommand(command)
 }
 
@@ -62,6 +81,7 @@ func registerPathDomainFlag(command *cobra.Command, target *string, name string,
 // file completion.
 func registerPathDomainSliceFlag(command *cobra.Command, target *[]string, name string, domain cliparam.Domain, context string) {
 	command.Flags().StringSliceVar(target, name, nil, domain.HelpText(context))
+	markValueDomainFlag(command.Flags(), name)
 	markValueDomainCommand(command)
 }
 
@@ -70,6 +90,7 @@ func registerPathDomainSliceFlag(command *cobra.Command, target *[]string, name 
 func registerPersistentValueDomainFlag(command *cobra.Command, target *string, name, defaultValue string, domain cliparam.Domain) {
 	command.PersistentFlags().StringVar(target, name, defaultValue, domain.HelpText(""))
 	registerValueCompletion(command, name, domain)
+	markValueDomainFlag(command.PersistentFlags(), name)
 	markValueDomainCommand(command)
 }
 
@@ -272,4 +293,5 @@ func registerGlobalValueDomainFlags(command *cobra.Command, options *appOptions)
 	registerPersistentValueDomainFlag(command, &options.pullRequestProvider, "pull-request-provider", options.pullRequestProvider, cliparam.PullRequestProvider())
 	registerPersistentValueDomainFlag(command, &options.remote, "remote", options.remote, cliparam.RemoteName())
 	command.PersistentFlags().DurationVar(&options.timeout, "timeout", options.timeout, cliparam.Timeout().HelpText(""))
+	markValueDomainFlag(command.PersistentFlags(), "timeout")
 }

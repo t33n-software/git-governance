@@ -401,7 +401,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 		}),
 	}
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "ticket branch; defaults to the current branch")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for hotfix ticket publication")
+	registerBaseFlag(command, &baseRaw, "for hotfix ticket publication")
 	registerBranchReferenceFlag(command, &scratchTargetRaw, "target", "optional local official target when publishing from scratch")
 	registerCommitTypeFlag(command, &scratchFamilyRaw, "for a scratch squash transfer")
 	registerSubjectFlag(command, &scratchSubjectRaw, "subject", "for a scratch squash transfer")
