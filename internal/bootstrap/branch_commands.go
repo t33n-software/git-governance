@@ -84,7 +84,7 @@ func newBranchValidateCommand(application *application) *cobra.Command {
 	// class-specific help duty. Canonical conventions:
 	// docs/conventions/cli/value-domain-model.md and
 	// docs/conventions/cli/help-contract.md.
-	command.Flags().StringVar(&nameRaw, "branch", "", "branch name; defaults to the current branch")
+	registerBranchReferenceFlag(command, &nameRaw, "branch", "branch name; defaults to the current branch")
 	return command
 }
 
@@ -179,7 +179,7 @@ func newBranchCreateCommand(application *application) *cobra.Command {
 	registerTicketKeyFlag(command, &keyRaw)
 	registerTicketNumberFlag(command, &numberRaw)
 	registerSlugFlag(command, &slugRaw, "slug", "")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for eligible branch families")
+	registerBaseFlag(command, &baseRaw, "for eligible branch families")
 	command.Flags().BoolVar(&switchTo, "switch", true, "switch to the branch after creating it")
 	return command
 }
@@ -271,8 +271,8 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&sourceRaw, "branch", "", "scratch branch; defaults to the current branch")
-	command.Flags().StringVar(&targetRaw, "target", "", "optional local official ticket branch target")
+	registerBranchReferenceFlag(command, &sourceRaw, "branch", "scratch branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &targetRaw, "target", "optional local official ticket branch target")
 	registerCommitTypeFlag(command, &commitFamily, "for the squashed change")
 	registerSubjectFlag(command, &commitSubject, "subject", "for the squashed change")
 	registerBodyFlag(command, &commitBody, "body", "documenting the discarded experiment paths (mandatory)")
@@ -410,8 +410,8 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&nameRaw, "branch", "", "branch name; must match the current branch when supplied")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit remote target base")
+	registerBranchReferenceFlag(command, &nameRaw, "branch", "branch name; must match the current branch when supplied")
+	registerBaseFlag(command, &baseRaw, "for synchronization")
 	registerSyncStrategyFlag(command, &strategyRaw)
 	registerMergeTypeFlag(command, &mergeFamily)
 	registerSubjectFlag(command, &mergeSubject, "merge-subject", "for --strategy merge")

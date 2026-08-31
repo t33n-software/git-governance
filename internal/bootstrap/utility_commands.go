@@ -104,8 +104,8 @@ func newPrePushCommand(application *application) *cobra.Command {
 	// class-specific help duty. Canonical conventions:
 	// docs/conventions/cli/value-domain-model.md and
 	// docs/conventions/cli/help-contract.md.
-	command.Flags().StringVar(&branchRaw, "branch", "", "branch name; defaults to the current branch")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit target base")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "branch name; defaults to the current branch")
+	registerBaseFlag(command, &baseRaw, "for pre-push validation")
 	return command
 }
 

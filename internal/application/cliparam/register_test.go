@@ -128,6 +128,31 @@ func TestHelpTextSkipsAbsentOptionalSections(t *testing.T) {
 	}
 }
 
+func TestWithLeadReplacesOnlyTheConceptLeadIn(t *testing.T) {
+	t.Parallel()
+
+	domain := Domain{
+		Concept: "branch",
+		Class:   ClassStructuralReference,
+		Rule:    "a canonical branch name; existence is resolved at runtime",
+		Example: "feature/ABC-123-add-export-button",
+	}
+	led := domain.WithLead("ticket branch; defaults to the current branch")
+	if led.Concept != "ticket branch; defaults to the current branch" {
+		t.Fatalf("WithLead concept = %q", led.Concept)
+	}
+	if led.Rule != domain.Rule || led.Example != domain.Example || led.Class != domain.Class {
+		t.Fatalf("WithLead mutated register-owned fields: %+v", led)
+	}
+	if domain.Concept != "branch" {
+		t.Fatalf("WithLead mutated the source descriptor: %+v", domain)
+	}
+	want := "ticket branch; defaults to the current branch: a canonical branch name; existence is resolved at runtime; example: feature/ABC-123-add-export-button"
+	if got := led.HelpText(""); got != want {
+		t.Fatalf("WithLead HelpText() = %q, want %q", got, want)
+	}
+}
+
 func TestHelpTextOnZeroDomainIsEmpty(t *testing.T) {
 	t.Parallel()
 

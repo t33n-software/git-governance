@@ -122,7 +122,7 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 	registerFooterFlag(command, &footerSpecs, "footer", "")
 	registerStageFlag(command, &stagePaths)
 	command.Flags().BoolVar(&push, "push", false, "validate and push after committing")
-	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for pre-push validation")
+	registerBaseFlag(command, &baseRaw, "for pre-push validation")
 	return command
 }
 
@@ -172,9 +172,9 @@ func newCommitValidateCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&messageFile, "message-file", "", "file containing the complete commit message")
-	command.Flags().StringVar(&messageRaw, "message", "", "complete commit message")
-	command.Flags().StringVar(&branchRaw, "branch", "", "branch name; defaults to the current branch")
+	registerCommitMessageFileFlag(command, &messageFile)
+	registerCommitMessageFlag(command, &messageRaw)
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "branch name; defaults to the current branch")
 	return command
 }
 

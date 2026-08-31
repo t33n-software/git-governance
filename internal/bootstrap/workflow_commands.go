@@ -400,9 +400,9 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "ticket branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "ticket branch; defaults to the current branch")
 	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for hotfix ticket publication")
-	command.Flags().StringVar(&scratchTargetRaw, "target", "", "optional local official target when publishing from scratch")
+	registerBranchReferenceFlag(command, &scratchTargetRaw, "target", "optional local official target when publishing from scratch")
 	registerCommitTypeFlag(command, &scratchFamilyRaw, "for a scratch squash transfer")
 	registerSubjectFlag(command, &scratchSubjectRaw, "subject", "for a scratch squash transfer")
 	registerBodyFlag(command, &scratchBodyRaw, "commit-body", "for a scratch squash transfer (mandatory, documents the discarded experiment paths)")
@@ -706,8 +706,8 @@ func newHotfixValidateRecordCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "hotfix branch; defaults to the current branch")
-	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "hotfix branch; defaults to the current branch")
+	registerRecordFlag(command, &recordRaw)
 	return command
 }
 
@@ -749,8 +749,8 @@ func newHotfixVerifyMergeCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "merged hotfix branch; defaults to the current branch")
-	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "merged hotfix branch; defaults to the current branch")
+	registerRecordFlag(command, &recordRaw)
 	return command
 }
 
@@ -794,8 +794,8 @@ func newHotfixVerifyDeliveryCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "merged hotfix branch; defaults to the current branch")
-	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "merged hotfix branch; defaults to the current branch")
+	registerRecordFlag(command, &recordRaw)
 	return command
 }
 
@@ -930,7 +930,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "hotfix branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "hotfix branch; defaults to the current branch")
 	registerAffectedLineFlag(command, &affectedRaw)
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the hotfix branch after validation")
@@ -1107,11 +1107,11 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&sourceRaw, "source", "", "hotfix source branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &sourceRaw, "source", "hotfix source branch; defaults to the current branch")
 	registerTargetLineFlag(command, &targetRaw)
 	registerCommitSHAFlag(command, &commitID)
 	registerSlugFlag(command, &slugRaw, "slug", "for the propagation branch (optional)")
-	command.Flags().StringVar(&branchRaw, "branch", "", "generated propagation branch; required with --resume")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "generated propagation branch; required with --resume")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the propagation branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
@@ -1255,11 +1255,11 @@ func newHotfixPropagateManifestCommand(application *application) *cobra.Command 
 			})
 		}),
 	}
-	command.Flags().StringVar(&sourceRaw, "source", "", "hotfix source branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &sourceRaw, "source", "hotfix source branch; defaults to the current branch")
 	registerManifestTargetLineFlag(command, &targetRaw)
-	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
+	registerRecordFlag(command, &recordRaw)
 	registerSlugFlag(command, &slugRaw, "slug", "for the propagation branch (optional)")
-	command.Flags().StringVar(&branchRaw, "branch", "", "generated fix branch; required with --resume")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "generated fix branch; required with --resume")
 	command.Flags().BoolVar(&resume, "resume", false, "continue a manually resolved manifest cherry-pick")
 	command.Flags().BoolVar(&publish, "publish", false, "publish only through the dedicated server-side hotfix propagation publisher")
 	return command
@@ -1399,7 +1399,7 @@ func newCleanupWorkflowCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "local scratch branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "local scratch branch; defaults to the current branch")
 	return command
 }
 
@@ -1503,7 +1503,7 @@ func newReleaseRequestCommand(application *application) *cobra.Command {
 		}),
 	}
 	registerReleaseRequestKindFlag(command, &kindRaw)
-	command.Flags().StringVar(&versionRaw, "version", "", "release semantic version or support major.minor version")
+	registerProtectedLineVersionFlag(command, &versionRaw)
 	registerTicketKeyFlag(command, &keyRaw)
 	registerTicketNumberFlag(command, &numberRaw)
 	registerRequesterFlag(command, &requesterRaw)
@@ -1727,7 +1727,7 @@ func newReleaseCutCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&versionRaw, "version", "", "release semantic version")
+	registerReleaseVersionFlag(command, &versionRaw)
 	command.Flags().BoolVar(&dispatch, "dispatch", false, "request direct executor dispatch (rejected outside dry-run)")
 	return command
 }
@@ -1816,7 +1816,7 @@ func newReleaseStabilizeCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&releaseRaw, "release", "", "release/<semver> line")
+	registerReleaseLineFlag(command, &releaseRaw, "")
 	registerStabilizationKindFlag(command, &kindRaw)
 	registerTicketKeyFlag(command, &keyRaw)
 	registerTicketNumberFlag(command, &numberRaw)
@@ -1943,8 +1943,8 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "stabilization branch; defaults to the current branch")
-	command.Flags().StringVar(&releaseRaw, "release", "", "release/<semver> target line")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "stabilization branch; defaults to the current branch")
+	registerReleaseLineFlag(command, &releaseRaw, "target")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the stabilization branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
@@ -2037,8 +2037,8 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "release-preparation branch; defaults to the current branch")
-	command.Flags().StringVar(&releaseRaw, "release", "", "release/<semver> target line")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "release-preparation branch; defaults to the current branch")
+	registerReleaseLineFlag(command, &releaseRaw, "target")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the aligned release-preparation branch")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the release stabilization pull request after pushing")
@@ -2119,7 +2119,7 @@ func newReleasePromotionCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&releaseRaw, "release", "", "release/<semver> branch")
+	registerReleaseLineFlag(command, &releaseRaw, "")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -2214,7 +2214,7 @@ func newReleaseBackmergeCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&releaseRaw, "release", "", "delivered release/<semver> branch")
+	registerReleaseLineFlag(command, &releaseRaw, "delivered")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -2313,8 +2313,8 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 			})
 		}),
 	}
-	command.Flags().StringVar(&branchRaw, "branch", "", "reconciliation-preparation branch; defaults to the current branch")
-	command.Flags().StringVar(&releaseRaw, "release", "", "delivered release/<semver> line")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "reconciliation-preparation branch; defaults to the current branch")
+	registerReleaseLineFlag(command, &releaseRaw, "delivered")
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the preparation branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
@@ -2375,7 +2375,7 @@ func newSupportPrepareCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&versionRaw, "version", "", "support major.minor version")
+	registerSupportVersionFlag(command, &versionRaw)
 	command.Flags().BoolVar(&dispatch, "dispatch", false, "request direct executor dispatch (rejected outside dry-run)")
 	return command
 }

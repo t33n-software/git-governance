@@ -188,9 +188,10 @@ func registerBaseFlag(command *cobra.Command, target *string, context string) {
 }
 
 // registerBranchReferenceFlag binds a canonical branch reference flag under
-// the given name (structural-reference).
-func registerBranchReferenceFlag(command *cobra.Command, target *string, name, context string) {
-	registerValueDomainFlag(command, target, name, "", cliparam.BranchReference(), context)
+// the given name (structural-reference). The endpoint role leads the text;
+// the register owns the grammar, the resolution rule, and the example.
+func registerBranchReferenceFlag(command *cobra.Command, target *string, name, role string) {
+	registerValueDomainFlag(command, target, name, "", cliparam.BranchReference().WithLead(role), "")
 }
 
 // registerRecordFlag binds the hotfix release record path flag

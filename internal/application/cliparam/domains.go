@@ -438,8 +438,8 @@ func BranchReference() Domain {
 	return Domain{
 		Concept: "branch",
 		Class:   ClassStructuralReference,
-		Rule: "a canonical branch name for a supported family: main, develop, release/<semver>, " +
-			"support/<major.minor>, or <family>/<KEY>-<NUMBER>-<slug>; existence is resolved at runtime",
+		Rule: "a canonical branch name for a supported family (main, develop, release/<semver>, " +
+			"support/<major.minor>, or <family>/<KEY>-<NUMBER>-<slug>); existence is resolved at runtime",
 		Example: "feature/ABC-123-add-export-button",
 	}
 }

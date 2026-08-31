@@ -64,6 +64,15 @@ type Domain struct {
 	Prefixes   []string
 }
 
+// WithLead returns a copy of the domain whose concept lead-in is replaced by
+// the endpoint role; the grammar, rules, and example stay register-owned.
+// Structural-reference flags use it because the endpoint role is the natural
+// lead-in while the register owns the form and the resolution rule.
+func (domain Domain) WithLead(lead string) Domain {
+	domain.Concept = lead
+	return domain
+}
+
 // ValueList renders the complete accepted value set in canonical order using
 // the canonical enumeration form "a, b, c, or d".
 func (domain Domain) ValueList() string {
