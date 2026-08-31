@@ -141,7 +141,7 @@ func newTicketStartCommand(application *application) *cobra.Command {
 	// class-specific help duty. Canonical conventions:
 	// docs/conventions/cli/value-domain-model.md and
 	// docs/conventions/cli/help-contract.md.
-	command.Flags().StringVar(&familyRaw, "family", "", "regular ticket branch family")
+	registerBranchFamilyFlag(command, &familyRaw, "for a regular ticket branch")
 	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
 	command.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")
 	command.Flags().StringVar(&slugRaw, "slug", "", "kebab-case branch description")
@@ -403,7 +403,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 	command.Flags().StringVar(&branchRaw, "branch", "", "ticket branch; defaults to the current branch")
 	command.Flags().StringVar(&baseRaw, "base", "", "explicit base for hotfix ticket publication")
 	command.Flags().StringVar(&scratchTargetRaw, "target", "", "optional local official target when publishing from scratch")
-	command.Flags().StringVar(&scratchFamilyRaw, "type", "", "commit family for a scratch squash transfer")
+	registerCommitTypeFlag(command, &scratchFamilyRaw, "for a scratch squash transfer")
 	command.Flags().StringVar(&scratchSubjectRaw, "subject", "", "commit description for a scratch squash transfer")
 	command.Flags().StringVar(&scratchBodyRaw, "commit-body", "", "mandatory commit body documenting the discarded experiment paths for a scratch squash transfer")
 	command.Flags().StringSliceVar(&scratchFootersRaw, "commit-footer", nil, "commit footer as TOKEN=VALUE for a scratch squash transfer; repeatable")
@@ -639,7 +639,7 @@ func newHotfixWorkflowCommand(application *application) *cobra.Command {
 	start.Flags().StringVar(&keyRaw, "key", "", "ticket key")
 	start.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")
 	start.Flags().StringVar(&slugRaw, "slug", "", "kebab-case hotfix description")
-	start.Flags().StringVar(&affectedRaw, "affected-line", "", "main, release/<semver>, or support/<major.minor>")
+	registerAffectedLineFlag(start, &affectedRaw)
 	command.AddCommand(
 		start,
 		newHotfixValidateRecordCommand(application),
@@ -931,7 +931,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 		}),
 	}
 	command.Flags().StringVar(&branchRaw, "branch", "", "hotfix branch; defaults to the current branch")
-	command.Flags().StringVar(&affectedRaw, "affected-line", "", "main, release/<semver>, or support/<major.minor>")
+	registerAffectedLineFlag(command, &affectedRaw)
 	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the hotfix branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
@@ -1108,7 +1108,7 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 		}),
 	}
 	command.Flags().StringVar(&sourceRaw, "source", "", "hotfix source branch; defaults to the current branch")
-	command.Flags().StringVar(&targetRaw, "target-line", "", "main, develop, release/<semver>, or support/<major.minor>")
+	registerTargetLineFlag(command, &targetRaw)
 	command.Flags().StringVar(&commitID, "commit", "", "reviewed source commit SHA")
 	command.Flags().StringVar(&slugRaw, "slug", "", "optional kebab-case propagation branch description")
 	command.Flags().StringVar(&branchRaw, "branch", "", "generated propagation branch; required with --resume")
@@ -1256,7 +1256,7 @@ func newHotfixPropagateManifestCommand(application *application) *cobra.Command 
 		}),
 	}
 	command.Flags().StringVar(&sourceRaw, "source", "", "hotfix source branch; defaults to the current branch")
-	command.Flags().StringVar(&targetRaw, "target-line", "", "declared develop, release/<semver>, or support/<major.minor> target")
+	registerManifestTargetLineFlag(command, &targetRaw)
 	command.Flags().StringVar(&recordRaw, "record", "", "repository-relative hotfix release record; defaults to the ticket record path")
 	command.Flags().StringVar(&slugRaw, "slug", "", "optional kebab-case propagation branch description")
 	command.Flags().StringVar(&branchRaw, "branch", "", "generated fix branch; required with --resume")
@@ -1502,7 +1502,7 @@ func newReleaseRequestCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	command.Flags().StringVar(&kindRaw, "kind", "", "protected line operation: release or support")
+	registerReleaseRequestKindFlag(command, &kindRaw)
 	command.Flags().StringVar(&versionRaw, "version", "", "release semantic version or support major.minor version")
 	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
 	command.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")
@@ -1817,7 +1817,7 @@ func newReleaseStabilizeCommand(application *application) *cobra.Command {
 		}),
 	}
 	command.Flags().StringVar(&releaseRaw, "release", "", "release/<semver> line")
-	command.Flags().StringVar(&kindRaw, "kind", "", "blocker, docs, or release-prep")
+	registerStabilizationKindFlag(command, &kindRaw)
 	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
 	command.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")
 	command.Flags().StringVar(&slugRaw, "slug", "", "kebab-case stabilization description")

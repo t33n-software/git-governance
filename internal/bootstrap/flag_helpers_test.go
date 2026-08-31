@@ -363,6 +363,55 @@ func TestValueCompletionServesRegisterValues(t *testing.T) {
 	}
 }
 
+// TestMigratedEndpointsRenderRegisterHelp pins the help text of every
+// migrated endpoint flag in the production command tree against the register
+// projection: the closed-enum and line-form flags must render the
+// endpoint-accepted value domain, never a literal.
+func TestMigratedEndpointsRenderRegisterHelp(t *testing.T) {
+	t.Parallel()
+
+	root := New(BuildInfo{Version: "test"})
+
+	tests := []struct {
+		path     []string
+		flagName string
+		want     string
+	}{
+		{path: []string{"commit", "create"}, flagName: "type", want: cliparam.CommitType().HelpText("")},
+		{path: []string{"branch", "merge-scratch"}, flagName: "type", want: cliparam.CommitType().HelpText("for the squashed change")},
+		{path: []string{"workflow", "ticket", "publish"}, flagName: "type", want: cliparam.CommitType().HelpText("for a scratch squash transfer")},
+		{path: []string{"branch", "sync-base"}, flagName: "merge-type", want: cliparam.CommitType().HelpText("for --strategy merge")},
+		{path: []string{"branch", "sync-base"}, flagName: "strategy", want: cliparam.SyncStrategy().HelpText("")},
+		{path: []string{"branch", "create"}, flagName: "family", want: cliparam.DirectlyCreatableBranchFamily().HelpText("")},
+		{path: []string{"workflow", "ticket", "start"}, flagName: "family", want: cliparam.DirectlyCreatableBranchFamily().HelpText("for a regular ticket branch")},
+		{path: []string{"workflow", "release", "request"}, flagName: "kind", want: cliparam.ReleaseRequestKind().HelpText("")},
+		{path: []string{"workflow", "release", "stabilize"}, flagName: "kind", want: cliparam.ReleaseStabilizationKind().HelpText("")},
+		{path: []string{"workflow", "hotfix", "start"}, flagName: "affected-line", want: cliparam.AffectedLine().HelpText("")},
+		{path: []string{"workflow", "hotfix", "publish"}, flagName: "affected-line", want: cliparam.AffectedLine().HelpText("")},
+		{path: []string{"workflow", "hotfix", "propagate"}, flagName: "target-line", want: cliparam.PropagationTargetLine().HelpText("")},
+		{path: []string{"workflow", "hotfix", "propagate-manifest"}, flagName: "target-line", want: cliparam.ManifestTargetLine().HelpText("")},
+	}
+
+	// The subtests navigate the shared tree sequentially on purpose: cobra's
+	// Find lazily initializes command state, so concurrent lookups on one
+	// command tree are not safe.
+	for _, test := range tests {
+		t.Run(strings.Join(append(test.path, "--"+test.flagName), " "), func(t *testing.T) {
+			command, _, err := root.Find(test.path)
+			if err != nil || command == nil {
+				t.Fatalf("command path %v not found: %v", test.path, err)
+			}
+			flag := command.Flags().Lookup(test.flagName)
+			if flag == nil {
+				t.Fatalf("flag %q not registered on %v", test.flagName, test.path)
+			}
+			if flag.Usage != test.want {
+				t.Fatalf("%v --%s usage = %q, want %q", test.path, test.flagName, flag.Usage, test.want)
+			}
+		})
+	}
+}
+
 // TestRegisterGlobalValueDomainFlags pins the global persistent flags onto the
 // register projection.
 func TestRegisterGlobalValueDomainFlags(t *testing.T) {

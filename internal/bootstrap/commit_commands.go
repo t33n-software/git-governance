@@ -113,7 +113,7 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 	// class-specific help duty. Canonical conventions:
 	// docs/conventions/cli/value-domain-model.md and
 	// docs/conventions/cli/help-contract.md.
-	command.Flags().StringVar(&typeRaw, "type", "", "commit family")
+	registerCommitTypeFlag(command, &typeRaw, "")
 	command.Flags().StringVar(&ticketRaw, "ticket", "", "ticket ID compatibility check; the current branch is authoritative")
 	command.Flags().StringVar(&subject, "subject", "", "commit description; never carries the type/ticket envelope")
 	command.Flags().StringVar(&body, "body", "", "commit body; mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")
