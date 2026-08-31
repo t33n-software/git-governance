@@ -12,9 +12,11 @@ import (
 	"github.com/spf13/cobra/doc"
 )
 
+// The completion-generating tests run sequentially on purpose: cobra keeps
+// the registered flag-completion functions in a process-global registry and
+// stamps flag annotations across that registry during script generation, so
+// parallel generation over separate command trees races inside cobra.
 func TestGenerateWritesCompletionsAndManpages(t *testing.T) {
-	t.Parallel()
-
 	output := t.TempDir()
 	if err := generate(output); err != nil {
 		t.Fatal(err)
@@ -91,8 +93,6 @@ func TestRunPrintsTheToolVersion(t *testing.T) {
 }
 
 func TestGenerateFilesystemFailurePaths(t *testing.T) {
-	t.Parallel()
-
 	t.Run("output is a file", func(t *testing.T) {
 		output := filepath.Join(t.TempDir(), "not-a-directory")
 		if err := os.WriteFile(output, []byte("file"), 0o600); err != nil {
@@ -121,7 +121,6 @@ func TestGenerateFilesystemFailurePaths(t *testing.T) {
 	} {
 		completion := completion
 		t.Run("completion target "+completion, func(t *testing.T) {
-			t.Parallel()
 			output := t.TempDir()
 			directory := filepath.Join(output, "completions", completion)
 			if err := os.MkdirAll(directory, 0o700); err != nil {

@@ -199,6 +199,19 @@ func SupportVersion() Domain {
 	}
 }
 
+// ProtectedLineVersion is the shaped union domain of the version accepted by
+// the protected-line request endpoint: a release semantic version or a
+// support major.minor version, matching the requested operation.
+func ProtectedLineVersion() Domain {
+	return Domain{
+		Concept: "protected line version",
+		Class:   ClassShaped,
+		Rule: "release semantic version without a leading v, or support major.minor " +
+			"without leading zeroes, matching the requested operation (rejected otherwise)",
+		Example: "2.8.0-rc.1 or 2.7",
+	}
+}
+
 // ReleaseLine is the shaped domain of a release line reference.
 func ReleaseLine() Domain {
 	return Domain{
@@ -488,6 +501,7 @@ func All() []Domain {
 		CompletionShell(),
 		ReleaseVersion(),
 		SupportVersion(),
+		ProtectedLineVersion(),
 		ReleaseLine(),
 		AffectedLine(),
 		PropagationTargetLine(),

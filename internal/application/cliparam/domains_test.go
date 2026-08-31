@@ -186,6 +186,7 @@ func TestAllEnumeratesEveryCanonicalDescriptor(t *testing.T) {
 		"shell",
 		"release semantic version",
 		"support major.minor version",
+		"protected line version",
 		"release line",
 		"affected line",
 		"target line",

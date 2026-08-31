@@ -1,0 +1,442 @@
+package bootstrap
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/t33n-software/git-governance/internal/application/cliparam"
+	"github.com/t33n-software/git-governance/internal/domain/problem"
+)
+
+// TestConceptHelpersBindNameHelpAndDefault pins every shared registration
+// helper against the canonical register: the flag name, the rendered help
+// text with the endpoint context, and the default value must match the
+// register projection exactly.
+func TestConceptHelpersBindNameHelpAndDefault(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		register    func(command *cobra.Command, target *string)
+		flagName    string
+		wantUsage   string
+		wantDefault string
+	}{
+		{
+			name:      "commit type",
+			register:  func(command *cobra.Command, target *string) { registerCommitTypeFlag(command, target, "") },
+			flagName:  "type",
+			wantUsage: cliparam.CommitType().HelpText(""),
+		},
+		{
+			name: "commit type with context",
+			register: func(command *cobra.Command, target *string) {
+				registerCommitTypeFlag(command, target, "for the squashed change")
+			},
+			flagName:  "type",
+			wantUsage: cliparam.CommitType().HelpText("for the squashed change"),
+		},
+		{
+			name:      "merge type",
+			register:  func(command *cobra.Command, target *string) { registerMergeTypeFlag(command, target) },
+			flagName:  "merge-type",
+			wantUsage: cliparam.CommitType().HelpText("for --strategy merge"),
+		},
+		{
+			name:      "branch family",
+			register:  func(command *cobra.Command, target *string) { registerBranchFamilyFlag(command, target, "") },
+			flagName:  "family",
+			wantUsage: cliparam.DirectlyCreatableBranchFamily().HelpText(""),
+		},
+		{
+			name:        "sync strategy keeps the check default",
+			register:    func(command *cobra.Command, target *string) { registerSyncStrategyFlag(command, target) },
+			flagName:    "strategy",
+			wantUsage:   cliparam.SyncStrategy().HelpText(""),
+			wantDefault: "check",
+		},
+		{
+			name:      "release request kind",
+			register:  func(command *cobra.Command, target *string) { registerReleaseRequestKindFlag(command, target) },
+			flagName:  "kind",
+			wantUsage: cliparam.ReleaseRequestKind().HelpText(""),
+		},
+		{
+			name:      "stabilization kind",
+			register:  func(command *cobra.Command, target *string) { registerStabilizationKindFlag(command, target) },
+			flagName:  "kind",
+			wantUsage: cliparam.ReleaseStabilizationKind().HelpText(""),
+		},
+		{
+			name:      "affected line",
+			register:  func(command *cobra.Command, target *string) { registerAffectedLineFlag(command, target) },
+			flagName:  "affected-line",
+			wantUsage: cliparam.AffectedLine().HelpText(""),
+		},
+		{
+			name:      "propagation target line",
+			register:  func(command *cobra.Command, target *string) { registerTargetLineFlag(command, target) },
+			flagName:  "target-line",
+			wantUsage: cliparam.PropagationTargetLine().HelpText(""),
+		},
+		{
+			name:      "manifest target line",
+			register:  func(command *cobra.Command, target *string) { registerManifestTargetLineFlag(command, target) },
+			flagName:  "target-line",
+			wantUsage: cliparam.ManifestTargetLine().HelpText(""),
+		},
+		{
+			name:      "ticket key",
+			register:  func(command *cobra.Command, target *string) { registerTicketKeyFlag(command, target) },
+			flagName:  "key",
+			wantUsage: cliparam.TicketKey().HelpText(""),
+		},
+		{
+			name:      "ticket number",
+			register:  func(command *cobra.Command, target *string) { registerTicketNumberFlag(command, target) },
+			flagName:  "ticket",
+			wantUsage: cliparam.TicketNumber().HelpText(""),
+		},
+		{
+			name: "ticket identity",
+			register: func(command *cobra.Command, target *string) {
+				registerTicketIDFlag(command, target, "compatibility check")
+			},
+			flagName:  "ticket",
+			wantUsage: cliparam.TicketID().HelpText("compatibility check"),
+		},
+		{
+			name:      "slug",
+			register:  func(command *cobra.Command, target *string) { registerSlugFlag(command, target, "slug", "") },
+			flagName:  "slug",
+			wantUsage: cliparam.BranchSlug().HelpText(""),
+		},
+		{
+			name: "scratch slug",
+			register: func(command *cobra.Command, target *string) {
+				registerSlugFlag(command, target, "scratch-slug", "for the scratch branch")
+			},
+			flagName:  "scratch-slug",
+			wantUsage: cliparam.BranchSlug().HelpText("for the scratch branch"),
+		},
+		{
+			name:      "subject",
+			register:  func(command *cobra.Command, target *string) { registerSubjectFlag(command, target, "subject", "") },
+			flagName:  "subject",
+			wantUsage: cliparam.CommitSubject().HelpText(""),
+		},
+		{
+			name: "merge subject",
+			register: func(command *cobra.Command, target *string) {
+				registerSubjectFlag(command, target, "merge-subject", "for --strategy merge")
+			},
+			flagName:  "merge-subject",
+			wantUsage: cliparam.CommitSubject().HelpText("for --strategy merge"),
+		},
+		{
+			name:      "body",
+			register:  func(command *cobra.Command, target *string) { registerBodyFlag(command, target, "body", "") },
+			flagName:  "body",
+			wantUsage: cliparam.CommitBody().HelpText(""),
+		},
+		{
+			name: "breaking description",
+			register: func(command *cobra.Command, target *string) {
+				registerBreakingDescriptionFlag(command, target, "breaking-description", "")
+			},
+			flagName:  "breaking-description",
+			wantUsage: cliparam.BreakingDescription().HelpText(""),
+		},
+		{
+			name:      "release version",
+			register:  func(command *cobra.Command, target *string) { registerReleaseVersionFlag(command, target) },
+			flagName:  "version",
+			wantUsage: cliparam.ReleaseVersion().HelpText(""),
+		},
+		{
+			name:      "support version",
+			register:  func(command *cobra.Command, target *string) { registerSupportVersionFlag(command, target) },
+			flagName:  "version",
+			wantUsage: cliparam.SupportVersion().HelpText(""),
+		},
+		{
+			name:      "protected line version",
+			register:  func(command *cobra.Command, target *string) { registerProtectedLineVersionFlag(command, target) },
+			flagName:  "version",
+			wantUsage: cliparam.ProtectedLineVersion().HelpText(""),
+		},
+		{
+			name:      "release line",
+			register:  func(command *cobra.Command, target *string) { registerReleaseLineFlag(command, target, "") },
+			flagName:  "release",
+			wantUsage: cliparam.ReleaseLine().HelpText(""),
+		},
+		{
+			name:      "commit sha",
+			register:  func(command *cobra.Command, target *string) { registerCommitSHAFlag(command, target) },
+			flagName:  "commit",
+			wantUsage: cliparam.CommitSHA().HelpText("reviewed source commit SHA"),
+		},
+		{
+			name: "base",
+			register: func(command *cobra.Command, target *string) {
+				registerBaseFlag(command, target, "for pre-push validation")
+			},
+			flagName:  "base",
+			wantUsage: cliparam.BaseBranch().HelpText("for pre-push validation"),
+		},
+		{
+			name: "branch reference",
+			register: func(command *cobra.Command, target *string) {
+				registerBranchReferenceFlag(command, target, "source", "to sync from")
+			},
+			flagName:  "source",
+			wantUsage: cliparam.BranchReference().HelpText("to sync from"),
+		},
+		{
+			name:      "record",
+			register:  func(command *cobra.Command, target *string) { registerRecordFlag(command, target) },
+			flagName:  "record",
+			wantUsage: cliparam.RecordPath().HelpText("defaults to the ticket record path"),
+		},
+		{
+			name:      "commit message",
+			register:  func(command *cobra.Command, target *string) { registerCommitMessageFlag(command, target) },
+			flagName:  "message",
+			wantUsage: cliparam.CommitMessage().HelpText(""),
+		},
+		{
+			name:      "commit message file",
+			register:  func(command *cobra.Command, target *string) { registerCommitMessageFileFlag(command, target) },
+			flagName:  "message-file",
+			wantUsage: cliparam.CommitMessageFile().HelpText(""),
+		},
+		{
+			name:      "request id",
+			register:  func(command *cobra.Command, target *string) { registerRequestIDFlag(command, target) },
+			flagName:  "request-id",
+			wantUsage: cliparam.RequestID().HelpText(""),
+		},
+		{
+			name:      "run id",
+			register:  func(command *cobra.Command, target *string) { registerRunIDFlag(command, target, "executor-run") },
+			flagName:  "executor-run",
+			wantUsage: cliparam.RunID().HelpText(""),
+		},
+		{
+			name:      "requester",
+			register:  func(command *cobra.Command, target *string) { registerRequesterFlag(command, target) },
+			flagName:  "requester",
+			wantUsage: cliparam.Requester().HelpText(""),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			command := &cobra.Command{Use: "probe"}
+			var target string
+			test.register(command, &target)
+
+			flag := command.Flags().Lookup(test.flagName)
+			if flag == nil {
+				t.Fatalf("flag %q was not registered", test.flagName)
+			}
+			if flag.Usage != test.wantUsage {
+				t.Fatalf("flag %q usage = %q, want %q", test.flagName, flag.Usage, test.wantUsage)
+			}
+			if flag.DefValue != test.wantDefault {
+				t.Fatalf("flag %q default = %q, want %q", test.flagName, flag.DefValue, test.wantDefault)
+			}
+		})
+	}
+}
+
+// TestSliceAndPathHelpersBindRegisterHelp pins the slice-valued and
+// path-valued registration helpers against the register projection.
+func TestSliceAndPathHelpersBindRegisterHelp(t *testing.T) {
+	t.Parallel()
+
+	t.Run("footer slice", func(t *testing.T) {
+		t.Parallel()
+		command := &cobra.Command{Use: "probe"}
+		var target []string
+		registerFooterFlag(command, &target, "footer", "")
+		flag := command.Flags().Lookup("footer")
+		if flag == nil {
+			t.Fatal("flag footer was not registered")
+		}
+		if flag.Usage != cliparam.CommitFooter().HelpText("") {
+			t.Fatalf("footer usage = %q, want %q", flag.Usage, cliparam.CommitFooter().HelpText(""))
+		}
+	})
+
+	t.Run("stage slice keeps framework file completion", func(t *testing.T) {
+		t.Parallel()
+		command := &cobra.Command{Use: "probe"}
+		var target []string
+		registerStageFlag(command, &target)
+		flag := command.Flags().Lookup("stage")
+		if flag == nil {
+			t.Fatal("flag stage was not registered")
+		}
+		if flag.Usage != cliparam.StagePath().HelpText("") {
+			t.Fatalf("stage usage = %q, want %q", flag.Usage, cliparam.StagePath().HelpText(""))
+		}
+	})
+}
+
+// TestValueCompletionServesRegisterValues executes the completion projection
+// through the framework's __complete machinery and proves that the served
+// candidates come from the register, filtered by the typed prefix.
+func TestValueCompletionServesRegisterValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		register     func(command *cobra.Command, target *string)
+		flagName     string
+		toComplete   string
+		wantContains []string
+		wantExcludes []string
+	}{
+		{
+			name:         "commit type values",
+			register:     func(command *cobra.Command, target *string) { registerCommitTypeFlag(command, target, "") },
+			flagName:     "type",
+			toComplete:   "f",
+			wantContains: []string{"feat", "fix"},
+			wantExcludes: []string{"build", "chore"},
+		},
+		{
+			name:         "affected line prefix forms",
+			register:     func(command *cobra.Command, target *string) { registerAffectedLineFlag(command, target) },
+			flagName:     "affected-line",
+			toComplete:   "re",
+			wantContains: []string{"release/"},
+			wantExcludes: []string{"main", "support/"},
+		},
+		{
+			name:         "empty prefix serves every value",
+			register:     func(command *cobra.Command, target *string) { registerSyncStrategyFlag(command, target) },
+			flagName:     "strategy",
+			toComplete:   "",
+			wantContains: []string{"check", "auto", "rebase", "merge"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := &cobra.Command{Use: "root"}
+			var target string
+			probe := &cobra.Command{
+				Use:  "probe",
+				RunE: func(_ *cobra.Command, _ []string) error { return nil },
+			}
+			test.register(probe, &target)
+			root.AddCommand(probe)
+
+			var output strings.Builder
+			root.SetOut(&output)
+			root.SetErr(&output)
+			root.SetArgs([]string{"__complete", "probe", "--" + test.flagName, test.toComplete})
+			if err := root.Execute(); err != nil {
+				t.Fatalf("__complete failed: %v", err)
+			}
+
+			for _, want := range test.wantContains {
+				if !strings.Contains(output.String(), want) {
+					t.Fatalf("completion output %q misses %q", output.String(), want)
+				}
+			}
+			for _, unwanted := range test.wantExcludes {
+				for _, line := range strings.Split(output.String(), "\n") {
+					if line == unwanted {
+						t.Fatalf("completion output contains excluded candidate %q", unwanted)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestRegisterGlobalValueDomainFlags pins the global persistent flags onto the
+// register projection.
+func TestRegisterGlobalValueDomainFlags(t *testing.T) {
+	t.Parallel()
+
+	options := &appOptions{
+		interactive:         "auto",
+		output:              "human",
+		color:               "auto",
+		remote:              "origin",
+		pullRequestProvider: "none",
+		timeout:             30 * time.Second,
+	}
+	command := &cobra.Command{Use: "root"}
+	registerGlobalValueDomainFlags(command, options)
+
+	tests := []struct {
+		flagName    string
+		wantUsage   string
+		wantDefault string
+	}{
+		{flagName: "interactive", wantUsage: cliparam.InteractiveMode().HelpText(""), wantDefault: "auto"},
+		{flagName: "output", wantUsage: cliparam.OutputMode().HelpText(""), wantDefault: "human"},
+		{flagName: "color", wantUsage: cliparam.ColorMode().HelpText(""), wantDefault: "auto"},
+		{flagName: "pull-request-provider", wantUsage: cliparam.PullRequestProvider().HelpText(""), wantDefault: "none"},
+		{flagName: "remote", wantUsage: cliparam.RemoteName().HelpText(""), wantDefault: "origin"},
+		{flagName: "timeout", wantUsage: cliparam.Timeout().HelpText(""), wantDefault: "30s"},
+	}
+
+	for _, test := range tests {
+		flag := command.PersistentFlags().Lookup(test.flagName)
+		if flag == nil {
+			t.Fatalf("persistent flag %q was not registered", test.flagName)
+		}
+		if flag.Usage != test.wantUsage {
+			t.Fatalf("flag %q usage = %q, want %q", test.flagName, flag.Usage, test.wantUsage)
+		}
+		if flag.DefValue != test.wantDefault {
+			t.Fatalf("flag %q default = %q, want %q", test.flagName, flag.DefValue, test.wantDefault)
+		}
+	}
+}
+
+// TestValidateOptionsDerivesGlobalValueDomains proves the global option
+// validation consumes the register value sets instead of local literals.
+func TestValidateOptionsDerivesGlobalValueDomains(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		mutate    func(options *appOptions)
+		wantField string
+	}{
+		{name: "interactive", mutate: func(options *appOptions) { options.interactive = "sometimes" }, wantField: "interactive"},
+		{name: "color", mutate: func(options *appOptions) { options.color = "neon" }, wantField: "color"},
+		{name: "pull request provider", mutate: func(options *appOptions) { options.pullRequestProvider = "gitlab" }, wantField: "pull-request-provider"},
+		{name: "timeout", mutate: func(options *appOptions) { options.timeout = 0 }, wantField: "timeout"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			application := &application{
+				options: &appOptions{
+					interactive: "auto",
+					output:      "human",
+					color:       "auto",
+					remote:      "origin",
+					timeout:     30 * time.Second,
+				},
+			}
+			test.mutate(application.options)
+			err := application.validateOptions()
+			assertCommandHelperProblem(t, err, problem.CodeInvalidInput, problem.CategoryUsage, test.wantField)
+		})
+	}
+}

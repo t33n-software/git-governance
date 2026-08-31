@@ -77,19 +77,17 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		nonEmpty(build.Commit, "unknown"),
 		nonEmpty(build.Date, "unknown"),
 	))
-	command.PersistentFlags().StringVar(&options.interactive, "interactive", options.interactive, "auto, always, or never")
-	command.PersistentFlags().StringVar(&options.output, "output", options.output, "human or json")
+	// The global flags that carry value domains render their help and
+	// completion from the canonical register; the remaining global flags carry
+	// no value domain and stay literal.
+	registerGlobalValueDomainFlags(command, options)
 	command.PersistentFlags().BoolVar(&options.quiet, "quiet", false, "suppress successful human output")
-	command.PersistentFlags().StringVar(&options.color, "color", options.color, "auto, always, or never")
 	command.PersistentFlags().BoolVar(&options.accessible, "accessible", false, "use accessible line-oriented forms")
-	command.PersistentFlags().StringVar(&options.remote, "remote", options.remote, "Git remote name")
 	command.PersistentFlags().StringVar(&options.repository, "repo", options.repository, "repository directory")
 	command.PersistentFlags().StringVar(&options.config, "config", "", "user preferences configuration path")
 	command.PersistentFlags().StringVar(&options.qualityConfig, "quality-config", "", "repository-local quality gate configuration path")
-	command.PersistentFlags().StringVar(&options.pullRequestProvider, "pull-request-provider", options.pullRequestProvider, "none or github")
 	command.PersistentFlags().BoolVar(&options.dryRun, "dry-run", false, "show a plan without mutating Git")
 	command.PersistentFlags().BoolVar(&options.yes, "yes", false, "confirm mutating operations non-interactively")
-	command.PersistentFlags().DurationVar(&options.timeout, "timeout", options.timeout, "timeout for external Git processes")
 
 	command.AddCommand(newCompletionCommand(command))
 	command.AddCommand(

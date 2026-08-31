@@ -212,13 +212,15 @@ func TestDryRunCommandContractsCoverWorkflowSurfaces(t *testing.T) {
 	}
 }
 
+// TestCompletionCommandsGenerateScripts runs sequentially on purpose: cobra
+// keeps the registered flag-completion functions in a process-global registry
+// and stamps flag annotations across that registry during script generation,
+// so parallel generation or execution over separate command trees races
+// inside cobra.
 func TestCompletionCommandsGenerateScripts(t *testing.T) {
-	t.Parallel()
-
 	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
 		shell := shell
 		t.Run(shell, func(t *testing.T) {
-			t.Parallel()
 			command := New(BuildInfo{Version: "test"})
 			output := &bytes.Buffer{}
 			command.SetOut(output)

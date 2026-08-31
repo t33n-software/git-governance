@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
+	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/application/workflow"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
@@ -24,26 +26,20 @@ const maxCommitMessageBytes = 1 << 20
 // docs/conventions/cli/value-domain-model.md and
 // docs/conventions/cli/error-philosophy.md.
 func (application *application) validateOptions() error {
-	switch application.options.interactive {
-	case "auto", "always", "never":
-	default:
-		return invalidOption("interactive", application.options.interactive, "auto, always, or never")
+	if !slices.Contains(cliparam.InteractiveMode().Values, application.options.interactive) {
+		return invalidOption("interactive", application.options.interactive, cliparam.InteractiveMode().ValueList())
 	}
 	if _, err := application.outputFormat(); err != nil {
 		return err
 	}
-	switch application.options.color {
-	case "auto", "always", "never":
-	default:
-		return invalidOption("color", application.options.color, "auto, always, or never")
+	if !slices.Contains(cliparam.ColorMode().Values, application.options.color) {
+		return invalidOption("color", application.options.color, cliparam.ColorMode().ValueList())
 	}
-	switch application.options.pullRequestProvider {
-	case "", "none", "github":
-	default:
-		return invalidOption("pull-request-provider", application.options.pullRequestProvider, "none or github")
+	if application.options.pullRequestProvider != "" && !slices.Contains(cliparam.PullRequestProvider().Values, application.options.pullRequestProvider) {
+		return invalidOption("pull-request-provider", application.options.pullRequestProvider, cliparam.PullRequestProvider().ValueList())
 	}
 	if application.options.timeout <= 0 {
-		return invalidOption("timeout", application.options.timeout.String(), "a positive duration")
+		return invalidOption("timeout", application.options.timeout.String(), cliparam.Timeout().Rule)
 	}
 	if application.options.interactive == "always" {
 		if application.options.output == "json" {
