@@ -1,5 +1,8 @@
 // Package problem defines the stable failure contract shared by the CLI,
-// application services, adapters, hooks, and automation consumers.
+// application services, adapters, hooks, and automation consumers. The coded
+// record fields and the semantic exit codes follow the canonical conventions:
+// docs/conventions/cli/output-contract.md and
+// docs/conventions/cli/error-philosophy.md.
 package problem
 
 import (

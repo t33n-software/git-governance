@@ -9,6 +9,9 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
+// Build metadata is injected by the release build; the version identifies the
+// CLI contract. Canonical convention:
+// docs/conventions/cli/identity-and-discovery.md.
 var (
 	version      = "devel"
 	commit       = "unknown"

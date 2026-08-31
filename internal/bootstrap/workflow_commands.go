@@ -136,6 +136,11 @@ func newTicketStartCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
+	// Flag help texts in this file render the value domains of their endpoint;
+	// every flag belongs to exactly one value class and carries its
+	// class-specific help duty. Canonical conventions:
+	// docs/conventions/cli/value-domain-model.md and
+	// docs/conventions/cli/help-contract.md.
 	command.Flags().StringVar(&familyRaw, "family", "", "regular ticket branch family")
 	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
 	command.Flags().StringVar(&numberRaw, "ticket", "", "ticket number")

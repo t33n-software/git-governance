@@ -26,6 +26,12 @@ func New(build BuildInfo) *cobra.Command {
 
 // NewWithRuntime constructs the command tree with injected dependencies. It is
 // used by CLI contract tests and keeps adapters out of application services.
+// The command tree, the stable binary identity, the machine-readable version,
+// and the global flags registered below follow the canonical CLI conventions:
+// docs/conventions/cli/identity-and-discovery.md,
+// docs/conventions/cli/help-contract.md,
+// docs/conventions/cli/configuration.md, and
+// docs/conventions/cli/compatibility-and-lifecycle.md.
 func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 	version := build.Version
 	if version == "" {
@@ -108,6 +114,8 @@ func nonEmpty(value, fallback string) string {
 }
 
 // RenderError emits a stable error result using the selected output format.
+// The human and machine forms carry the coded error record with identical
+// information. Canonical convention: docs/conventions/cli/output-contract.md.
 func RenderError(command *cobra.Command, err error) {
 	format := report.FormatHuman
 	if output, flagErr := command.Root().PersistentFlags().GetString("output"); flagErr == nil && output == "json" {

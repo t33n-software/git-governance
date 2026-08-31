@@ -18,6 +18,11 @@ import (
 
 const maxCommitMessageBytes = 1 << 20
 
+// validateOptions rejects invalid global option values and combinations
+// fail-closed before any workflow runs, including the --interactive always /
+// --output json combination rule. Canonical conventions:
+// docs/conventions/cli/value-domain-model.md and
+// docs/conventions/cli/error-philosophy.md.
 func (application *application) validateOptions() error {
 	switch application.options.interactive {
 	case "auto", "always", "never":
@@ -91,6 +96,10 @@ func (application *application) discover(ctx context.Context, service services) 
 	return identity, nil
 }
 
+// confirmMutation enforces the mutation-confirmation law: mutating operations
+// require explicit confirmation or --yes, and every mutating command offers
+// --dry-run. Canonical convention:
+// docs/conventions/cli/interaction-model.md.
 func (application *application) confirmMutation(ctx context.Context, label, description string) error {
 	if application.options.dryRun || application.options.yes {
 		return nil
@@ -536,6 +545,9 @@ func parseScratchBase(raw, remote string, id ticket.ID) (branch.TargetBase, erro
 	return base, nil
 }
 
+// resolveValidatedInput is the shared funnel for validated interactive
+// inputs: prompts carry the same rules as the static help and validate live.
+// Canonical convention: docs/conventions/cli/interaction-model.md.
 func resolveValidatedInput[T any](
 	application *application,
 	ctx context.Context,
@@ -800,6 +812,11 @@ func parseFooterSpec(raw string) (commitmsg.Footer, error) {
 	return commitmsg.NewFooter(token, value)
 }
 
+// invalidOption builds the coded usage-failure record for an unsupported
+// option value. Its remediation must stay truthful: it may only reference
+// surfaces that actually carry the answer. Canonical conventions:
+// docs/conventions/cli/output-contract.md and
+// docs/conventions/cli/error-philosophy.md.
 func invalidOption(field, actual, expected string) error {
 	return problem.New(problem.Details{
 		Code:        problem.CodeInvalidInput,

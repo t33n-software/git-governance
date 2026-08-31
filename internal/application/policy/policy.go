@@ -78,7 +78,10 @@ type Limits struct {
 	CommitSubjectMaximumRunes int `json:"commitSubjectMaximumRunes"`
 }
 
-// Describe returns the stable local policy contract.
+// Describe returns the stable local policy contract. It is the
+// machine-readable discovery channel (K5) and renders from the same domain
+// registers as every other channel. Canonical convention:
+// docs/conventions/cli/single-source-of-truth.md.
 func Describe() Description {
 	types := commitmsg.Types()
 	commitTypes := make([]string, len(types))

@@ -6,6 +6,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// newCompletionCommand exposes the shell-completion surface (channel K4 of the
+// value-domain single source of truth). Canonical convention:
+// docs/conventions/cli/single-source-of-truth.md.
 func newCompletionCommand(root *cobra.Command) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "completion [bash|zsh|fish|powershell]",

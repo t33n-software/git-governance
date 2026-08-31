@@ -14,6 +14,9 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
+// TestCommandTreeAndVersion pins the help and version surfaces against the
+// command registry — the contract-test law for projections. Canonical
+// convention: docs/conventions/cli/testing-and-verification.md.
 func TestCommandTreeAndVersion(t *testing.T) {
 	t.Parallel()
 

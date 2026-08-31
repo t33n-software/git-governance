@@ -40,6 +40,10 @@ const (
 	FamilyScratch  Family = "scratch"
 )
 
+// families is the canonical branch-family register: help, prompts, errors,
+// completion, and discovery all render from it, never from duplicated
+// literals. Canonical convention:
+// docs/conventions/cli/single-source-of-truth.md.
 var families = []Family{
 	FamilyMain,
 	FamilyDevelop,
