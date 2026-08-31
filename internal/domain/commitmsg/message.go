@@ -537,13 +537,25 @@ func validateText(value string, allowNewline bool) error {
 	return nil
 }
 
+// typeEnumeration renders the canonical commit-family list from the type
+// registry, so the error contract never carries the value set as a duplicated
+// literal. Canonical convention:
+// docs/conventions/cli/single-source-of-truth.md.
+func typeEnumeration() string {
+	names := make([]string, 0, len(types))
+	for _, kind := range types {
+		names = append(names, kind.String())
+	}
+	return strings.Join(names[:len(names)-1], ", ") + ", or " + names[len(names)-1]
+}
+
 func invalidType(actual string) error {
 	return problem.New(problem.Details{
 		Code:        problem.CodeCommitTypeInvalid,
 		Category:    problem.CategoryGovernance,
 		Field:       "commit type",
 		Actual:      actual,
-		Expected:    "build, chore, ci, docs, feat, fix, perf, refactor, revert, style, or test",
+		Expected:    typeEnumeration(),
 		Rule:        "commit types use the product's Conventional Commit profile",
 		Example:     "feat(ABC-123): add export button",
 		Remediation: "select a supported commit type",
