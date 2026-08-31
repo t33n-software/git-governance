@@ -28,6 +28,7 @@ Conventions are grouped by subdomain, never by tooling:
 
 ```text
 docs/conventions/
+  cli/                 command-line interface interaction contracts
   branching/           branch topology, families, and naming
   commits/             commit message content contracts
   pull-requests/       the review gate (this area)

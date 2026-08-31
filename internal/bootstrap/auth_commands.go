@@ -11,6 +11,10 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
+// newAuthCommand exposes explicit login-flow authentication; credentials are
+// never accepted as command arguments, and status output carries only
+// non-sensitive metadata. Canonical convention:
+// docs/conventions/cli/security-and-governance.md.
 func newAuthCommand(application *application) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "auth",

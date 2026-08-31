@@ -99,6 +99,11 @@ func newPrePushCommand(application *application) *cobra.Command {
 			})
 		},
 	}
+	// Flag help texts in this file render the value domains of their endpoint;
+	// every flag belongs to exactly one value class and carries its
+	// class-specific help duty. Canonical conventions:
+	// docs/conventions/cli/value-domain-model.md and
+	// docs/conventions/cli/help-contract.md.
 	command.Flags().StringVar(&branchRaw, "branch", "", "branch name; defaults to the current branch")
 	command.Flags().StringVar(&baseRaw, "base", "", "explicit target base")
 	return command
@@ -112,6 +117,9 @@ func readPrePushUpdates(command *cobra.Command) ([]branchapp.PushUpdate, error) 
 	return branchapp.ParsePrePushUpdates(reader)
 }
 
+// newConfigCommand exposes the local user-preferences surface. Configuration
+// lives outside the code and follows the canonical precedence and storage
+// convention: docs/conventions/cli/configuration.md.
 func newConfigCommand(application *application) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "config",

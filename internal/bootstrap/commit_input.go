@@ -102,7 +102,9 @@ func (application *application) resolveCommitMessage(
 // silently derived from the branch family. The branch-family default remains
 // as the preselected proposal in the interactive select, which the author
 // confirms explicitly. Canonical convention:
-// docs/conventions/commits/family-selection.md.
+// docs/conventions/commits/family-selection.md. The interactive select renders
+// the same value domain as the static help surfaces:
+// docs/conventions/cli/interaction-model.md.
 func (application *application) resolveCommitFamily(
 	ctx context.Context,
 	input commitMessageInput,
