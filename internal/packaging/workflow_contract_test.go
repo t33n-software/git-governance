@@ -1017,9 +1017,10 @@ func TestCanonicalCallersMatchTheBindingManifest(t *testing.T) {
 
 	manifest := readBindingManifest(t)
 	want := map[string]string{
-		".github/workflows/ci.yml":                "hosting-platforms/github/workflows/callers/go/ci-full.yml",
-		".github/workflows/codeql.yml":            "hosting-platforms/github/workflows/callers/go/codeql.yml",
-		".github/workflows/dependency-review.yml": "hosting-platforms/github/workflows/callers/go/dependency-review.yml",
+		".github/workflows/ci.yml":                    "hosting-platforms/github/workflows/callers/go/ci-full.yml",
+		".github/workflows/codeql.yml":                "hosting-platforms/github/workflows/callers/go/codeql.yml",
+		".github/workflows/dependency-review.yml":     "hosting-platforms/github/workflows/callers/go/dependency-review.yml",
+		".github/workflows/canonical-conformance.yml": "hosting-platforms/github/workflows/callers/go/canonical-conformance.yml",
 	}
 	if len(manifest.Callers) != len(want) {
 		t.Fatalf("the manifest carries %d callers, want %d", len(manifest.Callers), len(want))
@@ -1088,7 +1089,7 @@ func TestConformanceWorkflowBindsTheVerifier(t *testing.T) {
 	for _, required := range []string{
 		"permissions: {}",
 		"name: Canonical conformance",
-		"uses: " + manifest.Home.Repository + "/.github/actions/verify-canonical-files@" + manifest.Home.SHA,
+		"uses: " + manifest.Home.Repository + "/.github/workflows/reusable-canonical-conformance.yml@" + manifest.Home.SHA,
 		`branches: [main, develop, "release/**", "support/**"]`,
 	} {
 		if !strings.Contains(content, required) {
