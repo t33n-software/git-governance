@@ -12,12 +12,34 @@ import (
 // conventions: docs/conventions/cli/single-source-of-truth.md and
 // docs/conventions/cli/help-contract.md.
 
+// valueDomainCommandAnnotation marks commands whose flags render from the
+// canonical value-domain register; the tree finalizer appends the discovery
+// reference line to the help of every marked command.
+const valueDomainCommandAnnotation = "git-governance.t33n-software/value-domain-bound"
+
+// discoveryReferenceLine is the single level-3 deep reference carried by the
+// help of every value-carrying endpoint: the canonical value domains and
+// limits are machine-readable via policy describe, and the branch family
+// patterns via branch list. Canonical convention:
+// docs/conventions/cli/help-contract.md.
+const discoveryReferenceLine = `Canonical value domains and limits: "policy describe"; branch family patterns: "branch list".`
+
+// markValueDomainCommand records that the command binds at least one flag to
+// the value-domain register.
+func markValueDomainCommand(command *cobra.Command) {
+	if command.Annotations == nil {
+		command.Annotations = map[string]string{}
+	}
+	command.Annotations[valueDomainCommandAnnotation] = "true"
+}
+
 // registerValueDomainFlag binds one string flag to the canonical value-domain
 // register: the help renders from the register descriptor and the completion
 // channel K4 serves the same values.
 func registerValueDomainFlag(command *cobra.Command, target *string, name, defaultValue string, domain cliparam.Domain, context string) {
 	command.Flags().StringVar(target, name, defaultValue, domain.HelpText(context))
 	registerValueCompletion(command, name, domain)
+	markValueDomainCommand(command)
 }
 
 // registerValueDomainSliceFlag binds one repeatable string-slice flag to the
@@ -25,12 +47,14 @@ func registerValueDomainFlag(command *cobra.Command, target *string, name, defau
 func registerValueDomainSliceFlag(command *cobra.Command, target *[]string, name string, domain cliparam.Domain, context string) {
 	command.Flags().StringSliceVar(target, name, nil, domain.HelpText(context))
 	registerValueCompletion(command, name, domain)
+	markValueDomainCommand(command)
 }
 
 // registerPathDomainFlag binds one structural-reference flag whose values are
 // repository paths; completion stays with the framework's file completion.
 func registerPathDomainFlag(command *cobra.Command, target *string, name string, domain cliparam.Domain, context string) {
 	command.Flags().StringVar(target, name, "", domain.HelpText(context))
+	markValueDomainCommand(command)
 }
 
 // registerPathDomainSliceFlag binds one repeatable structural-reference flag
@@ -38,6 +62,7 @@ func registerPathDomainFlag(command *cobra.Command, target *string, name string,
 // file completion.
 func registerPathDomainSliceFlag(command *cobra.Command, target *[]string, name string, domain cliparam.Domain, context string) {
 	command.Flags().StringSliceVar(target, name, nil, domain.HelpText(context))
+	markValueDomainCommand(command)
 }
 
 // registerPersistentValueDomainFlag binds one global persistent string flag
@@ -45,6 +70,7 @@ func registerPathDomainSliceFlag(command *cobra.Command, target *[]string, name 
 func registerPersistentValueDomainFlag(command *cobra.Command, target *string, name, defaultValue string, domain cliparam.Domain) {
 	command.PersistentFlags().StringVar(target, name, defaultValue, domain.HelpText(""))
 	registerValueCompletion(command, name, domain)
+	markValueDomainCommand(command)
 }
 
 // registerValueCompletion projects the domain values and static prefix forms

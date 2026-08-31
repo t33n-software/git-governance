@@ -678,6 +678,61 @@ func TestCompletionProjectionOnTheProductionTree(t *testing.T) {
 	}
 }
 
+// TestDiscoveryReferenceAppearsOnRegisterBoundEndpointsOnly pins the level-3
+// deep reference: every endpoint whose flags render from the register carries
+// exactly one discovery reference line in its help, and endpoints without
+// register-bound value domains carry none. The tree navigation stays
+// sequential because cobra's Find lazily initializes command state.
+func TestDiscoveryReferenceAppearsOnRegisterBoundEndpointsOnly(t *testing.T) {
+	t.Parallel()
+
+	root := New(BuildInfo{Version: "test"})
+
+	withReference := [][]string{
+		{},
+		{"commit", "create"},
+		{"branch", "create"},
+		{"workflow", "ticket", "start"},
+		{"workflow", "hotfix", "start"},
+		{"workflow", "release", "cut"},
+		{"validate", "pre-push"},
+		{"config", "key", "add"},
+	}
+	for _, path := range withReference {
+		command := root
+		if len(path) > 0 {
+			found, _, err := root.Find(path)
+			if err != nil || found == nil {
+				t.Fatalf("command path %v not found: %v", path, err)
+			}
+			command = found
+		}
+		if !strings.Contains(command.Long, discoveryReferenceLine) {
+			t.Fatalf("%q help misses the discovery reference line", command.CommandPath())
+		}
+		if strings.Count(command.Long, discoveryReferenceLine) != 1 {
+			t.Fatalf("%q help carries the discovery reference line more than once", command.CommandPath())
+		}
+	}
+
+	withoutReference := [][]string{
+		{"doctor"},
+		{"policy", "describe"},
+		{"branch", "list"},
+		{"workflow"},
+		{"branch"},
+	}
+	for _, path := range withoutReference {
+		found, _, err := root.Find(path)
+		if err != nil || found == nil {
+			t.Fatalf("command path %v not found: %v", path, err)
+		}
+		if strings.Contains(found.Long, discoveryReferenceLine) {
+			t.Fatalf("%q help must not carry the discovery reference line", found.CommandPath())
+		}
+	}
+}
+
 // TestRegisterGlobalValueDomainFlags pins the global persistent flags onto the
 // register projection.
 func TestRegisterGlobalValueDomainFlags(t *testing.T) {

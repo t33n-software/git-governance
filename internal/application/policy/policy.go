@@ -6,8 +6,8 @@ import (
 	"context"
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
+	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	"github.com/t33n-software/git-governance/internal/application/port"
-	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
@@ -67,7 +67,20 @@ type Description struct {
 	CommitSigning  string                 `json:"commitSigning"`
 	BranchFamilies []branchapp.FamilyInfo `json:"branchFamilies"`
 	CommitTypes    []string               `json:"commitTypes"`
+	// CommitFamilies carries the commit-family selection metadata (label and
+	// description) alongside the plain type list; the JSON contract evolves
+	// additively only. Canonical convention:
+	// docs/conventions/cli/compatibility-and-lifecycle.md.
+	CommitFamilies []CommitFamilyMetadata `json:"commitFamilies"`
 	Limits         Limits                 `json:"limits"`
+}
+
+// CommitFamilyMetadata describes one commit family to machine consumers with
+// the same label and description the interactive select surface shows.
+type CommitFamilyMetadata struct {
+	Type        string `json:"type"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
 }
 
 // Limits defines policy bounds for untrusted text inputs.
@@ -83,17 +96,22 @@ type Limits struct {
 // registers as every other channel. Canonical convention:
 // docs/conventions/cli/single-source-of-truth.md.
 func Describe() Description {
-	types := commitmsg.Types()
-	commitTypes := make([]string, len(types))
-	for index, kind := range types {
-		commitTypes[index] = kind.String()
+	families := cliparam.CommitTypeMetadata()
+	commitFamilies := make([]CommitFamilyMetadata, 0, len(families))
+	for _, family := range families {
+		commitFamilies = append(commitFamilies, CommitFamilyMetadata{
+			Type:        family.Type.String(),
+			Label:       family.Label,
+			Description: family.Description,
+		})
 	}
 	return Description{
 		SchemaVersion:  schemaVersion,
 		KeyPolicy:      "syntax-only",
 		CommitSigning:  CommitSigningRequired,
-		BranchFamilies: branchapp.ListFamilies(),
-		CommitTypes:    commitTypes,
+		BranchFamilies: cliparam.BranchFamilyMetadata(),
+		CommitTypes:    cliparam.CommitType().Values,
+		CommitFamilies: commitFamilies,
 		Limits: Limits{
 			TicketKeyMaximumLength:    32,
 			TicketNumberMaximumLength: 18,

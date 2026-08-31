@@ -101,7 +101,25 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		newDoctorCommand(application),
 	)
 
+	appendDiscoveryReferences(command)
+
 	return command
+}
+
+// appendDiscoveryReferences finalizes the help of every register-bound
+// command with the single level-3 deep reference line. Canonical convention:
+// docs/conventions/cli/help-contract.md.
+func appendDiscoveryReferences(command *cobra.Command) {
+	if command.Annotations[valueDomainCommandAnnotation] == "true" {
+		long := command.Long
+		if long == "" {
+			long = command.Short
+		}
+		command.Long = long + "\n\n" + discoveryReferenceLine
+	}
+	for _, child := range command.Commands() {
+		appendDiscoveryReferences(child)
+	}
 }
 
 func nonEmpty(value, fallback string) string {

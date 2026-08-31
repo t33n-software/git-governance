@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
@@ -300,6 +301,27 @@ func TestDescriptionIsSelfContained(t *testing.T) {
 	}
 	if actual.Limits.TicketKeyMaximumLength != 32 || actual.Limits.CommitSubjectMaximumRunes != 200 {
 		t.Fatalf("Describe() limits = %#v", actual.Limits)
+	}
+
+	registerTypes := cliparam.CommitType().Values
+	if len(actual.CommitTypes) != len(registerTypes) {
+		t.Fatalf("Describe() commit types = %v, want the register values %v", actual.CommitTypes, registerTypes)
+	}
+	for index, value := range registerTypes {
+		if actual.CommitTypes[index] != value {
+			t.Fatalf("Describe() commitTypes[%d] = %q, want %q", index, actual.CommitTypes[index], value)
+		}
+	}
+
+	metadata := cliparam.CommitTypeMetadata()
+	if len(actual.CommitFamilies) != len(metadata) {
+		t.Fatalf("Describe() commitFamilies count = %d, want %d", len(actual.CommitFamilies), len(metadata))
+	}
+	for index, family := range metadata {
+		actual_family := actual.CommitFamilies[index]
+		if actual_family.Type != family.Type.String() || actual_family.Label != family.Label || actual_family.Description != family.Description {
+			t.Fatalf("Describe() commitFamilies[%d] = %#v, want the canonical surface %+v", index, actual_family, family)
+		}
 	}
 }
 
