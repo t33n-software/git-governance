@@ -263,10 +263,10 @@ func ManifestTargetLine() Domain {
 // the ticket domain validation rule.
 func TicketKey() Domain {
 	return Domain{
-		Concept: "ticket key",
+		Concept: "ticket `key`",
 		Class:   ClassFreeConstrained,
 		Rule: "1-32 uppercase ASCII letters or digits, beginning with a letter " +
-			"(rejected unless matching ^[A-Z][A-Z0-9]*$)",
+			"(rejected unless matching `^[A-Z][A-Z0-9]*$`)",
 		Example: "ABC",
 	}
 }
@@ -274,9 +274,9 @@ func TicketKey() Domain {
 // TicketNumber is the free-constrained domain of a positive ticket number.
 func TicketNumber() Domain {
 	return Domain{
-		Concept: "ticket number",
+		Concept: "ticket `number`",
 		Class:   ClassFreeConstrained,
-		Rule:    "1-18 decimal digits without a leading zero (rejected unless matching ^[1-9][0-9]*$)",
+		Rule:    "1-18 decimal digits without a leading zero (rejected unless matching `^[1-9][0-9]*$`)",
 		Example: "123",
 	}
 }
@@ -296,10 +296,10 @@ func TicketID() Domain {
 // description, mirroring the branch domain validation rule.
 func BranchSlug() Domain {
 	return Domain{
-		Concept: "kebab-case branch description",
+		Concept: "kebab-case branch `description`",
 		Class:   ClassFreeConstrained,
 		Rule: "1-100 lowercase ASCII letters or digits, words joined by single hyphens " +
-			"(rejected unless matching ^[a-z0-9]+(?:-[a-z0-9]+)*$)",
+			"(rejected unless matching `^[a-z0-9]+(?:-[a-z0-9]+)*$`)",
 		Example: "add-export-button",
 	}
 }
@@ -360,9 +360,9 @@ func BreakingDescription() Domain {
 // identifier accepted by the controlled hotfix propagation workflow.
 func CommitSHA() Domain {
 	return Domain{
-		Concept: "commit",
+		Concept: "`commit`",
 		Class:   ClassFreeConstrained,
-		Rule:    "7-64 hexadecimal characters (rejected unless matching ^[0-9a-fA-F]{7,64}$)",
+		Rule:    "7-64 hexadecimal characters (rejected unless matching `^[0-9a-fA-F]{7,64}$`)",
 		Example: "9fceb02",
 	}
 }
@@ -371,10 +371,10 @@ func CommitSHA() Domain {
 // the branch domain validation rule.
 func RemoteName() Domain {
 	return Domain{
-		Concept: "Git remote name",
+		Concept: "Git remote `name`",
 		Class:   ClassFreeConstrained,
 		Rule: "letters, digits, dots, underscores, or hyphens, beginning with a letter or digit " +
-			"(rejected unless matching ^[A-Za-z0-9][A-Za-z0-9._-]*$)",
+			"(rejected unless matching `^[A-Za-z0-9][A-Za-z0-9._-]*$`)",
 		Example: "origin",
 	}
 }
@@ -383,18 +383,18 @@ func RemoteName() Domain {
 // request identifier.
 func RequestID() Domain {
 	return Domain{
-		Concept: "durable protected-line request ID",
+		Concept: "durable protected-line request `ID`",
 		Class:   ClassFreeConstrained,
-		Rule:    "1-64 letters, digits, underscores, or hyphens (rejected unless matching ^[A-Za-z0-9_-]{1,64}$)",
+		Rule:    "1-64 letters, digits, underscores, or hyphens (rejected unless matching `^[A-Za-z0-9_-]{1,64}$`)",
 	}
 }
 
 // RunID is the free-constrained domain of a provider workflow run identifier.
 func RunID() Domain {
 	return Domain{
-		Concept: "workflow run ID",
+		Concept: "workflow run `ID`",
 		Class:   ClassFreeConstrained,
-		Rule:    "a positive decimal number without a leading zero (rejected unless matching ^[1-9][0-9]*$)",
+		Rule:    "a positive decimal number without a leading zero (rejected unless matching `^[1-9][0-9]*$`)",
 	}
 }
 

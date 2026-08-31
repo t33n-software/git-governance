@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	commitapp "github.com/t33n-software/git-governance/internal/application/commit"
 	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
@@ -62,7 +63,7 @@ func (application *application) resolveCommitMessage(
 				ctx,
 				"",
 				"Breaking change impact",
-				"Describe the incompatible public contract change and the concrete migration impact without leading or trailing whitespace. Example: clients must use the versioned export endpoint.",
+				cliparam.BreakingDescription().PromptText(),
 				func(value string) error {
 					_, validationErr := commitmsg.NewFooter("BREAKING CHANGE", value)
 					return validationErr
@@ -155,8 +156,7 @@ func (application *application) resolveCommitDescription(
 		label,
 		commitContextDescription(input.Operation, input.Branch, ticketID.String(), family.String())+
 			"\nEnter only the description after ': ' in "+family.String()+"("+ticketID.String()+"): <description>. "+
-			"It must be one non-empty, unpadded line of at most 200 Unicode characters and must not contain control characters. "+
-			"Example: add export button.",
+			cliparam.CommitSubject().PromptText(),
 		func(value string) (string, error) {
 			_, err := commitmsg.NewHeader(family, ticketID, value, input.Breaking)
 			return value, err

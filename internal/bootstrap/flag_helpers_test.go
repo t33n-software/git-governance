@@ -1,13 +1,17 @@
 package bootstrap
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/t33n-software/git-governance/internal/application/cliparam"
+	"github.com/t33n-software/git-governance/internal/application/policy"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
+	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 // TestConceptHelpersBindNameHelpAndDefault pins every shared registration
@@ -390,6 +394,51 @@ func TestMigratedEndpointsRenderRegisterHelp(t *testing.T) {
 		{path: []string{"workflow", "hotfix", "publish"}, flagName: "affected-line", want: cliparam.AffectedLine().HelpText("")},
 		{path: []string{"workflow", "hotfix", "propagate"}, flagName: "target-line", want: cliparam.PropagationTargetLine().HelpText("")},
 		{path: []string{"workflow", "hotfix", "propagate-manifest"}, flagName: "target-line", want: cliparam.ManifestTargetLine().HelpText("")},
+		{path: []string{"commit", "create"}, flagName: "ticket", want: cliparam.TicketID().HelpText("compatibility check; the current branch is authoritative")},
+		{path: []string{"commit", "create"}, flagName: "subject", want: cliparam.CommitSubject().HelpText("")},
+		{path: []string{"commit", "create"}, flagName: "body", want: cliparam.CommitBody().HelpText("mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")},
+		{path: []string{"commit", "create"}, flagName: "breaking-description", want: cliparam.BreakingDescription().HelpText("")},
+		{path: []string{"commit", "create"}, flagName: "footer", want: cliparam.CommitFooter().HelpText("")},
+		{path: []string{"commit", "create"}, flagName: "stage", want: cliparam.StagePath().HelpText("")},
+		{path: []string{"branch", "create"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"branch", "create"}, flagName: "ticket", want: cliparam.TicketNumber().HelpText("")},
+		{path: []string{"branch", "create"}, flagName: "slug", want: cliparam.BranchSlug().HelpText("")},
+		{path: []string{"branch", "merge-scratch"}, flagName: "subject", want: cliparam.CommitSubject().HelpText("for the squashed change")},
+		{path: []string{"branch", "merge-scratch"}, flagName: "body", want: cliparam.CommitBody().HelpText("documenting the discarded experiment paths (mandatory)")},
+		{path: []string{"branch", "merge-scratch"}, flagName: "footer", want: cliparam.CommitFooter().HelpText("")},
+		{path: []string{"branch", "merge-scratch"}, flagName: "breaking-description", want: cliparam.BreakingDescription().HelpText("")},
+		{path: []string{"branch", "sync-base"}, flagName: "merge-subject", want: cliparam.CommitSubject().HelpText("for --strategy merge")},
+		{path: []string{"branch", "sync-base"}, flagName: "merge-body", want: cliparam.CommitBody().HelpText("for the --strategy merge commit")},
+		{path: []string{"branch", "sync-base"}, flagName: "merge-footer", want: cliparam.CommitFooter().HelpText("for the merge commit")},
+		{path: []string{"branch", "sync-base"}, flagName: "merge-breaking-description", want: cliparam.BreakingDescription().HelpText("for the merge commit")},
+		{path: []string{"workflow", "ticket", "start"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"workflow", "ticket", "start"}, flagName: "ticket", want: cliparam.TicketNumber().HelpText("")},
+		{path: []string{"workflow", "ticket", "start"}, flagName: "slug", want: cliparam.BranchSlug().HelpText("")},
+		{path: []string{"workflow", "ticket", "start"}, flagName: "scratch-slug", want: cliparam.BranchSlug().HelpText("for the private scratch branch (optional)")},
+		{path: []string{"workflow", "ticket", "publish"}, flagName: "subject", want: cliparam.CommitSubject().HelpText("for a scratch squash transfer")},
+		{path: []string{"workflow", "ticket", "publish"}, flagName: "commit-body", want: cliparam.CommitBody().HelpText("for a scratch squash transfer (mandatory, documents the discarded experiment paths)")},
+		{path: []string{"workflow", "ticket", "publish"}, flagName: "commit-footer", want: cliparam.CommitFooter().HelpText("for a scratch squash transfer")},
+		{path: []string{"workflow", "ticket", "publish"}, flagName: "commit-breaking-description", want: cliparam.BreakingDescription().HelpText("for the scratch squash transfer commit")},
+		{path: []string{"workflow", "hotfix", "start"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"workflow", "hotfix", "start"}, flagName: "ticket", want: cliparam.TicketNumber().HelpText("")},
+		{path: []string{"workflow", "hotfix", "start"}, flagName: "slug", want: cliparam.BranchSlug().HelpText("for the hotfix branch")},
+		{path: []string{"workflow", "hotfix", "propagate"}, flagName: "commit", want: cliparam.CommitSHA().HelpText("reviewed source commit SHA")},
+		{path: []string{"workflow", "hotfix", "propagate"}, flagName: "slug", want: cliparam.BranchSlug().HelpText("for the propagation branch (optional)")},
+		{path: []string{"workflow", "hotfix", "propagate-manifest"}, flagName: "slug", want: cliparam.BranchSlug().HelpText("for the propagation branch (optional)")},
+		{path: []string{"workflow", "release", "request"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"workflow", "release", "request"}, flagName: "ticket", want: cliparam.TicketNumber().HelpText("")},
+		{path: []string{"workflow", "release", "request"}, flagName: "requester", want: cliparam.Requester().HelpText("")},
+		{path: []string{"workflow", "release", "request"}, flagName: "parent-run", want: cliparam.RunID().HelpText("")},
+		{path: []string{"workflow", "release", "execute-request"}, flagName: "request-id", want: cliparam.RequestID().HelpText("")},
+		{path: []string{"workflow", "release", "execute-request"}, flagName: "executor-run", want: cliparam.RunID().HelpText("")},
+		{path: []string{"workflow", "release", "finalize-request"}, flagName: "request-id", want: cliparam.RequestID().HelpText("")},
+		{path: []string{"workflow", "release", "finalize-request"}, flagName: "executor-run", want: cliparam.RunID().HelpText("")},
+		{path: []string{"workflow", "release", "stabilize"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"workflow", "release", "stabilize"}, flagName: "ticket", want: cliparam.TicketNumber().HelpText("")},
+		{path: []string{"workflow", "release", "stabilize"}, flagName: "slug", want: cliparam.BranchSlug().HelpText("for the stabilization branch")},
+		{path: []string{"config", "key", "add"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"config", "key", "remove"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
+		{path: []string{"config", "key", "set-default"}, flagName: "key", want: cliparam.TicketKey().HelpText("")},
 	}
 
 	// The subtests navigate the shared tree sequentially on purpose: cobra's
@@ -410,6 +459,80 @@ func TestMigratedEndpointsRenderRegisterHelp(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPromptRuleTextsRenderFromTheRegister pins the interactive prompt
+// channel K2 against the register: the prompt descriptions must render the
+// same rule set as the static help, never an independent prose copy.
+func TestPromptRuleTextsRenderFromTheRegister(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ticket key prompt", func(t *testing.T) {
+		t.Parallel()
+		prompt := &commandHelperPrompt{inputs: []commandHelperStringReply{{value: "API"}}}
+		application := newCommandHelperApplication(newCommandHelperOptions(), prompt, true, true)
+		_, err := application.resolveKey(context.Background(), services{
+			preferences: policy.NewPreferencesService(&commandHelperPreferencesStore{}),
+		}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(prompt.inputRequests) != 1 {
+			t.Fatalf("input requests = %d, want 1", len(prompt.inputRequests))
+		}
+		if got := prompt.inputRequests[0].Description; got != cliparam.TicketKey().PromptText() {
+			t.Fatalf("key prompt description = %q, want %q", got, cliparam.TicketKey().PromptText())
+		}
+	})
+
+	t.Run("ticket number prompt", func(t *testing.T) {
+		t.Parallel()
+		prompt := &commandHelperPrompt{inputs: []commandHelperStringReply{{value: "123"}}}
+		application := newCommandHelperApplication(newCommandHelperOptions(), prompt, true, true)
+		if _, err := application.resolveNumber(context.Background(), ""); err != nil {
+			t.Fatal(err)
+		}
+		if len(prompt.inputRequests) != 1 {
+			t.Fatalf("input requests = %d, want 1", len(prompt.inputRequests))
+		}
+		if got := prompt.inputRequests[0].Description; got != cliparam.TicketNumber().PromptText() {
+			t.Fatalf("number prompt description = %q, want %q", got, cliparam.TicketNumber().PromptText())
+		}
+	})
+
+	t.Run("branch slug prompt", func(t *testing.T) {
+		t.Parallel()
+		prompt := &commandHelperPrompt{inputs: []commandHelperStringReply{{value: "add-export-button"}}}
+		application := newCommandHelperApplication(newCommandHelperOptions(), prompt, true, true)
+		if _, err := application.resolveSlug(context.Background(), "", "Branch description"); err != nil {
+			t.Fatal(err)
+		}
+		if len(prompt.inputRequests) != 1 {
+			t.Fatalf("input requests = %d, want 1", len(prompt.inputRequests))
+		}
+		if got := prompt.inputRequests[0].Description; got != cliparam.BranchSlug().PromptText() {
+			t.Fatalf("slug prompt description = %q, want %q", got, cliparam.BranchSlug().PromptText())
+		}
+	})
+
+	t.Run("commit subject prompt carries the register rule set", func(t *testing.T) {
+		t.Parallel()
+		prompt := &commandHelperPrompt{inputs: []commandHelperStringReply{{value: "add export button"}}}
+		application := newCommandHelperApplication(newCommandHelperOptions(), prompt, true, true)
+		id, err := ticket.ParseID("ABC-123")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := application.resolveCommitDescription(context.Background(), commitMessageInput{}, commitmsg.TypeFeat, id); err != nil {
+			t.Fatal(err)
+		}
+		if len(prompt.inputRequests) != 1 {
+			t.Fatalf("input requests = %d, want 1", len(prompt.inputRequests))
+		}
+		if got := prompt.inputRequests[0].Description; !strings.HasSuffix(got, cliparam.CommitSubject().PromptText()) {
+			t.Fatalf("subject prompt description = %q, want suffix %q", got, cliparam.CommitSubject().PromptText())
+		}
+	})
 }
 
 // TestRegisterGlobalValueDomainFlags pins the global persistent flags onto the

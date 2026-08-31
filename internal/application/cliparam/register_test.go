@@ -172,6 +172,62 @@ func TestCompleteFiltersValuesAndPrefixesByTypedPrefix(t *testing.T) {
 	}
 }
 
+func TestPromptTextRendersTheSameRuleSetAsTheHelp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		domain Domain
+		want   string
+	}{
+		{
+			name: "closed-enum renders the accepted values",
+			domain: Domain{
+				Concept: "commit family",
+				Class:   ClassClosedEnum,
+				Values:  []string{"feat", "fix"},
+				Example: "feat",
+			},
+			want: "Accepted values: feat or fix. Example: feat.",
+		},
+		{
+			name: "closed-enum with a rule carries both",
+			domain: Domain{
+				Concept: "interactive mode",
+				Class:   ClassClosedEnum,
+				Values:  []string{"auto", "always", "never"},
+				Rule:    "always is rejected when --output json is selected",
+			},
+			want: "Accepted values: auto, always, or never. always is rejected when --output json is selected.",
+		},
+		{
+			name: "free-constrained renders rule convention and example with labels",
+			domain: Domain{
+				Concept:    "commit description",
+				Class:      ClassFreeConstrained,
+				Rule:       "1-200 runes, unpadded (rejected by validation)",
+				Convention: "filler formulas without a named behavior",
+				Example:    "add export button",
+			},
+			want: "1-200 runes, unpadded (rejected by validation). Convention-violating: filler formulas without a named behavior. Example: add export button.",
+		},
+		{
+			name:   "zero domain renders empty",
+			domain: Domain{},
+			want:   "",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := test.domain.PromptText(); got != test.want {
+				t.Fatalf("PromptText() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestCompleteDoesNotAliasOrMutateTheDescriptor(t *testing.T) {
 	t.Parallel()
 

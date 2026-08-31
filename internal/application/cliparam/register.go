@@ -121,3 +121,26 @@ func (domain Domain) Complete(toComplete string) []string {
 	}
 	return candidates
 }
+
+// PromptText renders the domain rule set for the interactive prompt channel
+// K2: the same rule, convention label, and example that the static help
+// carries, phrased as an entry instruction. Canonical convention:
+// docs/conventions/cli/interaction-model.md.
+func (domain Domain) PromptText() string {
+	var sections []string
+	if domain.Class == ClassClosedEnum {
+		sections = append(sections, "Accepted values: "+domain.ValueList()+".")
+	} else if domain.Rule != "" {
+		sections = append(sections, domain.Rule+".")
+	}
+	if domain.Class == ClassClosedEnum && domain.Rule != "" {
+		sections = append(sections, domain.Rule+".")
+	}
+	if domain.Convention != "" {
+		sections = append(sections, "Convention-violating: "+domain.Convention+".")
+	}
+	if domain.Example != "" {
+		sections = append(sections, "Example: "+domain.Example+".")
+	}
+	return strings.Join(sections, " ")
+}

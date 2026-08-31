@@ -193,7 +193,7 @@ func newConfigKeyAddCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
+	registerTicketKeyFlag(command, &keyRaw)
 	return command
 }
 
@@ -222,7 +222,7 @@ func newConfigKeyRemoveCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
+	registerTicketKeyFlag(command, &keyRaw)
 	return command
 }
 
@@ -248,7 +248,7 @@ func newConfigKeyDefaultCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	command.Flags().StringVar(&keyRaw, "key", "", "ticket key")
+	registerTicketKeyFlag(command, &keyRaw)
 	return command
 }
 

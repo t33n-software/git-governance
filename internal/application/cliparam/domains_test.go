@@ -191,18 +191,18 @@ func TestAllEnumeratesEveryCanonicalDescriptor(t *testing.T) {
 		"affected line",
 		"target line",
 		"declared target line",
-		"ticket key",
-		"ticket number",
+		"ticket `key`",
+		"ticket `number`",
 		"ticket",
-		"kebab-case branch description",
+		"kebab-case branch `description`",
 		"commit description",
 		"commit body",
 		"commit footer",
 		"breaking change migration impact",
-		"commit",
-		"Git remote name",
-		"durable protected-line request ID",
-		"workflow run ID",
+		"`commit`",
+		"Git remote `name`",
+		"durable protected-line request `ID`",
+		"workflow run `ID`",
 		"request-authority actor",
 		"complete commit message",
 		"explicit base",
@@ -269,6 +269,52 @@ func TestEveryDescriptorSatisfiesTheClassifiedHelpDuty(t *testing.T) {
 
 		if domain.Convention != "" && !strings.Contains(domain.HelpText(""), "convention-violating: "+domain.Convention) {
 			t.Fatalf("descriptor %q help misses the convention-violating label", domain.Concept)
+		}
+	}
+}
+
+// TestDescriptorTextsAreMarkdownSafeForTheManPipeline pins the markdown-safety
+// contract of the register: the man-page pipeline parses help texts as
+// markdown, and an unescaped regex anchor construct (caret followed by a
+// character class) is parsed as a malformed reference link that crashes the
+// roff renderer. Every regex in a descriptor text must therefore be wrapped
+// in backticks. This regression test fails if an unprotected anchor returns.
+func TestDescriptorTextsAreMarkdownSafeForTheManPipeline(t *testing.T) {
+	t.Parallel()
+
+	for _, domain := range All() {
+		texts := []string{
+			domain.HelpText(""),
+			domain.HelpText("for the squashed change"),
+			domain.PromptText(),
+		}
+		for _, text := range texts {
+			for index := 0; index+1 < len(text); index++ {
+				if text[index] == '^' && text[index+1] == '[' && (index == 0 || text[index-1] != '`') {
+					t.Fatalf("descriptor %q carries an unprotected regex anchor in %q; wrap the regex in backticks", domain.Concept, text)
+				}
+			}
+		}
+	}
+}
+
+// TestDescriptorHelpTextsKeepRegexesOutOfTheFlagPlaceholder pins the pflag
+// placeholder contract: the flag framework claims the first backtick pair of
+// a usage text as the flag's value placeholder, so a descriptor that quotes
+// its regex must quote a natural placeholder word first; otherwise the regex
+// itself would surface as the placeholder in the terminal help.
+func TestDescriptorHelpTextsKeepRegexesOutOfTheFlagPlaceholder(t *testing.T) {
+	t.Parallel()
+
+	for _, domain := range All() {
+		for _, text := range []string{domain.HelpText(""), domain.HelpText("for the squashed change")} {
+			regexIndex := strings.Index(text, "`^")
+			if regexIndex < 0 {
+				continue
+			}
+			if strings.Count(text[:regexIndex], "`") < 2 {
+				t.Fatalf("descriptor %q quotes the regex before any placeholder word: %q", domain.Concept, text)
+			}
 		}
 	}
 }

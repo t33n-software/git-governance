@@ -333,7 +333,7 @@ func (application *application) resolveKey(ctx context.Context, service services
 	}
 	value, err := application.prompt().Input(ctx, port.InputRequest{
 		Label:       "Ticket key",
-		Description: "Enter 1 to 32 uppercase ASCII letters or digits, starting with a letter. Lowercase letters, spaces, and hyphens are not allowed. Examples: ABC, PLATFORM2.",
+		Description: cliparam.TicketKey().PromptText(),
 		Default:     defaultValue,
 		Required:    true,
 		Validate:    inputValidator(ticket.ParseKey),
@@ -350,7 +350,7 @@ func (application *application) resolveNumber(ctx context.Context, raw string) (
 		ctx,
 		raw,
 		"Ticket number",
-		"Enter 1 to 18 decimal digits, starting with 1 to 9. Leading zeroes, signs, decimals, and spaces are not allowed. Example: 123.",
+		cliparam.TicketNumber().PromptText(),
 		ticket.ParseNumber,
 	)
 }
@@ -361,7 +361,7 @@ func (application *application) resolveSlug(ctx context.Context, raw string, lab
 		ctx,
 		raw,
 		label,
-		"Enter 1 to 100 lowercase ASCII letters or digits. Separate words with exactly one hyphen; do not use spaces, uppercase letters, or leading, trailing, or repeated hyphens. Example: add-export-button.",
+		cliparam.BranchSlug().PromptText(),
 		branch.ParseSlug,
 	)
 }
