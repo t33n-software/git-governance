@@ -404,11 +404,14 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 // identity, the callee job carries the gate or variant identity. The
 // full-class variants carry them since the composite producer has been proven
 // on the real dogfooding pull request (the proof-before-binding sequencing).
+// Both classes bind the canonical conformance composite since the fleet-wide
+// caller re-binding proved it on a real pull request per repository.
 const (
-	compositeQualityGateLinuxStatusCheck   = "Quality gates / linux-amd64"
-	compositeQualityGateMacosStatusCheck   = "Quality gates / macos-arm64"
-	compositeQualityGateWindowsStatusCheck = "Quality gates / windows-amd64"
-	compositeDependencyReviewStatusCheck   = "Dependency review / Dependency admission review"
+	compositeQualityGateLinuxStatusCheck     = "Quality gates / linux-amd64"
+	compositeQualityGateMacosStatusCheck     = "Quality gates / macos-arm64"
+	compositeQualityGateWindowsStatusCheck   = "Quality gates / windows-amd64"
+	compositeDependencyReviewStatusCheck     = "Dependency review / Dependency admission review"
+	compositeCanonicalConformanceStatusCheck = "Canonical conformance / Canonical bindings verification"
 )
 
 func sharedLineStatusChecks() []string {
@@ -417,11 +420,12 @@ func sharedLineStatusChecks() []string {
 		compositeQualityGateMacosStatusCheck,
 		compositeQualityGateWindowsStatusCheck,
 		compositeDependencyReviewStatusCheck,
+		compositeCanonicalConformanceStatusCheck,
 	}
 }
 
 func linuxOnlyStatusChecks() []string {
-	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck}
+	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck, compositeCanonicalConformanceStatusCheck}
 }
 
 func statusCheckContexts(checks []struct {

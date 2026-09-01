@@ -14,13 +14,12 @@ organization default.
 
 1. **Contract surface (language-agnostic).** The organization rulesets
    require only stable, identical check contexts — in the composed era the
-   composite form `Quality gates / linux-amd64` and
-   `Dependency review / Dependency admission review` (the `linux-only` class;
-   the `full` class carries the inline-era form `Quality gates (<os>)` plus
-   `Dependency admission review` until the caller adoption of its
-   repositories). Every repository — Go, Python, Node.js, or a future
-   ecosystem — emits the same contexts; the organization-wide contract never
-   names a language-specific tool.
+   composite forms `Quality gates / <os>` per class,
+   `Dependency review / Dependency admission review`, and
+   `Canonical conformance / Canonical bindings verification`. Every
+   repository — Go, Python, Node.js, or a future ecosystem — emits the same
+   contexts; the organization-wide contract never names a language-specific
+   tool.
 2. **Gate content (producer-owned).** Each repository's own build gate
    computes quality and coverage with its native toolchain — for example
    golangci-lint plus an exact 100% statement coverage check for Go, ruff

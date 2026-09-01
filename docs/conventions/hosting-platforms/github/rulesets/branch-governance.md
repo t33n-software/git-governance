@@ -38,12 +38,12 @@ Every shared line receives the same protection core:
   line blocks fail-closed — the contract MUST be merged before activation.
 - **required_status_checks** (strict): The binding contexts follow the naming
   law of the composed era (caller job = lane identity, callee job =
-  gate/variant identity): the `linux-only` class binds the composite contexts
-  `Quality gates / linux-amd64` and
-  `Dependency review / Dependency admission review`; the `full` class carries
-  the inline-era contexts `Quality gates (<os>)` plus
-  `Dependency admission review` until the caller adoption of its
-  repositories. The strict mode binds the merge to a current PR state.
+  gate/variant identity): both classes bind the composite contexts
+  `Quality gates / linux-amd64` (the `full` class additionally
+  `Quality gates / macos-arm64` and `Quality gates / windows-amd64`),
+  `Dependency review / Dependency admission review`, and
+  `Canonical conformance / Canonical bindings verification`. The strict mode
+  binds the merge to a current PR state.
 - **code_scanning**: CodeQL with `all` thresholds for alerts and security
   alerts; available on public repositories at no additional cost.
 
