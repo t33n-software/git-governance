@@ -99,7 +99,7 @@ func TestQualityGatesPropertyDefinitionIsDocumented(t *testing.T) {
 	}
 
 	convention := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-platforms", "github", "custom-properties", "README.md")))
-	for _, required := range []string{"Positive-List", "org_actors", "pending"} {
+	for _, required := range []string{"positive-list", "org_actors", "pending"} {
 		if !strings.Contains(convention, required) {
 			t.Fatalf("custom-properties convention does not document the token %q", required)
 		}

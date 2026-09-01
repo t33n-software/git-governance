@@ -188,10 +188,10 @@ calls, direct `git pull`, rebase, merge, or business logic to `lefthook.yml`.
 When a product contract changes, update the relevant local document:
 
 - `README.md` for user-facing behavior;
-- `docs/specification/POLICY-UND-VALIDIERUNG.md` for grammar and validation;
-- `docs/specification/CLI-VERTRAG.md` for flags and commands;
-- `docs/architecture/ADR-0001-GO-CLI-ZIELARCHITEKTUR.md` for architecture;
-- `docs/operations/INSTALLATION-UND-RELEASE.md` for delivery;
+- `docs/specification/policy-and-validation.md` for grammar and validation;
+- `docs/specification/cli-contract.md` for flags and commands;
+- `docs/architecture/ADR-0001-GO-CLI-TARGET-ARCHITECTURE.md` for architecture;
+- `docs/operations/installation-and-release.md` for delivery;
 - `docs/TRACEABILITY.md` for implementation and verification status.
 
 The repository must remain self-contained. Do not add dependencies on external

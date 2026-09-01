@@ -55,6 +55,9 @@
           },
           {
             "context": "Dependency review / Dependency admission review"
+          },
+          {
+            "context": "Canonical conformance / Canonical bindings verification"
           }
         ]
       }

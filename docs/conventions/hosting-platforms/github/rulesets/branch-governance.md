@@ -1,82 +1,82 @@
-# Branch-Governance: Aufbau der Shared-Line- und Working-Branch-rulesets
+# Branch governance: structure of the shared-line and working-branch rulesets
 [INTENT: SPEZIFIKATION]
 
-Dieses Dokument beschreibt eigenständig, was jedes Rule-Set der Familie
-durchsetzt und warum. Die importierbaren JSON-Definitionen liegen unter
+This document describes independently what each ruleset of the family
+enforces and why. The importable JSON definitions reside under
 [`rulesets/github/`](../../../../../rulesets/github/README.md).
 
-## Übersicht
+## Overview
 
-| Rule-Set | Ziel-Refs | Klasse |
+| Ruleset | Target refs | Class |
 |---|---|---|
-| `push-protections: secret artifact boundary` | jeder Push (keine Branch-Bindung) | klassenlos, nur private/interne Repositories |
-| `branch-governance: ticket working branches` | `feature/*`, `fix/*`, `docs/*`, `refactor/*`, `chore/*`, `test/*`, `perf/*`, `hotfix/*` | klassenlos, `~ALL` |
-| `branch-governance: develop shared line (quality-gates=<klasse>)` | `develop` | full / linux-only |
-| `branch-governance: main shared line (quality-gates=<klasse>)` | `main` | full / linux-only |
-| `branch-governance: release shared lines (quality-gates=<klasse>)` | `release/*` | full / linux-only |
-| `branch-governance: support shared lines (quality-gates=<klasse>)` | `support/*` | full / linux-only |
+| `push-protections: secret artifact boundary` | every push (no branch binding) | classless, private/internal repositories only |
+| `branch-governance: ticket working branches` | `feature/*`, `fix/*`, `docs/*`, `refactor/*`, `chore/*`, `test/*`, `perf/*`, `hotfix/*` | classless, `~ALL` |
+| `branch-governance: develop shared line (quality-gates=<class>)` | `develop` | full / linux-only |
+| `branch-governance: main shared line (quality-gates=<class>)` | `main` | full / linux-only |
+| `branch-governance: release shared lines (quality-gates=<class>)` | `release/*` | full / linux-only |
+| `branch-governance: support shared lines (quality-gates=<class>)` | `support/*` | full / linux-only |
 
-## Working-Branch-Schutz
+## Working-branch protection
 
-Offizielle Arbeitsbranches bleiben direkt becommitbar, werden aber nach dem
-ersten Push append-only: `non_fast_forward` blockiert das Umschreiben
-veröffentlichter Historie. Kein Merge-Zeit-Gate und kein Löschverbot wird
-dort gesetzt, damit der normale Entwicklungsfluss und die automatische
-Löschung gemergter Head-Branches funktionieren.
+Official working branches remain directly committable but become append-only
+after the first push: `non_fast_forward` blocks the rewriting of published
+history. No merge-time gate and no deletion prohibition are set there, so
+that the normal development flow and the automatic deletion of merged head
+branches keep working.
 
-## Shared-Line-Schutz
+## Shared-line protection
 
-Jede Shared Line erhält denselben Schutzkern:
+Every shared line receives the same protection core:
 
-- **deletion**: Die Linie ist niemals löschbar; sie trägt veröffentlichte
-  Historie, Promotion- und Evidenz-Lineage.
-- **non_fast_forward**: Kein Rewrite der veröffentlichten Linie.
-- **pull_request**: Mutation nur über reviewte Pull Requests mit mindestens
-  einer Freigabe, verworfenen veralteten Reviews, erzwungener Auflösung aller
-  Review-Threads und **Code-Owner-Review** (`require_code_owner_review` gegen
-  `.github/CODEOWNERS`). Ohne die versionierte Ownership-Datei blockiert die
-  Linie fail-closed — der Vertrag MUSS vor der Aktivierung gemergt sein.
-- **required_status_checks** (strict): Die verbindlichen Kontexte folgen dem
-  Namensgesetz der komponierten Ära (Caller-Job = Lane-Identität, Callee-Job
-  = Gate-/Varianten-Identität): die Klasse `linux-only` bindet die
-  Composite-Kontexte `Quality gates / linux-amd64` und
-  `Dependency review / Dependency admission review`; die Klasse `full` trägt
-  bis zur Caller-Adoption ihrer Repositories die Inline-Ära-Kontexte
-  `Quality gates (<os>)` plus `Dependency admission review`. Der strenge
-  Modus bindet den Merge an einen aktuellen PR-Stand.
-- **code_scanning**: CodeQL mit Schwellen `all` für Alerts und Security-Alerts;
-  auf öffentlichen Repositories ohne Zusatzkosten verfügbar.
+- **deletion**: The line is never deletable; it carries published history,
+  promotion, and evidence lineage.
+- **non_fast_forward**: No rewriting of the published line.
+- **pull_request**: Mutation only through reviewed pull requests with at
+  least one approval, dismissed stale reviews, enforced resolution of all
+  review threads, and **code owner review** (`require_code_owner_review`
+  against `.github/CODEOWNERS`). Without the versioned ownership file, the
+  line blocks fail-closed — the contract MUST be merged before activation.
+- **required_status_checks** (strict): The binding contexts follow the naming
+  law of the composed era (caller job = lane identity, callee job =
+  gate/variant identity): both classes bind the composite contexts
+  `Quality gates / linux-amd64` (the `full` class additionally
+  `Quality gates / macos-arm64` and `Quality gates / windows-amd64`),
+  `Dependency review / Dependency admission review`, and
+  `Canonical conformance / Canonical bindings verification`. The strict mode
+  binds the merge to a current PR state.
+- **code_scanning**: CodeQL with `all` thresholds for alerts and security
+  alerts; available on public repositories at no additional cost.
 
-Merge-Methoden je Linie:
+Merge methods per line:
 
-| Linie | Erlaubte Methoden | Grund |
+| Line | Allowed methods | Reason |
 |---|---|---|
-| `develop` | merge, rebase, squash | Kontextwahl für reguläre Tickets; die semantische Commit-Serie darf erhalten bleiben oder bereinigt werden |
-| `main`, `release/*`, `support/*` | nur merge | Release-, Hotfix- und Wartungs-Lineage bleibt als explizites Merge-Ereignis sichtbar |
+| `develop` | merge, rebase, squash | Choice of context for regular tickets; the semantic commit series may be preserved or cleaned up |
+| `main`, `release/*`, `support/*` | merge only | Release, hotfix, and maintenance lineage remains visible as an explicit merge event |
 
-## Erstellungsausnahme `do_not_enforce_on_create`
+## The creation exception `do_not_enforce_on_create`
 
-Nur `release/*`- und `support/*`-rulesets tragen
-`do_not_enforce_on_create: true`: Eine neu erzeugte geschützte Linie kann vor
-ihrer Existenz keine branch-bezogenen Check-Ergebnisse besitzen; ohne die
-Ausnahme wäre die governete Erzeugung per Definition unmöglich. `develop` und
-`main` tragen explizit `false`: Sie sind stehende Linien ohne kontrollierten
-wiederkehrenden Erzeugungspfad; eine Neuerstellung ist eine Anomalie und MUSS
-das volle Gate treffen. Die Ausnahme gilt nur für das einmalige
-Erstellungsereignis und lockert kein anderes Rule.
+Only the `release/*` and `support/*` rulesets carry
+`do_not_enforce_on_create: true`: a newly created protected line cannot have
+branch-bound check results before its existence; without the exception, the
+governed creation would be impossible by definition. `develop` and `main`
+explicitly carry `false`: they are standing lines without a controlled
+recurring creation path; a re-creation is an anomaly and MUST hit the full
+gate. The exception applies only to the one-time creation event and does not
+loosen any other rule.
 
-## Namens-Triple
+## The naming triple
 
-Titel, Selektor und Dateiname bilden ein maschinell prüfbares Triple:
-`<kontext>: <aggregat> [(quality-gates=<klasse>)]` ↔
-`repository_property`-Wert ↔ `<nn>-<linie>[.quality-gates-<klasse>].json`.
-Klassenlose rulesets tragen bewusst keine Klasse.
+Title, selector, and file name form one machine-verifiable triple:
+`<context>: <aggregate> [(quality-gates=<class>)]` ↔
+`repository_property` value ↔ `<nn>-<line>[.quality-gates-<class>].json`.
+Classless rulesets deliberately carry no class.
 
-## Bewusst nicht angelegt
+## Deliberately not created
 
-- **`scratch/*`**: private Exploration mit eigener Rewrite-Grenze; niemals
-  PR-Quelle — ein Rule-Set wäre wirkungslos oder schädlich.
-- **`staging`**: eine Umgebung aus Release-Artefakten, kein Branch.
-- **Separates `hotfix/*`-Rule-Set**: redundant, weil `hotfix/*` denselben
-  Working-Branch-Schutz erhält und sein PR-Ziel das strengere
-  Shared-Line-Rule-Set trägt.
+- **`scratch/*`**: private exploration with its own rewrite boundary; never a
+  PR source — a ruleset would be ineffective or harmful.
+- **`staging`**: an environment made of release artifacts, not a branch.
+- **A separate `hotfix/*` ruleset**: redundant, because `hotfix/*` receives
+  the same working-branch protection and its PR target carries the stricter
+  shared-line ruleset.

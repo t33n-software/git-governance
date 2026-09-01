@@ -649,7 +649,7 @@ func lifecycleResponseProblem(response *http.Response, operation string) error {
 // diagnosability. No redaction occurs: the request is secret-free by
 // construction and the credential is header-isolated, so the provider
 // diagnostic message cannot carry secrets. Canonical rationale:
-// docs/conventions/hosting-platforms/github/workflows/provider-fehlerdiagnostik.md
+// docs/conventions/hosting-platforms/github/workflows/provider-error-diagnostics.md
 func lifecycleErrorDiagnostic(response *http.Response) string {
 	if response == nil || response.Body == nil {
 		return ""

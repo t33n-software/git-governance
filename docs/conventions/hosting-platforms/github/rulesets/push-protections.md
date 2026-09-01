@@ -1,58 +1,54 @@
-# Push-Protections: Grenze gegen Secret-förmige Artefakte
+# Push protections: the boundary against secret-shaped artifacts
 [INTENT: SPEZIFIKATION]
 
-Das Rule-Set `00-push-protections.json` blockiert secret- und
-schlüsselförmige Artefakte, bevor sie den Commit-Graphen erreichen. Das
-Push-Ziel gilt für jeden Push in das Repository und dessen gesamtes
-Fork-Netzwerk; es gibt keine Branch-Bindung.
+The `00-push-protections.json` ruleset blocks secret- and key-shaped
+artifacts before they reach the commit graph. The push target applies to
+every push into the repository and its entire fork network; there is no
+branch binding.
 
-## Verfügbarkeitsgrenze
+## The availability boundary
 
-Push-rulesets existieren nur für **private und interne** Repositories und
-erfordern den Team-Plan. Öffentliche Repositories können dieses Rule-Set
-nicht tragen; ihre Grenze ist Secret-Scanning mit Push-Protection plus die
-lokalen Quality-Gates. Der Selektor bindet deshalb über die
-System-Property `visibility` nur private und interne Repositories. Die Datei
-bleibt trotzdem Teil der kanonischen Menge: Sie ist die versionierte
-Definition der Grenze, unabhängig davon, wo sie aktivierbar ist.
+Push rulesets exist only for **private and internal** repositories and
+require the Team plan. Public repositories cannot carry this ruleset; their
+boundary is secret scanning with push protection plus the local quality
+gates. The selector therefore binds only private and internal repositories
+through the `visibility` system property. The file nevertheless remains part
+of the canonical set: it is the versioned definition of the boundary,
+regardless of where it can be activated.
 
-## Geblockte Artefaktklassen
+## Blocked artifact classes
 
-- Schlüssel- und Keystore-Dateiendungen: `*.pem`, `*.key`, `*.p12`, `*.pfx`,
+- Key and keystore file extensions: `*.pem`, `*.key`, `*.p12`, `*.pfx`,
   `*.jks`, `*.keystore`, `*.kdbx`, `*.ppk`, `*.gpg`
-- Umgebungs- und Credential-Dateien sowie Infrastruktur-Zustände:
+- Environment and credential files as well as infrastructure states:
   `**/.env`, `**/.env.*`, `**/.envrc`, `**/credentials`, `**/credentials.*`,
   `**/*.tfstate`, `**/*.tfstate.*`
 
-Diese Klassen sind die Artefakttypen, die in dieser Architektur
-Credential-Material tragen. Die Liste ist ein sicherer Default; eine
-Erweiterung erfolgt nur über eine reviewte Änderung im kanonischen
-Repository.
+These classes are the artifact types that carry credential material in this
+architecture. The list is a safe default; an extension happens only through a
+reviewed change in the canonical repository.
 
-## Warum die gesamte `.env`-Familie blockiert ist
+## Why the entire `.env` family is blocked
 
-Secret-Material ist unabhängig vom Datei-Suffix. `.env.development`,
-`.env.test` und jede künftige punktierte Variante können produktive
-Credentials tragen, und committete Umgebungsdateien sind ein primäres
-Harvest-Ziel. Die Wildcard `**/.env.*` ist deshalb fail-closed gegen jede
-gegenwärtige und künftige Variante; `**/.envrc` erweitert die Grenze auf
-direnv-Dateien. Da die Pfad-Restriktion keine Ausschlussliste kennt, ist das
-Absicht — und der Grund, warum die Template-Konvention außerhalb der
-blockierten Familie liegt.
+Secret material is independent of the file suffix. `.env.development`,
+`.env.test`, and every future dotted variant can carry production
+credentials, and committed environment files are a primary harvest target.
+The `**/.env.*` wildcard is therefore fail-closed against every current and
+future variant; `**/.envrc` extends the boundary to direnv files. Because the
+path restriction knows no exclusion list, this is intentional — and the
+reason the template convention lives outside the blocked family.
 
-## Template-Architektur
+## Template architecture
 
-Teilbare, nicht-geheime Umgebungs-Defaults MÜSSEN außerhalb der blockierten
-Familie liegen: Namen wie `env.example`, `example.env` oder ein
-`templates/env.*`-Verzeichnis, ausschließlich mit Platzhalterwerten. Echte
-Werte kommen aus dem Secret-Manager oder Credential-Broker; lokale
-Überschreibungen bleiben in `.env*.local`, die sowohl gitignored als auch
-push-blockiert sind.
+Shareable, non-secret environment defaults MUST live outside the blocked
+family: names like `env.example`, `example.env`, or a `templates/env.*`
+directory, exclusively with placeholder values. Real values come from the
+secret manager or credential broker; local overrides stay in `.env*.local`,
+which are both gitignored and push-blocked.
 
-## Defense in Depth
+## Defense in depth
 
-- Die Push-Regel verhindert serverseitig, inklusive des Fork-Netzwerks.
-- `.gitignore` verhindert clientseitig versehentliches Staging.
-- Secret-Scanning mit Push-Protection bleibt die detektive Ebene — auf
-  öffentlichen Repositories die einzige, weil dort kein Push-Rule-Set
-  existieren kann.
+- The push rule prevents server-side, including the fork network.
+- `.gitignore` prevents accidental staging on the client side.
+- Secret scanning with push protection remains the detective layer — on
+  public repositories the only one, because no push ruleset can exist there.

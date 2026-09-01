@@ -48,8 +48,8 @@ The CLI help and the interactive prompt carry the compact form of this
 contract — the length, padding, control-character, and envelope rules as
 validation rejections, the empty formulas as convention-violating — rendered
 from the canonical value-domain register; the binding help duty is specified
-in `docs/specification/CLI-VERTRAG.md`, section 3 (Flag-Hilfe und
-Wertedomänen). This document remains the content owner; the help projection
+in `docs/specification/cli-contract.md`, section 3 (Flag Help and
+Value Domains). This document remains the content owner; the help projection
 never duplicates or extends it.
 
 ## 4. Forbidden Content: The Metadata Envelope
