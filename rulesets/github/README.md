@@ -97,7 +97,13 @@ Classless rulesets carry no class suffix and apply to the whole fleet.
 4. A required status-check context may only be enforced on a repository whose
    workflows provably report that context on the exact target line; a
    repository that cannot emit a context must not carry the class property
-   until its workflows are aligned.
+   until its workflows are aligned. A canonical home is the documented
+   exception for the canonical-conformance composite: a home never carries
+   the conformance lane against itself (self-attestation has no independent
+   evidence value; the home's own contract tests are the proof), so
+   `Canonical conformance / Canonical bindings verification` is excluded from
+   the contexts a canonical home must emit for its class flip — the required
+   context never blocks a home's flip.
 
 Existing active rulesets are updated through the GitHub UI or the Rulesets
 REST API; editing these files alone does not mutate the organization. After a
