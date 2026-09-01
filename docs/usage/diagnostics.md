@@ -77,10 +77,10 @@ Exit codes:
 
 ## Further documentation
 
-- [Architecture Decision Record](../architecture/ADR-0001-GO-CLI-ZIELARCHITEKTUR.md)
-- [Policy and validation contract](../specification/POLICY-UND-VALIDIERUNG.md)
-- [CLI contract](../specification/CLI-VERTRAG.md)
-- [Installation and release design](../operations/INSTALLATION-UND-RELEASE.md)
+- [Architecture Decision Record](../architecture/ADR-0001-GO-CLI-TARGET-ARCHITECTURE.md)
+- [Policy and validation contract](../specification/policy-and-validation.md)
+- [CLI contract](../specification/cli-contract.md)
+- [Installation and release design](../operations/installation-and-release.md)
 - [Product acceptance matrix](../TRACEABILITY.md)
 - [Contributing](../../CONTRIBUTING.md)
 - [Package-manager publication templates](../../packaging/README.md)

@@ -1,29 +1,27 @@
 # ADR-0004: Trusted Release Reconciliation Control
 
 - Status: Accepted
-- Datum: 2026-08-01
-- Geltungsbereich: Ausführung einer strikten
-  `release/<semver> -> develop`-Reconciliation
-- Entscheider: Release-Governance
+- Date: 2026-08-01
+- Scope: execution of a strict `release/<semver> -> develop` reconciliation
+- Deciders: Release governance
 
-## Kontext
+## Context
 
-Eine ausgelieferte `release/<semver>`-Ref bleibt nach Promotion, Tag und
-Delivery unverändert. Wenn `develop` seit der Promotion neue Commits enthält
-und eine aktuelle Pull-Request-Basis erzwingt, wird eine ticketgebundene
-Preparation-Branch aus der Release-Ref benötigt.
+A delivered `release/<semver>` ref remains unchanged after promotion, tag, and
+delivery. When `develop` contains new commits since the promotion and enforces
+a current pull request base, a ticket-bound preparation branch from the
+release ref is needed.
 
-Der Preparation-Branch enthält absichtlich nicht automatisch die neueste
-CLI-Implementierung. Ein Aufruf von `go run ./cmd/git-governance` aus diesem
-Worktree würde daher nicht zuverlässig den kontrollierten
-Reconciliation-Workflow enthalten. Ein manueller Merge wäre keine zulässige
-Alternative.
+The preparation branch deliberately does not automatically contain the latest
+CLI implementation. A call of `go run ./cmd/git-governance` from that worktree
+would therefore not reliably contain the controlled reconciliation workflow. A
+manual merge would not be a permissible alternative.
 
-## Entscheidung
+## Decision
 
-Die geschützte Release-Control-Workflow-Datei auf `main` baut vor jedem
-Reconciliation-Branch-Wechsel einen unveränderlichen CLI-Binary aus dem
-vertrauenswürdigen Main-Control-Plane-Commit.
+The protected release control workflow file on `main` builds an immutable CLI
+binary from the trusted main control-plane commit before every reconciliation
+branch switch.
 
 ```text
 trusted main control-plane source
@@ -35,135 +33,125 @@ trusted main control-plane source
   -> or fail-closed conflict manifest and controlled recovery
 ```
 
-Die Workflow-Operation `reconciliation-align` benötigt Release-Linie,
-Ticket-Key, Ticket-Nummer und Slug. Sie erhält eine kurzlebige
-Broker-Workload-Identität, konfiguriert den Git-Transport nur im ephemeren
-Runner mit einem maskierten Installation-Token und entfernt diese Konfiguration
-am Ende des Jobs.
+The workflow operation `reconciliation-align` requires the release line, the
+ticket key, the ticket number, and the slug. It receives a short-lived broker
+workload identity, configures the Git transport only in the ephemeral runner
+with a masked installation token, and removes that configuration at the end of
+the job.
 
-Nach erfolgreicher Tag-, Artefakt-, Attestations- und Release-Delivery wird
-die Reconciliation im regulären Zielpfad automatisch aus demselben
-Delivery-Lifecycle gestartet. Der Controller verifiziert alle Delivery-Fakten
-erneut und erstellt nur bei effektivem Delta den Preparation-Branch-PR nach
-`develop`. Ein manueller `workflow_dispatch`-Start ist ausschließlich
-Incident-, Retry- und Recovery-Fallback.
+After successful tag, artifact, attestation, and release delivery, the
+reconciliation is started automatically in the regular target path from the
+same delivery lifecycle. The controller re-verifies all delivery facts and
+only creates the preparation branch PR to `develop` when an effective delta
+exists. A manual `workflow_dispatch` start is exclusively the incident, retry,
+and recovery fallback.
 
-Der Binary führt erst `workflow release stabilize --kind release-prep` und
-anschließend `workflow release align-reconciliation-base` aus. Der Broker
-bleibt ausschließlich Token-Aussteller; er erzeugt weder Branches noch Pull
-Requests.
+The binary first runs `workflow release stabilize --kind release-prep` and
+then `workflow release align-reconciliation-base`. The broker remains
+exclusively the token issuer; it creates neither branches nor pull requests.
 
-Die Release-Automation-Identität und die Reconciliation-Publisher-Identität
-sind getrennt. Die Publisher-Identität wird ausschließlich über das geschützte
-`release-reconciliation` Environment und einen eigenen Broker, App-Key und
-kurzlebigen Installation-Token verwendet. Sie publiziert nur den
-provenance-validierten Kandidaten und dessen Pull Request; sie hat keinen
-Ruleset-Bypass, keine Release-Line-Dispatch- und keine Shared-Line-Mutation-
-Berechtigung. ADR-0005 definiert diese Identitätsgrenze.
+The release-automation identity and the reconciliation-publisher identity are
+separate. The publisher identity is used exclusively through the protected
+`release-reconciliation` environment and its own broker, app key, and
+short-lived installation token. It publishes only the provenance-validated
+candidate and its pull request; it has no ruleset bypass, no release-line
+dispatch, and no shared-line mutation permission. ADR-0005 defines this
+identity boundary.
 
-Bei einem Merge-Konflikt wird kein unaufgelöster Branch gepusht und kein PR
-erstellt. Der Konfliktnachweis bindet Release-SHA, Develop-SHA, Ticket,
-Preparation-Branch, Konfliktpfade und Controller-Run. Eine menschlich oder
-agentisch aufgelöste Kandidatenbranch bleibt nicht-shared und erhält keine
-Release-Automation-Berechtigung.
+On a merge conflict, no unresolved branch is pushed and no PR is created. The
+conflict proof binds the release SHA, the develop SHA, the ticket, the
+preparation branch, the conflict paths, and the controller run. A human- or
+agent-resolved candidate branch remains non-shared and receives no
+release-automation permission.
 
-Der geschützte `reconciliation-resume`-Pfad übernimmt einen Kandidaten nicht
-aufgrund seines Namens. Er prüft Branch- und Ticketbindung, den unveränderten
-Release-Ursprung sowie einen exakten Zwei-Parent-Merge mit der gepinnten
-Develop-Revision. Erst danach darf CI mit kurzlebigem Broker-Token Quality
-ausführen, die Kandidatenbranch veröffentlichen und den PR nach `develop`
-erstellen.
+The protected `reconciliation-resume` path does not accept a candidate based
+on its name. It verifies the branch and ticket binding, the unchanged release
+origin, and an exact two-parent merge with the pinned develop revision. Only
+then may CI with a short-lived broker token run quality, publish the candidate
+branch, and create the PR to `develop`.
 
-## Trigger-Grenze und Admission-Act
+## Trigger boundary and the admission act
 
-Die Auslösung des Reconciliation-Controllers ist ein eigener Governance-Act
-und strikt von der privilegierten Ausführungskette getrennt. Der Trigger ist
-eine Admission — die bewusste Anmeldung eines Sachverhalts zur privilegierten
-Prüfung — und nicht das Privileg selbst. Die privilegierte Wirkung entsteht
-ausschließlich hinter der serverseitigen Kette aus Environment-Freigabe,
-OIDC/WIF-Workload-Identität, Publisher-Broker und dediziertem
-Publisher-Token (ADR-0005).
+Triggering the reconciliation controller is its own governance act and is
+strictly separated from the privileged execution chain. The trigger is an
+admission — the deliberate registration of a matter for privileged
+verification — not the privilege itself. The privileged effect arises
+exclusively behind the server-side chain of environment approval, OIDC/WIF
+workload identity, publisher broker, and dedicated publisher token (ADR-0005).
 
-Vier Festlegungen gelten verbindlich:
+Four stipulations apply bindingly:
 
-1. **Trigger-Identitäts-Äquivalenz.** Ob ein Mensch den Dispatch über die
-   GitHub-Oberfläche, ein Mensch oder Agent über `gh` oder ein explizites,
-   separates Kommando auslöst, ist trust-äquivalent, solange der Act separat,
-   bewusst und mit aufgezeichneter Actor-Identität erfolgt. Die Kontrolle
-   trägt die serverseitige Freigabe- und Validierungskette, nicht die
-   auslösende Identität. Ein Dispatch erfordert weder Publisher- noch
-   Shared-Line-Berechtigung, sondern nur eine dispatch-berechtigte
-   Operator-Identität.
+1. **Trigger identity equivalence.** Whether a human triggers the dispatch
+   through the GitHub surface, a human or agent through `gh`, or an explicit,
+   separate command, is trust-equivalent as long as the act happens
+   separately, deliberately, and with a recorded actor identity. The control
+   is carried by the server-side approval and validation chain, not by the
+   triggering identity. A dispatch requires neither publisher nor shared-line
+   permission, only a dispatch-authorized operator identity.
 
-2. **Kein automatischer Trigger als Side-Effect.** Die lokale CLI löst den
-   Reconciliation-Controller niemals als automatische Folgewirkung eines
-   Kandidaten-Pushs oder Resume aus. Vorbereitung (nicht-shared, lokal) und
-   Admission (bewusster Act) kollabieren nicht zu einem automatisierten Akt;
-   die lokale CLI erhält kein stehendes Dispatch-Credential für die
-   Reconciliation-Lane.
+2. **No automatic trigger as a side effect.** The local CLI never triggers
+   the reconciliation controller as an automatic consequence of a candidate
+   push or resume. Preparation (non-shared, local) and admission (a deliberate
+   act) do not collapse into an automated act; the local CLI receives no
+   standing dispatch credential for the reconciliation lane.
 
-3. **Automatisierungs-Ort ist serverseitig.** Die reguläre
-   Trigger-Automatisierung gehört ausschließlich in den serverseitigen
-   Delivery-Lifecycle, der nach bestätigter Delivery event-getrieben und
-   idempotent startet. Lokales Tooling ist niemals der
-   Automatisierungs-Ort der Reconciliation-Lane.
+3. **The automation location is server-side.** The regular trigger automation
+   belongs exclusively in the server-side delivery lifecycle, which starts
+   event-driven and idempotently after confirmed delivery. Local tooling is
+   never the automation location of the reconciliation lane.
 
-4. **Manueller Dispatch als geschützter Recovery-Einstieg.** Der manuelle
-   Dispatch bleibt der vorgesehene Incident-, Retry- und Recovery-Pfad. Er
-   ist eine bewusste Admission-Entscheidung nach einem fail-closed Zustand
-   und durchläuft dieselben Eingabe-, Delivery-, Idempotenz- und
-   Auditprüfungen wie der automatische Pfad.
+4. **Manual dispatch as the protected recovery entry.** The manual dispatch
+   remains the designated incident, retry, and recovery path. It is a
+   deliberate admission decision after a fail-closed state and passes the same
+   input, delivery, idempotency, and audit checks as the automatic path.
 
-Diese Grenze begründet sich nicht aus einer fehlenden Fähigkeit der lokalen
-CLI — ein Dispatch benötigt keine Publisher-Rechte —, sondern aus der
-Trennung von Deliberation und Privileg, der Least-Privilege-Hygiene lokaler
-Tooling-Identitäten und dem serverseitigen Automatisierungs-Ort.
+This boundary is not justified by a missing capability of the local CLI — a
+dispatch needs no publisher rights — but by the separation of deliberation and
+privilege, the least-privilege hygiene of local tooling identities, and the
+server-side automation location.
 
-## Invarianten
+## Invariants
 
-- `release/<semver>` wird nie durch den Controller aktualisiert, rebased oder
-  direkt gepusht.
-- Der Controller akzeptiert nur einen `main`-Workflow-Dispatch im geschützten
-  Release-Environment.
-- OIDC-Token und Installation-Token werden nicht ausgegeben, persistiert oder
-  als Repository-Secret gespeichert.
-- Die Reconciliation-Publisher-Identität ist von der Release-Automation-
-  Identität getrennt und besitzt nur die minimale Kandidaten- und PR-
-  Publikationsberechtigung.
-- Der Git-Transport-Header ist nur im lokalen Runner-Konfigurationsbereich
-  vorhanden und wird vor Job-Ende entfernt.
-- Der Preparation-Branch trägt den Ticketbezug, startet von der Release-Ref und
-  ist der einzige Merge-Ort für den aktuellen Develop-Stand.
-- Ein Konflikt führt fail-closed zu keiner Shared-Line-Mutation, keinem
-  unaufgelösten Remote-Branch und keinem PR.
-- Ein Recovery-Kandidat muss exakt aus Release- und gepinntem Develop-Parent
-  bestehen; beliebige Branch-Eingaben sind kein Vertrauensnachweis.
-- Der resultierende Pull Request zielt auf `develop` und verwendet einen Merge
-  Commit.
-- Der Controller erstellt PRs idempotent, merged aber niemals direkt nach
-  `develop`; Review und Required Checks bleiben bindend.
-- Der Reconciliation-Trigger ist eine bewusste Admission; Mensch, Agent und
-  UI-Dispatch sind trust-äquivalent, solange der Act separat und auditiert
-  bleibt.
-- Die lokale CLI triggert den Controller niemals als Side-Effect einer
-  lokalen Mutation und hält kein stehendes Dispatch-Credential für die
-  Reconciliation-Lane.
-- Die reguläre Trigger-Automatisierung liegt serverseitig im
-  Delivery-Lifecycle; der manuelle Dispatch bleibt der geschützte
-  Recovery-Einstieg.
+- `release/<semver>` is never updated, rebased, or directly pushed by the
+  controller.
+- The controller only accepts a `main` workflow dispatch in the protected
+  release environment.
+- OIDC tokens and installation tokens are not printed, persisted, or stored as
+  repository secrets.
+- The reconciliation-publisher identity is separate from the
+  release-automation identity and holds only the minimal candidate and PR
+  publication permission.
+- The Git transport header exists only in the local runner configuration scope
+  and is removed before the job ends.
+- The preparation branch carries the ticket reference, starts from the
+  release ref, and is the only merge location for the current develop state.
+- A conflict leads fail-closed to no shared-line mutation, no unresolved
+  remote branch, and no PR.
+- A recovery candidate must consist of exactly the release and pinned develop
+  parents; arbitrary branch inputs are no trust proof.
+- The resulting pull request targets `develop` and uses a merge commit.
+- The controller creates PRs idempotently but never merges directly into
+  `develop`; review and required checks remain binding.
+- The reconciliation trigger is a deliberate admission; human, agent, and UI
+  dispatch are trust-equivalent as long as the act remains separate and
+  audited.
+- The local CLI never triggers the controller as a side effect of a local
+  mutation and holds no standing dispatch credential for the reconciliation
+  lane.
+- The regular trigger automation lies server-side in the delivery lifecycle;
+  the manual dispatch remains the protected recovery entry.
 
-## Konsequenzen
+## Consequences
 
-- Ein nach `develop` gemergter Workflow kann erst nach seiner governeden
-  Main-Control-Plane-Promotion privilegiert für eine ausgelieferte Release-Linie
-  verwendet werden.
-- Dry-Run-Aufrufe bleiben strikt read-only und dürfen weder Provider-Publish
-  noch Pull-Request-Erstellung auslösen.
-- Die Reconciliation bleibt nachvollziehbar, ohne die veröffentlichte
-  Release-Lineage zu verändern.
-- Der Normalpfad benötigt keinen manuellen Operatorstart; dessen manueller
-  Fallback bleibt für kontrollierte Recovery verfügbar.
-- Die Trigger-Grenze ist als Admission-Act niedergelegt; die Fehllesart, die
-  lokale CLI könne den Dispatch nicht ausführen, weil ihr Publisher-Rechte
-  fehlten, ist ausgeschlossen — ein Dispatch benötigt nur eine
-  dispatch-berechtigte Operator-Identität.
+- A workflow merged into `develop` can only be used privilegedly for a
+  delivered release line after its governed main control-plane promotion.
+- Dry-run calls remain strictly read-only and may trigger neither provider
+  publishing nor pull request creation.
+- The reconciliation remains traceable without changing the published release
+  lineage.
+- The normal path needs no manual operator start; its manual fallback remains
+  available for controlled recovery.
+- The trigger boundary is laid down as an admission act; the misreading that
+  the local CLI could not execute the dispatch because it lacked publisher
+  rights is ruled out — a dispatch only needs a dispatch-authorized operator
+  identity.

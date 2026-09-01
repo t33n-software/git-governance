@@ -1,91 +1,83 @@
-# Tag-Governance: Version-Tag-Namespace und Namespace-Floor
+# Tag governance: the version-tag namespace and the namespace floor
 [INTENT: SPEZIFIKATION]
 
-Dieses Dokument beschreibt eigenständig, was die beiden Tag-Rule-Sets der
-Familie durchsetzen und warum. Die importierbaren JSON-Definitionen liegen
-unter [`rulesets/github/`](../../../../../rulesets/github/README.md).
+This document describes independently what the two tag rulesets of the family
+enforce and why. The importable JSON definitions reside under
+[`rulesets/github/`](../../../../../rulesets/github/README.md).
 
-## Übersicht
+## Overview
 
-| Rule-Set | Ziel-Refs | Klasse |
+| Ruleset | Target refs | Class |
 |---|---|---|
-| `tag-governance: release version tags` | `refs/tags/v*` | klassenlos, `~ALL` |
-| `tag-governance: tag namespace floor` | `refs/tags/*` ohne `refs/tags/v*` | klassenlos, `~ALL` |
+| `tag-governance: release version tags` | `refs/tags/v*` | classless, `~ALL` |
+| `tag-governance: tag namespace floor` | `refs/tags/*` without `refs/tags/v*` | classless, `~ALL` |
 
-## Warum zwei Artefakte
+## Why two artifacts
 
-Ein Rule-Set trägt genau ein Target, genau eine Ref-Selektor-Menge und genau
-eine Bypass-Liste. Der `v*`-Namespace und der übrige Namespace benötigen
-verschiedene Regeln und verschiedene Bypass-Actors; zwei klassenlose
-Artefakte derselben Familie sind die korrekte Form — niemals ein
-zusammengemischtes Rule-Set.
+A ruleset carries exactly one target, exactly one ref selector set, and
+exactly one bypass list. The `v*` namespace and the remaining namespace need
+different rules and different bypass actors; two classless artifacts of the
+same family are the correct form — never a mixed-together ruleset.
 
-## `07-release-version-tags`: der Evidence-Namespace
+## `07-release-version-tags`: the evidence namespace
 
-Version-Tags (`v<semver>`) sind die unveränderlichen Evidence-Anker der
-Delivery-Kette: Der immutable Release-Tag referenziert den freigegebenen
-Promotion-Merge-Commit, und die Release-Attestation bindet Tag, Commit und
-Assets. Deshalb gilt:
+Version tags (`v<semver>`) are the immutable evidence anchors of the delivery
+chain: the immutable release tag references the approved promotion merge
+commit, and the release attestation binds tag, commit, and assets. Therefore:
 
-- **creation**, **update**, **deletion**: nur über Bypass-Actors.
-- Bypass-Actors: die Release-Automation-GitHub-App (`Integration`,
-  `bypass_mode: always`) und die Organisations-Owner-Rolle
-  (`OrganizationAdmin`, `always`) als benannter, auditierter
-  Break-Glass-Pfad. Die Hotfix-Delivery-Lane verwendet für Tag-Operationen
-  dieselbe Release-Automation-Identität; ein Integrations-Bypass deckt beide
-  Lanes ab.
-- `bypass_mode` ist niemals `exempt`: Jede Umgehung MUSS einen
-  Audit-Eintrag erzeugen.
-- Die Bypass-Liste ist konstitutiv, keine Ausnahme: Ohne sie würde das
-  Rule-Set die governete Release-Automation selbst blockieren. Die konkrete
-  App-ID im Artefakt ist die Referenz-Bindung der besitzenden Organisation
-  an die logische Release-Automation-Identität; Adopter substituieren ihre
-  eigene App-ID (wie `source` und die Check-Kontexte), und die
-  Steady-State-Projektion bindet die konkrete ID aus den
-  Instanz-Bindings.
+- **creation**, **update**, **deletion**: only through bypass actors.
+- Bypass actors: the release-automation GitHub App (`Integration`,
+  `bypass_mode: always`) and the organization owner role
+  (`OrganizationAdmin`, `always`) as the named, audited break-glass path. The
+  hotfix delivery lane uses the same release-automation identity for tag
+  operations; one integration bypass covers both lanes.
+- `bypass_mode` is never `exempt`: every bypass MUST produce an audit entry.
+- The bypass list is constitutive, not an exception: without it, the ruleset
+  would block the governed release automation itself. The concrete app ID in
+  the artifact is the owning organization's reference binding to the logical
+  release-automation identity; adopters substitute their own app ID (like
+  `source` and the check contexts), and the steady-state projection binds the
+  concrete ID from the instance bindings.
 
-**Aktivierungsvorbedingung (blockierend).** Ein erstellungsbeschränktes
-Tag-Rule-Set schlägt für jede Identität fail-closed fehl, die kein
-Bypass-Actor ist. Die governeten Tag-Workflows MÜSSEN sich deshalb vor der
-Aktivierung als die Release-Automation-App authentisieren
-(Broker-gemintetes Installation-Token); ein Tag-Push mit dem
-Repository-`GITHUB_TOKEN` wird nach der Aktivierung abgelehnt. Bis dahin wird
-das Artefakt mit `enforcement: disabled` importiert und erst nach einer
-verifizierten Tag-Erstellung über die App-Identität aktiviert.
+**Activation precondition (blocking).** A creation-restricted tag ruleset
+fails closed for every identity that is not a bypass actor. The governed tag
+workflows MUST therefore authenticate as the release-automation app before
+activation (broker-minted installation token); a tag push with the repository
+`GITHUB_TOKEN` is rejected after activation. Until then, the artifact is
+imported with `enforcement: disabled` and only activated after a verified tag
+creation through the app identity.
 
-**Verhältnis zur Release-Immutability.** Defense in Depth: Die
-Release-Immutability sperrt Tags **publizierter** Releases; das Tag-Rule-Set
-sperrt den gesamten `v*`-Namespace unabhängig davon, ob ein Release-Objekt
-existiert, und bindet die Erstellung an die Automation-Identität.
+**Relationship to release immutability.** Defense in depth: release
+immutability locks the tags of **published** releases; the tag ruleset locks
+the entire `v*` namespace regardless of whether a release object exists, and
+binds creation to the automation identity.
 
-## `08-tag-namespace-floor`: der Floor für den Rest
+## `08-tag-namespace-floor`: the floor for the rest
 
-Tags außerhalb `v*` haben in dieser Architektur keine kanonische Rolle:
-Staging ist eine Artefakt-Umgebung, Releases sind `v*`. Ein ungoverneter
-Look-alike-Tag ist ein Confusion- und Supply-Chain-Vektor. Deshalb gilt:
+Tags outside `v*` have no canonical role in this architecture: staging is an
+artifact environment, releases are `v*`. An ungoverned look-alike tag is a
+confusion and supply-chain vector. Therefore:
 
-- **creation** und **update**: nur über die Organisations-Owner-Rolle
-  (Break-Glass).
-- Bewusst **kein** `deletion`: Bestehende Nicht-`v*`-Tags bleiben
-  aufräumbar; der Namespace kann nur schrumpfen, nie wachsen oder sich
-  bewegen.
+- **creation** and **update**: only through the organization owner role
+  (break-glass).
+- Deliberately **no** `deletion`: existing non-`v*` tags remain cleanable;
+  the namespace can only shrink, never grow or move.
 
-## Bewusst nicht enthalten
+## Deliberately not included
 
-- **Kein `tag_name_pattern`:** Die Tag-Grammatik wird von der governeten
-  Release-Automation zur Erstellungszeit erzwungen; da nur diese Identität
-  `v*`-Tags erstellen kann, wäre eine Muster-Regel redundant. Die
-  Muster-Regeltypen sind außerdem an das Enterprise-Cloud-Entitlement
-  gebunden.
-- **Keine Required Status Checks:** Tag-Rule-Sets tragen keine
-  `required_status_checks`; `do_not_enforce_on_create` gilt nicht, und
-  `bypass_mode: pull_request` existiert nur für Branch-Rule-Sets.
-- **Keine Klassen:** Tag-Governance ist klassenunabhängig; beide Artefakte
-  bleiben klassenlos auf `~ALL`. Tag-Rule-Sets existieren — anders als
-  Push-Rule-Sets — auch auf öffentlichen Repositories.
+- **No `tag_name_pattern`:** the tag grammar is enforced by the governed
+  release automation at creation time; since only that identity can create
+  `v*` tags, a pattern rule would be redundant. The pattern rule types are
+  also bound to the Enterprise Cloud entitlement.
+- **No required status checks:** tag rulesets carry no
+  `required_status_checks`; `do_not_enforce_on_create` does not apply, and
+  `bypass_mode: pull_request` exists only for branch rulesets.
+- **No classes:** tag governance is class-independent; both artifacts remain
+  classless on `~ALL`. Tag rulesets — unlike push rulesets — also exist on
+  public repositories.
 
-## Namens-Triple
+## The naming triple
 
-Titel, Selektor und Dateiname bilden das maschinell prüfbare Triple:
-`tag-governance: <aggregat>` ↔ `~ALL` ↔ `07|08-<name>.json`. Die Tag-Familie
-trägt bewusst keine `quality-gates`-Klasse.
+Title, selector, and file name form the machine-verifiable triple:
+`tag-governance: <aggregate>` ↔ `~ALL` ↔ `07|08-<name>.json`. The tag family
+deliberately carries no `quality-gates` class.

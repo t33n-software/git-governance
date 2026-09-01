@@ -1,54 +1,52 @@
-# Hosting-Plattform: GitHub — rulesets
+# Hosting platform: GitHub — rulesets
 [INTENT: REFERENZ]
 
-## Kanonische Quelle
+## Canonical source
 
-Die GitHub-rulesets für die Organisation `t33n-software` werden einmalig und
-zentral in diesem Repository unter
-[`rulesets/github/`](../../../../../rulesets/github/README.md) definiert und
-verwaltet. Dieses Repository ist die kanonische Quelle der Wahrheit für die
-JSON-Definitionen: Es erklärt die Architektur, setzt die Definitionen und
-liefert die versionierten, importierbaren Artefakte.
+The GitHub rulesets for the `t33n-software` organization are defined and
+managed once, centrally, in this repository under
+[`rulesets/github/`](../../../../../rulesets/github/README.md). This
+repository is the canonical source of truth for the JSON definitions: it
+explains the architecture, sets the definitions, and delivers the versioned,
+importable artifacts.
 
-Eine lokale Kopie, Neudefinition oder Abweichung in einem anderen Repository
-ist ein Anti-Pattern und verboten (Redundanz- und Drift-Verbot). Erlaubt sind
-ausschließlich benannte, auditierbare Repository-Ausnahmen, die restriktiver
-als die Organisations-Grundlage sind, niemals schwächer.
+A local copy, redefinition, or deviation in another repository is an
+anti-pattern and forbidden (the redundancy and drift prohibition). Only
+named, auditable repository exceptions are permitted, ones that are more
+restrictive than the organization baseline, never weaker.
 
-## Verwendete Familie
+## Family in use
 
-Dieses Projekt (`git-governance`) verwendet die Familie
-**`quality-gates=full`**:
+This project (`git-governance`) uses the **`quality-gates=full`** family:
 
-- Die Quality Gates laufen für **Linux**, **Windows** und **macOS**.
-- Architektonische Begründung: Dieses Projekt liefert ein CLI aus, das als
-  natives Binary für alle drei Betriebssysteme gebaut, attestiert und
-  verifiziert wird; die Auslieferung für alle Betriebssysteme erfordert die
-  vollständige Quality-Gate-Matrix.
+- The quality gates run on **Linux**, **Windows**, and **macOS**.
+- Architectural rationale: this project ships a CLI that is built, attested,
+  and verified as a native binary for all three operating systems; delivering
+  for all operating systems requires the full quality-gate matrix.
 
-## Dokumentation der Konventionen
+## Convention documentation
 
-| Dokument | Inhalt |
+| Document | Content |
 |---|---|
-| [Organisation als Verwaltungsebene](organisation.md) | Warum eine Organisation existieren MUSS; Organisations-Verwaltung; Anti-Pattern einzelner Repository-rulesets |
-| [Branch-Governance](branch-governance.md) | Aufbau und Begründung jedes Shared-Line- und Working-Branch-rulesets; Namens-Triple |
-| [Push-Protections](push-protections.md) | Grenze gegen secret-förmige Artefakte; Verfügbarkeit; Template-Architektur |
-| [Klassen und Selektoren](klassen-und-selektoren.md) | `quality-gates`-Klassenmodell, gegenseitiger Ausschluss, Selektor-Formen, `~ALL` |
-| [Code-Quality und Coverage](code-quality-und-coverage.md) | Organisations-eigene, sprachagnostische Gates; Ausschluss der Hosting-Controls |
-| [Merge-Strategie](merge-strategie.md) | Merge-Methoden-Matrix, Update-branch-Grenze, globale Repository-Einstellungen |
-| [Import und Verifikation](import-und-verifikation.md) | Voraussetzungen, Import-Reihenfolge, Evaluate→Active, Verifikations-Checkliste |
-| [Tag-Governance](tag-governance.md) | Version-Tag-Namespace an die Release-Automation-Identität, Namespace-Floor, Aktivierungsvorbedingung |
-| [Custom Properties](../custom-properties/README.md) | Positive-List-Konvention, Drei-Schichten-Vertrag, `org_actors`-Grenze, `pending`-Onboarding, Aktivierungssequenz |
+| [The organization as the management plane](organization.md) | Why an organization MUST exist; organization-level management; the anti-pattern of individual repository rulesets |
+| [Branch governance](branch-governance.md) | Structure and rationale of every shared-line and working-branch ruleset; the naming triple |
+| [Push protections](push-protections.md) | The boundary against secret-shaped artifacts; availability; template architecture |
+| [Classes and selectors](classes-and-selectors.md) | The `quality-gates` class model, mutual exclusion, selector forms, `~ALL` |
+| [Code quality and coverage](code-quality-and-coverage.md) | Organization-owned, language-agnostic gates; the exclusion of the hosting controls |
+| [Merge strategy](merge-strategy.md) | The merge-method matrix, the update-branch boundary, the global repository settings |
+| [Import and verification](import-and-verification.md) | Prerequisites, import order, Evaluate→Active, the verification checklist |
+| [Tag governance](tag-governance.md) | The version-tag namespace bound to the release-automation identity, the namespace floor, the activation precondition |
+| [Custom properties](../custom-properties/README.md) | The positive-list convention, the three-layer contract, the `org_actors` boundary, `pending` onboarding, the activation sequence |
 
-## Verwaltung
+## Management
 
-- Verwaltungsebene: die **Organisation** (`t33n-software`), niemals die
-  einzelne Repository-Ebene.
-- Klassenmitgliedschaft dieses Repositorys: Custom Property
-  `quality-gates=full`.
-- Die Custom-Property-Definition liegt kanonisch in
-  [`properties/github/`](../../../../../properties/github/README.md); ihre
-  Projektion und Zuweisung folgen der
-  [Custom-Properties-Konvention](../custom-properties/README.md).
-- Änderungen an den rulesets erfolgen ausschließlich in diesem kanonischen
-  Repository und werden danach auf Organisationsebene re-importiert.
+- Management plane: the **organization** (`t33n-software`), never the
+  individual repository level.
+- Class membership of this repository: the `quality-gates=full` custom
+  property.
+- The custom property definition resides canonically in
+  [`properties/github/`](../../../../../properties/github/README.md); its
+  projection and assignment follow the
+  [custom properties convention](../custom-properties/README.md).
+- Changes to the rulesets happen exclusively in this canonical repository
+  and are re-imported at the organization level afterwards.

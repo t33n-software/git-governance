@@ -51,8 +51,8 @@ at every call site. There is exactly one regime: always explicit.
 
 The help surface of every family-carrying flag renders this complete set from
 the canonical value-domain register — never from a hand-maintained copy — as
-bound by `docs/specification/CLI-VERTRAG.md`, section 3 (Flag-Hilfe und
-Wertedomänen).
+bound by `docs/specification/cli-contract.md`, section 3 (Flag Help and
+Value Domains).
 
 ## 4. Body Duty
 
