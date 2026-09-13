@@ -190,6 +190,7 @@ Der Agent führt diese Zustandsflächen jederzeit explizit:
 
 ```text
 - current_branch_class = shared_line | official_working | scratch | detached | unknown
+- current_branch_pr_state = unchecked | none | open | merged | unknown
 - mutation_embargo = active | released | not_required
 - mutation_release_channel = workflow_start | confirmed_continuation | none
 - active_task_pattern = ticket | hotfix | release | support | exploration | diagnostic | unbound
@@ -248,6 +249,7 @@ Zusatznachweise, nur bei Betroffenheit:
 - key_ticket_proposal_presented     (Erkennung hat einen Vorschlag erzeugt)
 - ticket_binding_confirmed          (Benutzer hat Vorschlag oder Ersatzwerte bestätigt)
 - provider_session_verified         (Aufgabenmuster mit Provider-Publikation; genau einmal pro Scope)
+- current_branch_pr_state_checked   (Start auf einer official_working Branch)
 ```
 
 Für Release- und Hotfix-Wege ergänzt der Agent nur bei Betroffenheit:
@@ -285,7 +287,21 @@ Vor jeder Mutation:
 3. Ermittle Worktree-, Staging- und aktive Merge-, Rebase- oder
    Cherry-Pick-Zustände.
 4. Prüfe bei bekannter Ticket-ID gleichnamige lokale und Remote-Branches.
-5. Bewahre alle fremden oder unklaren Änderungen unverändert.
+5. Befindet sich die Entwicklungsumgebung auf einer `official_working`-Branch,
+   prüfe proaktiv den Pull-Request-Zustand genau dieser Branch über die
+   Fähigkeitskette aus [4.5.2]: ob für sie bereits ein offener oder gemergter
+   Pull Request existiert. Das Ergebnis bindet `current_branch_pr_state`;
+   ist keine Erkennung möglich, gilt `unknown`. Der Nachweis
+   `current_branch_pr_state_checked` ist Voraussetzung für jede
+   Fortsetzungsentscheidung auf einer `official_working`-Branch.
+6. Bewahre alle fremden oder unklaren Änderungen unverändert.
+
+Der ausgecheckte Branch ist ein Befund, keine Absicht: Ein Entwickler kann
+zwischenzeitlich selbstständig gewechselt haben, etwa um einen Stand auf einer
+anderen Branch zu prüfen. Der Agent leitet aus dem aktuellen Branch daher
+niemals allein eine Fortsetzungsabsicht ab, sondern bindet die Entscheidung an
+die geprüften Zustände: Worktree, aktive Operationen und den
+Pull-Request-Zustand der Branch.
 
 Ein sauberer Worktree ist keine optionale Optimierung. Bei fremden,
 unzuordenbaren oder konfliktierenden Änderungen pausiert der Agent und fragt
@@ -348,9 +364,26 @@ Sie ist nicht automatisch Architekturautorität für eine neue Aufgabe.
 | Situation | Entscheidung |
 |---|---|
 | Aktiver, belegter Workflow derselben Ticketaufgabe auf passender offizieller Branch | Ab der frühesten fehlenden Evidenz fortsetzen |
-| Neue unabhängige Aufgabe ohne gebundenen neuen Branch-Plan | Fortsetzungsentscheidung beim Benutzer einholen |
+| `official_working`-Branch mit `current_branch_pr_state = open` oder `merged` und einer neuen, unabhängigen Aufgabe | Abgeschlossene Übergabe: keine Fortsetzungsprüfung und keine Fortsetzungsfrage; direkter Einstieg in den neuen Ticket-Intake; die bestehende Branch bleibt unverändert erhalten |
+| Neue unabhängige Aufgabe ohne gebundenen neuen Branch-Plan bei `current_branch_pr_state = none` oder `unknown` | Fortsetzungsentscheidung beim Benutzer einholen |
 | Explizit gebundener neuer Ticket-/Special-Workflow bei sauberem Worktree | Bestehende Branch erhalten und neuen Workflow starten |
 | Dirty Worktree, aktive Git-Operation oder widersprüchlicher Scope | `WAITING_FOR_USER_DECISION` |
+
+Eine `official_working`-Branch mit einem bereits erstellten Pull Request ist
+für eine neue, unabhängige Aufgabe niemals ein Fortsetzungskandidat: Der Pull
+Request beweist, dass ihre Aufgabe bereits abgeschlossen dem Review übergeben
+wurde. Der Agent erkundet ihren Status nicht weiter, wertet ihre Commits
+nicht aus und holt keine Fortsetzungsentscheidung ein; er startet den neuen
+Ticket-Intake direkt. Erfordert die gestellte Aufgabe dagegen erkennbar
+weitere Commits auf der Branch eines aktiven Pull Requests — etwa
+Review-Feedback oder eine angeforderte Änderung —, ist der Verbleib auf dieser
+Branch valide, und die bestehende Fortsetzungslogik gilt unverändert.
+
+Die Unterscheidung folgt der Aufgabenbindung, nicht dem Branch-Zustand allein:
+Gehört die gestellte Aufgabe erkennbar zum Scope des offenen Pull Requests der
+aktuellen Branch, ist sie eine Fortsetzung; ist sie eine neue, unabhängige
+Anforderung, ist die Branch eine abgeschlossene Übergabe. Bleibt die
+Erkennung `unknown`, gilt die bisherige Fortsetzungsentscheidung unverändert.
 
 Die Fortsetzungsfrage enthält immer Branch, Family, Ticket, Worktree- und
 Operationszustand. Ein bestätigtes Weiterarbeiten bewahrt die Branch und
@@ -466,7 +499,7 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `shared_line` | `exploration` | Embargo aktiv; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
 | `shared_line` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
 | `official_working` | Fortsetzung desselben Tickets | Fortsetzungslogik aus [3.3]; fehlende Evidenz ab frühestem Gate nachholen |
-| `official_working` | neue, andere Aufgabe | Fortsetzungsentscheidung beim Benutzer einholen |
+| `official_working` | neue, andere Aufgabe | Pull-Request-Zustand der Branch prüfen ([3.1]): bei `open` oder `merged` abgeschlossene Übergabe — direkter neuer Ticket-Intake ohne Fortsetzungsfrage; bei `none` oder `unknown` Fortsetzungsentscheidung beim Benutzer einholen |
 | `scratch` | `exploration` | Scratch-Regeln aus [4.8]; Überführung nur kontrolliert auf die offizielle Branch |
 | `detached` / `unknown` | jedes Muster | `BLOCKED` bis Benutzerentscheidung |
 
@@ -1021,6 +1054,16 @@ Ticket-Publish-Workflow, einen Hotfix über den Hotfix-Publish-Workflow und
 eine Release-Stabilisierung über den Stabilization-Publish-Workflow. Er
 verwendet keine externe PR-CLI als Ersatz.
 
+Nach einer erfolgreichen Publish-Ausführung mit erstelltem Pull Request
+befindet sich die lokale Entwicklungsumgebung wieder auf der
+Integrationslinie: Die Binary führt den governeten Rückwechsel auf `develop`
+aus und meldet sein Ergebnis. Der Agent verifiziert diesen Endzustand über den
+Branch-Kontext und behandelt ihn als erwartetes Abschlusssignal der Aufgabe,
+niemals als neue Aufgabenquelle. Befindet sich die Umgebung abweichend auf der
+Ticket-Branch — etwa nach einem übersprungenen oder fehlgeschlagenen
+Rückwechsel, nach einem manuellen Wechsel durch den Entwickler oder unter
+einer älteren Binary —, folgt der nächste Start den Regeln aus [3.3].
+
 Die Abschlussantwort enthält:
 
 ```text
@@ -1042,7 +1085,7 @@ das Pipe-Format kennzeichnet den Datensatz, das Symbol kennzeichnet den
 Bereich:
 
 ```text
-🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|detached> | decision=<value> | cli=<PASS|FAIL>
+🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL>
 🧭 Guard | embargo=<active|released|not_required> | release_channel=<workflow_start|confirmed_continuation|none> | reverify=<PASS|FAIL>
 🎯 Task | pattern=<ticket|hotfix|release|support|exploration|diagnostic> | ticket=<value>
 🎯 Discovery | level=<gh|context-tool|github-api|unavailable> | prs_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
