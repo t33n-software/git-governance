@@ -77,3 +77,11 @@ open pull request, and creates one only when none exists.
 `--create-pull-request` requires `--push`; the default remains an intent-only
 result. Publication never starts browser login or accepts a GitHub token flag;
 see [GitHub App authentication](../../authentication.md).
+
+After an actually created pull request, a local invocation returns the
+workspace to the `develop` integration line and reports the transition as
+`integrationLineReturn`: `switched` when the checkout moved, `already-home`
+when it already was on `develop`, `skipped-dirty-worktree` when uncommitted
+changes are preserved instead, and `failed` when the switch itself failed —
+the created pull request remains valid in every case. Server-side controller
+invocations never switch their ephemeral checkout.

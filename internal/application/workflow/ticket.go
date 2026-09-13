@@ -16,13 +16,14 @@ import (
 
 // TicketService owns the bounded ticket start and publish workflows.
 type TicketService struct {
-	branches     *branchapp.Service
-	sync         *branchapp.Synchronizer
-	scratch      *branchapp.ScratchMerger
-	git          port.GitRepository
-	quality      port.QualityRunner
-	finalQuality *branchapp.FinalQualityGate
-	publisher    port.PullRequestPublisher
+	branches              *branchapp.Service
+	sync                  *branchapp.Synchronizer
+	scratch               *branchapp.ScratchMerger
+	git                   port.GitRepository
+	quality               port.QualityRunner
+	finalQuality          *branchapp.FinalQualityGate
+	publisher             port.PullRequestPublisher
+	integrationLineReturn bool
 }
 
 // NewTicketService creates the ticket workflow service.
@@ -53,6 +54,15 @@ func (service *TicketService) WithScratchMerger(merger *branchapp.ScratchMerger)
 // post-synchronization candidate before pre-push validation can reuse it.
 func (service *TicketService) WithFinalQualityGate(gate *branchapp.FinalQualityGate) *TicketService {
 	service.finalQuality = gate
+	return service
+}
+
+// WithIntegrationLineReturn enables the governed post-publication transition
+// of the local workspace back to the develop integration line. Server-side
+// controller compositions leave it disabled so an ephemeral checkout is never
+// switched after a publication.
+func (service *TicketService) WithIntegrationLineReturn(enabled bool) *TicketService {
+	service.integrationLineReturn = enabled
 	return service
 }
 
@@ -165,15 +175,16 @@ type PublishTicketRequest struct {
 
 // PublishTicketResult contains the push status and provider-neutral PR intent.
 type PublishTicketResult struct {
-	Branch              branch.BranchName
-	Sync                branchapp.SyncResult
-	Pushed              bool
-	PullRequest         port.PullRequest
-	PublishedURL        string
-	DryRun              bool
-	ScratchMerge        *branchapp.ScratchMergeResult
-	Quality             port.QualityResult
-	PostMutationQuality *port.QualityResult
+	Branch                branch.BranchName
+	Sync                  branchapp.SyncResult
+	Pushed                bool
+	PullRequest           port.PullRequest
+	PublishedURL          string
+	IntegrationLineReturn *IntegrationLineReturn
+	DryRun                bool
+	ScratchMerge          *branchapp.ScratchMergeResult
+	Quality               port.QualityResult
+	PostMutationQuality   *port.QualityResult
 }
 
 // PublishTicket validates the complete local commit series, runs quality
@@ -339,11 +350,12 @@ func (service *TicketService) PublishTicket(ctx context.Context, request Publish
 		result.Pushed = true
 	}
 	if request.CreatePullRequest {
-		publishedURL, err := service.PublishPullRequest(ctx, repository, pullRequest)
+		publication, err := service.PublishPullRequest(ctx, repository, pullRequest)
 		if err != nil {
 			return PublishTicketResult{}, err
 		}
-		result.PublishedURL = publishedURL
+		result.PublishedURL = publication.URL
+		result.IntegrationLineReturn = publication.IntegrationLineReturn
 	}
 	return result, nil
 }
@@ -473,16 +485,18 @@ func (service *TicketService) HasPullRequestPublisher() bool {
 }
 
 // PublishPullRequest invokes the configured provider adapter for an already
-// prepared pull-request intent and the selected Git remote.
+// prepared pull-request intent and the selected Git remote. A successful
+// publication also returns the local workspace to the develop integration
+// line when that transition is enabled for the current context.
 func (service *TicketService) PublishPullRequest(
 	ctx context.Context,
 	repository port.RepositoryIdentity,
 	request port.PullRequest,
-) (string, error) {
+) (PublicationResult, error) {
 	if service == nil {
-		return "", pullRequestPublisherUnavailable()
+		return PublicationResult{}, pullRequestPublisherUnavailable()
 	}
-	return publishPullRequest(ctx, service.git, service.publisher, repository, request)
+	return publishPullRequest(ctx, service.git, service.publisher, repository, request, service.integrationLineReturn)
 }
 
 func publishPullRequest(
@@ -491,19 +505,25 @@ func publishPullRequest(
 	publisher port.PullRequestPublisher,
 	repository port.RepositoryIdentity,
 	request port.PullRequest,
-) (string, error) {
+	returnHome bool,
+) (PublicationResult, error) {
 	if publisher == nil || git == nil {
-		return "", pullRequestPublisherUnavailable()
+		return PublicationResult{}, pullRequestPublisherUnavailable()
 	}
 	publication, err := pullRequestPublication(ctx, git, repository, request)
 	if err != nil {
-		return "", err
+		return PublicationResult{}, err
 	}
 	published, err := publisher.Publish(ctx, publication)
 	if err != nil {
-		return "", err
+		return PublicationResult{}, err
 	}
-	return published.URL, nil
+	result := PublicationResult{URL: published.URL}
+	if returnHome {
+		transition := returnToIntegrationLine(ctx, git, repository)
+		result.IntegrationLineReturn = &transition
+	}
+	return result, nil
 }
 
 // PreflightPullRequest validates optional hosting configuration before a

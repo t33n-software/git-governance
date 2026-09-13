@@ -216,8 +216,15 @@ func (application *application) services() services {
 	sync := branchapp.NewSynchronizer(git, branches, qualityRunner)
 	scratch := branchapp.NewScratchMerger(git, branches)
 	commits := commitapp.NewService(git, application.runtime.KeyPolicy, sync)
+	// The post-publication return to the develop integration line is a local
+	// operator-workspace behavior. Server-side controller compositions (the
+	// protected workflow-token context and the dedicated hotfix propagation
+	// publisher) run on ephemeral checkouts and never switch branches.
+	integrationLineReturn := !application.runtime.GitHubWorkflowTokenEnabled() &&
+		!application.runtime.HotfixPropagationPublisherEnabled()
 	tickets := workflow.NewTicketService(branches, sync, git, qualityRunner, publisher).
-		WithScratchMerger(scratch)
+		WithScratchMerger(scratch).
+		WithIntegrationLineReturn(integrationLineReturn)
 	if finalQuality.Available() {
 		sync.WithFinalQualityGate(finalQuality)
 		tickets.WithFinalQualityGate(finalQuality)
@@ -230,6 +237,7 @@ func (application *application) services() services {
 		WithQualityRunner(qualityRunner).
 		WithHotfixReleaseRecordStore(application.runtime.HotfixRecords).
 		WithHotfixManifestPublication(application.runtime.HotfixPropagationPublisherEnabled()).
+		WithIntegrationLineReturn(integrationLineReturn).
 		WithMainHotfixLifecycleProvider(hotfixLifecycle).
 		WithReleaseLifecycleProvider(lifecycle).
 		WithProtectedLineRequestProvider(protectedRequests)

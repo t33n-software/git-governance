@@ -524,9 +524,9 @@ func TestTicketPublicationResumePushAndPullRequestBoundaries(t *testing.T) {
 	if !service.HasPullRequestPublisher() {
 		t.Fatal("service did not report the configured publisher")
 	}
-	url, err := service.PublishPullRequest(context.Background(), testRepository(), resumed.PullRequest)
-	if err != nil || url != "https://example.invalid/pr/2" || publisher.calls != 1 {
-		t.Fatalf("PublishPullRequest() = (%q, %v), calls=%d", url, err, publisher.calls)
+	publication, err := service.PublishPullRequest(context.Background(), testRepository(), resumed.PullRequest)
+	if err != nil || publication.URL != "https://example.invalid/pr/2" || publisher.calls != 1 {
+		t.Fatalf("PublishPullRequest() = (%#v, %v), calls=%d", publication, err, publisher.calls)
 	}
 }
 

@@ -54,7 +54,10 @@ policy requires a current pull-request head, the protected
 trusted binary from `main`, creates a ticket-bound release-preparation branch,
 and executes `workflow release align-reconciliation-base` there. The operation
 merges current Develop only into the preparation branch and opens the reviewed
-merge-commit PR to Develop. It never updates the release ref.
+merge-commit PR to Develop. It never updates the release ref. A local
+invocation returns the workspace to `develop` after a created pull request
+(see [the ticket publication transition](tickets/publish.md)); the protected
+server-side publication never switches its ephemeral checkout.
 
 In the target lifecycle, successful release delivery automatically dispatches
 this controller. It revalidates promotion, tag, published release, artifacts,

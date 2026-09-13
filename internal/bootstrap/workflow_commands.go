@@ -387,6 +387,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 				fields["squashMerged"] = boolString(result.ScratchMerge.Committed)
 				fields["squashCommit"] = result.ScratchMerge.Message.Header().String()
 			}
+			addIntegrationLineReturnFields(fields, result.IntegrationLineReturn)
 			addQualityFields(fields, result)
 			return application.report(command, port.Report{
 				Operation: "workflow.ticket.publish",
@@ -917,6 +918,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 				"pullRequestTitle":     result.PullRequest.Title,
 				"publishedPullRequest": result.PublishedURL,
 			}
+			addIntegrationLineReturnFields(fields, result.IntegrationLineReturn)
 			addQualityFields(fields, result)
 			return application.report(command, port.Report{
 				Operation: "workflow.hotfix.publish",
@@ -1022,6 +1024,17 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 				); err != nil {
 					return err
 				}
+				fields := map[string]string{
+					"source":               source.String(),
+					"target":               target.String(),
+					"branch":               result.Branch.Name.String(),
+					"cherryPicked":         boolString(result.CherryPicked),
+					"pushed":               boolString(result.Publication.Pushed),
+					"pullRequestSource":    result.Publication.PullRequest.Source.String(),
+					"pullRequestTarget":    result.Publication.PullRequest.Target.String(),
+					"publishedPullRequest": result.Publication.PublishedURL,
+				}
+				addIntegrationLineReturnFields(fields, result.Publication.IntegrationLineReturn)
 				return application.report(command, port.Report{
 					Operation: "workflow.hotfix.propagate",
 					Summary: application.withInteractiveFetchSummary(
@@ -1029,17 +1042,8 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 						repository.Remote,
 						true,
 					),
-					Fields: map[string]string{
-						"source":               source.String(),
-						"target":               target.String(),
-						"branch":               result.Branch.Name.String(),
-						"cherryPicked":         boolString(result.CherryPicked),
-						"pushed":               boolString(result.Publication.Pushed),
-						"pullRequestSource":    result.Publication.PullRequest.Source.String(),
-						"pullRequestTarget":    result.Publication.PullRequest.Target.String(),
-						"publishedPullRequest": result.Publication.PublishedURL,
-					},
-					Data: result.Publication.PullRequest,
+					Fields: fields,
+					Data:   result.Publication.PullRequest,
 				})
 			}
 			commitID, err = application.resolveReviewedCommit(command.Context(), commitID)
@@ -1086,6 +1090,17 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 			); err != nil {
 				return err
 			}
+			fields := map[string]string{
+				"source":               source.String(),
+				"target":               target.String(),
+				"branch":               result.Branch.Name.String(),
+				"cherryPicked":         boolString(result.CherryPicked),
+				"pushed":               boolString(result.Publication.Pushed),
+				"pullRequestSource":    result.Publication.PullRequest.Source.String(),
+				"pullRequestTarget":    result.Publication.PullRequest.Target.String(),
+				"publishedPullRequest": result.Publication.PublishedURL,
+			}
+			addIntegrationLineReturnFields(fields, result.Publication.IntegrationLineReturn)
 			return application.report(command, port.Report{
 				Operation: "workflow.hotfix.propagate",
 				Summary: application.withInteractiveFetchSummary(
@@ -1093,17 +1108,8 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 					repository.Remote,
 					fetchCompleted(result.Branch.DryRun, result.Branch.Plan) || !result.Publication.DryRun,
 				),
-				Fields: map[string]string{
-					"source":               source.String(),
-					"target":               target.String(),
-					"branch":               result.Branch.Name.String(),
-					"cherryPicked":         boolString(result.CherryPicked),
-					"pushed":               boolString(result.Publication.Pushed),
-					"pullRequestSource":    result.Publication.PullRequest.Source.String(),
-					"pullRequestTarget":    result.Publication.PullRequest.Target.String(),
-					"publishedPullRequest": result.Publication.PublishedURL,
-				},
-				Data: result.Publication.PullRequest,
+				Fields: fields,
+				Data:   result.Publication.PullRequest,
 			})
 		}),
 	}
@@ -1268,9 +1274,11 @@ func newHotfixPropagateManifestCommand(application *application) *cobra.Command 
 func manifestPropagationFields(result workflow.PropagateHotfixManifestResult, resumed bool) map[string]string {
 	pushed := "false"
 	publishedPullRequest := ""
+	var integrationLineReturn *workflow.IntegrationLineReturn
 	if result.Publication != nil {
 		pushed = boolString(result.Publication.Pushed)
 		publishedPullRequest = result.Publication.PublishedURL
+		integrationLineReturn = result.Publication.IntegrationLineReturn
 	}
 	fields := map[string]string{
 		"source":               result.Record.ExpectedSource().String(),
@@ -1283,6 +1291,7 @@ func manifestPropagationFields(result workflow.PropagateHotfixManifestResult, re
 		"resumed":              boolString(resumed),
 		"dryRun":               boolString(result.DryRun),
 	}
+	addIntegrationLineReturnFields(fields, integrationLineReturn)
 	if result.Quality != nil {
 		fields["qualityStatus"] = string(result.Quality.Status)
 		fields["qualityDetail"] = result.Quality.Detail
@@ -1409,6 +1418,21 @@ func addQualityFields(fields map[string]string, result workflow.PublishTicketRes
 	if result.PostMutationQuality != nil {
 		fields["postMutationQualityStatus"] = string(result.PostMutationQuality.Status)
 		fields["postMutationQualityDetail"] = result.PostMutationQuality.Detail
+	}
+}
+
+// addIntegrationLineReturnFields renders the post-publication workspace
+// transition back to the develop integration line. A nil transition means the
+// current context never performs it (for example server-side controllers) and
+// keeps the report surface unchanged.
+func addIntegrationLineReturnFields(fields map[string]string, transition *workflow.IntegrationLineReturn) {
+	if transition == nil {
+		return
+	}
+	fields["integrationLine"] = transition.Branch.String()
+	fields["integrationLineReturn"] = string(transition.Status)
+	if transition.Detail != "" {
+		fields["integrationLineReturnDetail"] = transition.Detail
 	}
 }
 
@@ -1930,6 +1954,7 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 				"pullRequestTarget":    result.PullRequest.Target.String(),
 				"publishedPullRequest": result.PublishedURL,
 			}
+			addIntegrationLineReturnFields(fields, result.IntegrationLineReturn)
 			addQualityFields(fields, result)
 			return application.report(command, port.Report{
 				Operation: "workflow.release.publish-stabilization",
@@ -2025,6 +2050,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				"publishedPullRequest": result.PublishedURL,
 				"dryRun":               boolString(result.DryRun),
 			}
+			addIntegrationLineReturnFields(fields, result.IntegrationLineReturn)
 			if result.Quality != nil {
 				fields["qualityStatus"] = string(result.Quality.Status)
 				fields["qualityDetail"] = result.Quality.Detail
@@ -2100,22 +2126,25 @@ func newReleasePromotionCommand(application *application) *cobra.Command {
 				if err := services.tickets.PreflightPullRequest(command.Context(), repository, result.PullRequest); err != nil {
 					return err
 				}
-				publishedURL, err := services.tickets.PublishPullRequest(command.Context(), repository, result.PullRequest)
+				publication, err := services.tickets.PublishPullRequest(command.Context(), repository, result.PullRequest)
 				if err != nil {
 					return err
 				}
-				result.PublishedURL = publishedURL
+				result.PublishedURL = publication.URL
+				result.IntegrationLineReturn = publication.IntegrationLineReturn
 			}
+			fields := map[string]string{
+				"source": result.PullRequest.Source.String(),
+				"target": result.PullRequest.Target.String(),
+				"title":  result.PullRequest.Title,
+				"url":    result.PublishedURL,
+			}
+			addIntegrationLineReturnFields(fields, result.IntegrationLineReturn)
 			return application.report(command, port.Report{
 				Operation: "workflow.release.promote",
 				Summary:   "Release promotion pull request prepared.",
-				Fields: map[string]string{
-					"source": result.PullRequest.Source.String(),
-					"target": result.PullRequest.Target.String(),
-					"title":  result.PullRequest.Title,
-					"url":    result.PublishedURL,
-				},
-				Data: result.PullRequest,
+				Fields:    fields,
+				Data:      result.PullRequest,
 			})
 		}),
 	}
@@ -2193,11 +2222,12 @@ func newReleaseBackmergeCommand(application *application) *cobra.Command {
 				if err := services.tickets.PreflightPullRequest(command.Context(), repository, *result.PullRequest); err != nil {
 					return err
 				}
-				publishedURL, err := services.tickets.PublishPullRequest(command.Context(), repository, *result.PullRequest)
+				publication, err := services.tickets.PublishPullRequest(command.Context(), repository, *result.PullRequest)
 				if err != nil {
 					return err
 				}
-				fields["url"] = publishedURL
+				fields["url"] = publication.URL
+				addIntegrationLineReturnFields(fields, publication.IntegrationLineReturn)
 			}
 			fields["source"] = result.PullRequest.Source.String()
 			fields["target"] = result.PullRequest.Target.String()
@@ -2301,6 +2331,7 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 				"publishedPullRequest":  result.PublishedURL,
 				"dryRun":                boolString(result.DryRun),
 			}
+			addIntegrationLineReturnFields(fields, result.IntegrationLineReturn)
 			if result.Quality != nil {
 				fields["qualityStatus"] = string(result.Quality.Status)
 				fields["qualityDetail"] = result.Quality.Detail

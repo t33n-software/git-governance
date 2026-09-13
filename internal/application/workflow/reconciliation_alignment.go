@@ -44,6 +44,7 @@ type AlignReleaseReconciliationBaseResult struct {
 	Prepared              bool
 	Pushed                bool
 	PublishedURL          string
+	IntegrationLineReturn *IntegrationLineReturn
 	Quality               *port.QualityResult
 	DryRun                bool
 }
@@ -331,11 +332,12 @@ func (service *ReleaseService) AlignReleaseReconciliationBase(
 	if !request.CreatePullRequest {
 		return result, nil
 	}
-	publishedURL, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
+	published, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
 	if err != nil {
 		return AlignReleaseReconciliationBaseResult{}, err
 	}
-	result.PublishedURL = publishedURL
+	result.PublishedURL = published.URL
+	result.IntegrationLineReturn = published.IntegrationLineReturn
 	return result, nil
 }
 

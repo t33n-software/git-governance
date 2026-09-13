@@ -47,7 +47,7 @@ core/description/adapter-relationship.md      source-adapter relationship
 || # | Path | Scope | Reason |
 ||---|------|-------|--------|
 || 1 | `description/purpose-and-architecture.md` | Purpose and architecture | What the core is and what it never requires |
-|| 2 | `description/core-invariants.md` | Core invariants | Help-first, state machine, guards, levels, symbols, scratch, discovery, provider prefetch, hotfix boundary |
+|| 2 | `description/core-invariants.md` | Core invariants | Help-first, state machine, guards, levels, symbols, scratch, discovery, provider prefetch, completed-PR branch detection, post-publication transition, hotfix boundary |
 || 3 | `description/endpoint-registry.md` | Endpoint registry | Which endpoints are governed, including the governed synchronization resume |
 || 4 | `description/security-and-evidence.md` | Security and evidence | Prohibitions and completion evidence |
 || 5 | `description/adapter-relationship.md` | Adapter relationship | Optional Go-source adapter binding |

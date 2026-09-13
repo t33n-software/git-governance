@@ -641,6 +641,19 @@ Flow:
 14. after a push with a configured provider, confirm the PR creation
     interactively; non-interactively set `--create-pull-request` explicitly;
     without a provider, only output the provider-neutral PR intent
+15. after an actually created pull request, return the local workspace to the
+    `develop` integration line and report the transition outcome
+
+Post-publication workspace transition: after a pull request was actually
+created, a local invocation returns the workspace to the `develop`
+integration line. The transition switches the checkout only with a clean
+worktree, reports `already-home` when the workspace already is on `develop`,
+reports `skipped-dirty-worktree` and preserves every uncommitted change when
+the worktree is dirty, and reports `failed` without questioning the already
+created pull request when the switch itself fails. The transition belongs to
+every local pull-request creation, independent of the target line.
+Server-side controller invocations — the protected workflow-token context and
+the hotfix propagation publisher — never switch their ephemeral checkout.
 
 For a scratch start, the non-interactive mode needs a commit family, a
 description, the mandatory commit body, and the existing mutation approval:
@@ -716,7 +729,8 @@ against the same base, and produces the PR intent onto exactly that line. A
 hotfix is never silently rerouted to `develop`. `--create-pull-request` is
 only permissible together with `--push`. After a manual rebase conflict
 resolution, `--resume` resumes the same hotfix publication without interactive
-inputs.
+inputs. After a created pull request, the local workspace returns to `develop`
+(see `workflow ticket publish` for the transition contract).
 
 ### 13.2 `workflow hotfix validate-record`
 
@@ -763,7 +777,9 @@ The command creates a controlled `fix/*` branch from the target line, runs
 Thereby the provenance of a forward or backport remains provable. With a
 paused cherry-pick, the user resolves the conflicts and then resumes with
 `--source`, `--target-line`, the produced `--branch`, and `--resume`.
-`--commit` is not required again when resuming.
+`--commit` is not required again when resuming. After a created pull request,
+the local workspace returns to `develop` (see `workflow ticket publish` for
+the transition contract).
 
 ### 13.5 `workflow hotfix propagate-manifest`
 
@@ -784,7 +800,10 @@ protected hotfix propagation publisher controller: it requires the dedicated
 broker workload identity, creates the candidate from the declared target line,
 re-verifies it, pushes only the non-shared `fix/*` branch, and creates its PR.
 Without this server-side boundary, `--publish` ends fail-closed; local
-candidates remain non-publishing.
+candidates remain non-publishing. The server-side publisher never switches its
+ephemeral checkout after the created pull request; the post-publication
+transition to `develop` (see `workflow ticket publish`) is a local operator
+behavior only.
 
 ## 15. Release commands
 
@@ -857,7 +876,9 @@ stabilization category.
 This command validates a stabilization branch against
 `origin/release/<semver>` and produces its PR intent onto the same release
 line. `--create-pull-request` requires `--push`; after a manual rebase
-conflict resolution, `--resume` resumes the existing stabilization.
+conflict resolution, `--resume` resumes the existing stabilization. After a
+created pull request, the local workspace returns to `develop` (see
+`workflow ticket publish` for the transition contract).
 
 ### 13.4 `workflow release align-promotion-base`
 
@@ -876,7 +897,9 @@ checked-out branch, and executes exclusively there a ticket-scoped merge of
 `origin/main`. After the quality suite, it can push the working branch and
 create its PR back onto the release line. Thereby a strict main ruleset
 fulfills the freshness check without `Update branch`, rebase, or direct
-mutation of a shared line.
+mutation of a shared line. After a created pull request, the local workspace
+returns to `develop` (see `workflow ticket publish` for the transition
+contract).
 
 On a conflict, the running merge operation remains on the same non-shared
 preparation branch. `--resume` requires an active conflict-free merge
@@ -898,7 +921,9 @@ Tagging and artifact creation follow only after the protected merge in the
 release pipeline. The CI workflow creates `v<semver>` directly on the merge
 commit and then starts the artifact workflow for exactly this immutable tag. A
 real provider PR is only possible with `--pull-request-provider github
---create-pull-request` and the explicit mutation approval.
+--create-pull-request` and the explicit mutation approval. After a created
+pull request, the local workspace returns to `develop` (see
+`workflow ticket publish` for the transition contract).
 
 ### 13.6 `workflow release backmerge`
 
@@ -919,6 +944,8 @@ If the delta is present, it delivers `status=required` and creates the PR with
 `--create-pull-request`. If no effective delta is present, the command
 delivers `status=not-required`, the delivery proof, and no PR. A real provider
 PR follows the same explicit GitHub adapter configuration as the promotion.
+After a created pull request, the local workspace returns to `develop` (see
+`workflow ticket publish` for the transition contract).
 
 ### 13.6.1 `workflow release align-reconciliation-base`
 
@@ -968,7 +995,10 @@ does not receive this identity. The publisher identity is restricted to the
 validated `chore/*` candidate and its PR; it holds no ruleset bypass and no
 direct shared-line mutation permission. `release/<semver>` remains unchanged.
 In a dry run, no CLI workflow executes a fetch, merge, push, provider
-preflight, or provider publish.
+preflight, or provider publish. After a locally created pull request, the
+workspace returns to `develop` (see `workflow ticket publish` for the
+transition contract); the protected server-side publication never switches its
+ephemeral checkout.
 
 ### 13.7 `workflow release support`
 
