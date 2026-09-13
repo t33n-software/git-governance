@@ -17,16 +17,17 @@ import (
 // ReleaseService owns the bounded hotfix, release, support, and release
 // backmerge workflows.
 type ReleaseService struct {
-	branches            *branchapp.Service
-	git                 port.GitRepository
-	publisher           port.PullRequestPublisher
-	lifecycle           port.ReleaseLifecycleProvider
-	protectedRequests   port.ProtectedLineRequestProvider
-	hotfix              port.MainHotfixLifecycleProvider
-	tickets             *TicketService
-	quality             port.QualityRunner
-	records             port.HotfixReleaseRecordStore
-	manifestPublication bool
+	branches              *branchapp.Service
+	git                   port.GitRepository
+	publisher             port.PullRequestPublisher
+	lifecycle             port.ReleaseLifecycleProvider
+	protectedRequests     port.ProtectedLineRequestProvider
+	hotfix                port.MainHotfixLifecycleProvider
+	tickets               *TicketService
+	quality               port.QualityRunner
+	records               port.HotfixReleaseRecordStore
+	manifestPublication   bool
+	integrationLineReturn bool
 }
 
 var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
@@ -76,6 +77,15 @@ func (service *ReleaseService) WithQualityRunner(quality port.QualityRunner) *Re
 // server-side hotfix propagation publisher boundary.
 func (service *ReleaseService) WithHotfixManifestPublication(enabled bool) *ReleaseService {
 	service.manifestPublication = enabled
+	return service
+}
+
+// WithIntegrationLineReturn enables the governed post-publication transition
+// of the local workspace back to the develop integration line. Server-side
+// controller compositions leave it disabled so an ephemeral checkout is never
+// switched after a publication.
+func (service *ReleaseService) WithIntegrationLineReturn(enabled bool) *ReleaseService {
+	service.integrationLineReturn = enabled
 	return service
 }
 
@@ -785,9 +795,10 @@ type PrepareReleasePromotionRequest struct {
 // PrepareReleasePromotionResult exposes the release-to-main pull request
 // intent and optional provider result.
 type PrepareReleasePromotionResult struct {
-	PullRequest  port.PullRequest
-	PublishedURL string
-	DryRun       bool
+	PullRequest           port.PullRequest
+	PublishedURL          string
+	IntegrationLineReturn *IntegrationLineReturn
+	DryRun                bool
 }
 
 // PrepareReleasePromotion prepares release/<semver> -> main. It does not tag,
@@ -820,11 +831,12 @@ func (service *ReleaseService) PrepareReleasePromotion(ctx context.Context, requ
 	if request.DryRun || !request.CreatePullRequest {
 		return result, nil
 	}
-	publishedURL, err := publishPullRequest(ctx, service.git, service.publisher, repository, result.PullRequest)
+	publication, err := publishPullRequest(ctx, service.git, service.publisher, repository, result.PullRequest, service.integrationLineReturn)
 	if err != nil {
 		return PrepareReleasePromotionResult{}, err
 	}
-	result.PublishedURL = publishedURL
+	result.PublishedURL = publication.URL
+	result.IntegrationLineReturn = publication.IntegrationLineReturn
 	return result, nil
 }
 
@@ -845,9 +857,10 @@ type PrepareReleaseBackmergeRequest struct {
 // PrepareReleaseBackmergeResult exposes the PR intent and optional published
 // URL. The workflow never directly mutates develop.
 type PrepareReleaseBackmergeResult struct {
-	PullRequest  port.PullRequest
-	PublishedURL string
-	DryRun       bool
+	PullRequest           port.PullRequest
+	PublishedURL          string
+	IntegrationLineReturn *IntegrationLineReturn
+	DryRun                bool
 }
 
 // ReleaseBackmergeStatus distinguishes a dry-run plan, an actionable
@@ -905,11 +918,12 @@ func (service *ReleaseService) PrepareReleaseBackmerge(ctx context.Context, requ
 	if request.DryRun || !request.CreatePullRequest {
 		return result, nil
 	}
-	publishedURL, err := publishPullRequest(ctx, service.git, service.publisher, repository, pullRequest)
+	publication, err := publishPullRequest(ctx, service.git, service.publisher, repository, pullRequest, service.integrationLineReturn)
 	if err != nil {
 		return PrepareReleaseBackmergeResult{}, err
 	}
-	result.PublishedURL = publishedURL
+	result.PublishedURL = publication.URL
+	result.IntegrationLineReturn = publication.IntegrationLineReturn
 	return result, nil
 }
 

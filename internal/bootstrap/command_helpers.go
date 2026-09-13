@@ -212,11 +212,12 @@ func (application *application) completePreparedPublication(
 	if err := services.tickets.PreflightPullRequest(ctx, repository, result.PullRequest); err != nil {
 		return err
 	}
-	publishedURL, err := services.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
+	publication, err := services.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
 	if err != nil {
 		return err
 	}
-	result.PublishedURL = publishedURL
+	result.PublishedURL = publication.URL
+	result.IntegrationLineReturn = publication.IntegrationLineReturn
 	return nil
 }
 

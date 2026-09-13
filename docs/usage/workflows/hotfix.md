@@ -49,6 +49,8 @@ specified affected line; it is never silently redirected to `develop`.
 Authenticate before local publication with `auth login github`, or configure
 the managed credential broker for automation. See
 [GitHub App authentication](../authentication.md).
+After a created pull request, the local workspace returns to `develop`; see
+[the ticket publication transition](workflows/tickets/publish.md).
 
 After resolving and staging a paused rebase, continue the same publication:
 

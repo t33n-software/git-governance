@@ -295,6 +295,11 @@ The command verifies those delivery facts with GitHub and compares
 - `status=not-required`: no effective release-only delta remains, so it
   creates no empty PR. Record this result before release-branch cleanup.
 
+After a locally created pull request — promotion, backmerge, stabilization, or
+base alignment — the workspace returns to the `develop` integration line; see
+[the ticket publication transition](tickets/publish.md). Protected server-side
+controllers never switch their ephemeral checkout.
+
 When Develop requires a current pull-request head, do not update the delivered
 release line. First create a `release-prep` stabilization branch from the
 release line, then align that branch with Develop:

@@ -22,7 +22,11 @@ git governance --interactive never --output json --yes workflow hotfix propagate
 ```
 
 Add `--pull-request-provider github --create-pull-request` to publish the
-resulting PR after its branch is pushed.
+resulting PR after its branch is pushed. After a created pull request, the
+local workspace returns to `develop`; see
+[the ticket publication transition](tickets/publish.md). The server-side
+`propagate-manifest --publish` controller never switches its ephemeral
+checkout.
 
 If a cherry-pick pauses for conflicts, resolve and stage it, then resume the
 already-created propagation branch:

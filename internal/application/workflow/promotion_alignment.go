@@ -30,17 +30,18 @@ type AlignReleasePromotionBaseRequest struct {
 // AlignReleasePromotionBaseResult records the controlled alignment and its
 // optional publication back to the frozen release line.
 type AlignReleasePromotionBaseResult struct {
-	Branch             branch.BranchName
-	Release            branch.BranchName
-	Main               branch.BranchName
-	PullRequest        port.PullRequest
-	MissingMainCommits bool
-	Merged             bool
-	Resumed            bool
-	Pushed             bool
-	PublishedURL       string
-	Quality            *port.QualityResult
-	DryRun             bool
+	Branch                branch.BranchName
+	Release               branch.BranchName
+	Main                  branch.BranchName
+	PullRequest           port.PullRequest
+	MissingMainCommits    bool
+	Merged                bool
+	Resumed               bool
+	Pushed                bool
+	PublishedURL          string
+	IntegrationLineReturn *IntegrationLineReturn
+	Quality               *port.QualityResult
+	DryRun                bool
 }
 
 // AlignReleasePromotionBase merges main into a release-preparation working
@@ -222,11 +223,12 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 	if !request.CreatePullRequest {
 		return result, nil
 	}
-	publishedURL, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
+	published, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
 	if err != nil {
 		return AlignReleasePromotionBaseResult{}, err
 	}
-	result.PublishedURL = publishedURL
+	result.PublishedURL = published.URL
+	result.IntegrationLineReturn = published.IntegrationLineReturn
 	return result, nil
 }
 
@@ -348,11 +350,12 @@ func (service *ReleaseService) resumeReleasePromotionAlignment(
 	if !request.CreatePullRequest {
 		return result, nil
 	}
-	publishedURL, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
+	published, err := service.tickets.PublishPullRequest(ctx, repository, result.PullRequest)
 	if err != nil {
 		return AlignReleasePromotionBaseResult{}, err
 	}
-	result.PublishedURL = publishedURL
+	result.PublishedURL = published.URL
+	result.IntegrationLineReturn = published.IntegrationLineReturn
 	return result, nil
 }
 
