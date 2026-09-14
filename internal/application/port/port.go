@@ -143,6 +143,36 @@ type ReconciliationMergeInspector interface {
 	) (bool, error)
 }
 
+// FastForwardOutcome classifies a guarded fast-forward-only update of a local
+// branch to its fetched remote-tracking base.
+type FastForwardOutcome string
+
+const (
+	// FastForwardUpdated reports that the local branch advanced to the base.
+	FastForwardUpdated FastForwardOutcome = "updated"
+	// FastForwardAlreadyCurrent reports that the local branch already matched
+	// the base; no mutation happened.
+	FastForwardAlreadyCurrent FastForwardOutcome = "already-current"
+	// FastForwardDiverged reports that the local branch cannot fast-forward
+	// to the base and was left untouched.
+	FastForwardDiverged FastForwardOutcome = "diverged"
+)
+
+// BranchFastForwarder is an optional capability for adapters that can advance
+// a checked-out local branch to its fetched remote-tracking base when — and
+// only when — that update is a fast-forward. The caller owns the
+// preconditions: the branch is checked out and the worktree is clean. A
+// diverged branch is reported, never forced, and never produces a merge
+// commit.
+type BranchFastForwarder interface {
+	FastForwardBranch(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		name branch.BranchName,
+		base branch.TargetBase,
+	) (FastForwardOutcome, error)
+}
+
 // KeyPolicy validates a syntactically valid key against the active local
 // policy. The first implementation only checks syntax; a bundle adapter can
 // add repository authorization later.

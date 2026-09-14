@@ -775,6 +775,73 @@ func (repository *Repository) SwitchBranch(ctx context.Context, identity port.Re
 	return nil
 }
 
+// FastForwardBranch advances the checked-out local branch to its fetched
+// remote-tracking base when — and only when — that update is a fast-forward.
+// A diverged branch is reported and left untouched; no merge commit is ever
+// created. The caller owns the preconditions: the branch is checked out and
+// the worktree is clean.
+func (repository *Repository) FastForwardBranch(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	name branch.BranchName,
+	base branch.TargetBase,
+) (port.FastForwardOutcome, error) {
+	if !base.IsRemoteTracking() {
+		return "", problem.New(problem.Details{
+			Code:        problem.CodeBranchBaseInvalid,
+			Category:    problem.CategoryRepository,
+			Field:       "target base",
+			Actual:      base.String(),
+			Expected:    "a remote-tracking target base",
+			Rule:        "a guarded fast-forward updates a local branch only from its fetched remote-tracking reference",
+			Example:     identity.Remote + "/develop",
+			Remediation: "fetch the selected remote and target the fetched remote-tracking base",
+		})
+	}
+	localRevision, err := repository.ResolveRevision(ctx, identity, name.String())
+	if err != nil {
+		return "", err
+	}
+	baseRevision, err := repository.ResolveRevision(ctx, identity, base.String())
+	if err != nil {
+		return "", err
+	}
+	if localRevision == baseRevision {
+		return port.FastForwardAlreadyCurrent, nil
+	}
+	ancestor, err := repository.canFastForward(ctx, identity, localRevision, baseRevision)
+	if err != nil {
+		return "", err
+	}
+	if !ancestor {
+		return port.FastForwardDiverged, nil
+	}
+	result := repository.invoke(ctx, identity.Root, nil, "merge", "--ff-only", base.String())
+	if result.err != nil {
+		return "", repository.commandProblem(problem.CodeGitCommandFailed, identity, "fast-forward the local branch to its fetched base", result)
+	}
+	return port.FastForwardUpdated, nil
+}
+
+// canFastForward reports whether the local revision is an ancestor of the
+// fetched base revision, which is exactly the fast-forward condition.
+func (repository *Repository) canFastForward(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	localRevision string,
+	baseRevision string,
+) (bool, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "merge-base", "--is-ancestor", localRevision, baseRevision)
+	switch {
+	case result.err == nil:
+		return true, nil
+	case result.exitCode == 1:
+		return false, nil
+	default:
+		return false, repository.commandProblem(problem.CodeGitCommandFailed, identity, "check whether the local branch can fast-forward", result)
+	}
+}
+
 // PublicationState uses the fetched remote-tracking ref as the local,
 // network-free publication signal. Callers must fetch before relying on it.
 func (repository *Repository) PublicationState(ctx context.Context, identity port.RepositoryIdentity, name branch.BranchName) (branch.PublicationState, error) {

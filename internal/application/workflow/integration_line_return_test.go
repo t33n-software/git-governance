@@ -39,6 +39,33 @@ func (git *integrationLineReturnGit) SwitchBranch(_ context.Context, _ port.Repo
 	return git.switchErr
 }
 
+// integrationLineReturnRefreshGit adds the optional fast-forward capability
+// to the transition fake and records every refresh attempt.
+type integrationLineReturnRefreshGit struct {
+	*integrationLineReturnGit
+	refreshOutcome port.FastForwardOutcome
+	refreshErr     error
+	refreshCalls   int
+}
+
+func (git *integrationLineReturnRefreshGit) FastForwardBranch(_ context.Context, _ port.RepositoryIdentity, _ branch.BranchName, _ branch.TargetBase) (port.FastForwardOutcome, error) {
+	git.calls = append(git.calls, "fast-forward")
+	git.refreshCalls++
+	return git.refreshOutcome, git.refreshErr
+}
+
+// publishRefreshGit adds the optional fast-forward capability to the shared
+// fake so publication-level tests can observe the refresh outcome.
+type publishRefreshGit struct {
+	*fakeGitRepository
+	outcome port.FastForwardOutcome
+}
+
+func (git *publishRefreshGit) FastForwardBranch(_ context.Context, _ port.RepositoryIdentity, _ branch.BranchName, _ branch.TargetBase) (port.FastForwardOutcome, error) {
+	git.calls = append(git.calls, "fast-forward")
+	return git.outcome, nil
+}
+
 func TestReturnToIntegrationLine(t *testing.T) {
 	t.Parallel()
 
@@ -142,6 +169,175 @@ func TestReturnToIntegrationLine(t *testing.T) {
 	})
 }
 
+func TestReturnToIntegrationLineRefresh(t *testing.T) {
+	t.Parallel()
+
+	t.Run("refreshes the local integration line after the switch", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("feature/ABC-123-add-export"),
+			},
+			refreshOutcome: port.FastForwardUpdated,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnSwitched ||
+			result.Refresh != IntegrationLineRefreshUpdated ||
+			result.RefreshDetail != "" {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+		if git.refreshCalls != 1 {
+			t.Fatalf("refresh attempts = %d", git.refreshCalls)
+		}
+	})
+
+	t.Run("reports an already current integration line", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("feature/ABC-123-add-export"),
+			},
+			refreshOutcome: port.FastForwardAlreadyCurrent,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnSwitched || result.Refresh != IntegrationLineRefreshAlreadyCurrent {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+	})
+
+	t.Run("leaves a diverged integration line untouched", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("feature/ABC-123-add-export"),
+			},
+			refreshOutcome: port.FastForwardDiverged,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnSwitched ||
+			result.Refresh != IntegrationLineRefreshDiverged ||
+			!strings.Contains(result.RefreshDetail, "left untouched") {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+	})
+
+	t.Run("keeps the transition valid when the refresh fails", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("feature/ABC-123-add-export"),
+			},
+			refreshErr: errors.New("merge refused"),
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnSwitched ||
+			result.Refresh != IntegrationLineRefreshFailed ||
+			!strings.Contains(result.RefreshDetail, "refresh the local integration line") {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+	})
+
+	t.Run("refreshes when the workspace is already home", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("develop"),
+			},
+			refreshOutcome: port.FastForwardUpdated,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnAlreadyHome || result.Refresh != IntegrationLineRefreshUpdated {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+		if len(git.switchedTo) != 0 {
+			t.Fatalf("already-home must not switch: %v", git.switchedTo)
+		}
+	})
+
+	t.Run("does not refresh a dirty worktree when already home", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: false},
+				current:           mustBranch("develop"),
+			},
+			refreshOutcome: port.FastForwardUpdated,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnAlreadyHome ||
+			result.Refresh != "" ||
+			!strings.Contains(result.RefreshDetail, "not refreshed") {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+		if git.refreshCalls != 0 {
+			t.Fatalf("a dirty worktree must never be refreshed: %d", git.refreshCalls)
+		}
+	})
+
+	t.Run("reports a failed worktree inspection before the refresh", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("develop"),
+				worktreeErr:       errors.New("worktree inspection failed"),
+			},
+			refreshOutcome: port.FastForwardUpdated,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnAlreadyHome ||
+			result.Refresh != IntegrationLineRefreshFailed ||
+			!strings.Contains(result.RefreshDetail, "inspect the worktree state") {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+		if git.refreshCalls != 0 {
+			t.Fatalf("refresh attempts = %d", git.refreshCalls)
+		}
+	})
+
+	t.Run("never refreshes when the transition was skipped", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: false},
+				current:           mustBranch("feature/ABC-123-add-export"),
+			},
+			refreshOutcome: port.FastForwardUpdated,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnSkippedDirtyWorktree || result.Refresh != "" {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+		if git.refreshCalls != 0 {
+			t.Fatalf("a skipped transition must never refresh: %d", git.refreshCalls)
+		}
+	})
+
+	t.Run("never refreshes after a failed switch", func(t *testing.T) {
+		t.Parallel()
+		git := &integrationLineReturnRefreshGit{
+			integrationLineReturnGit: &integrationLineReturnGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				current:           mustBranch("feature/ABC-123-add-export"),
+				switchErr:         errors.New("switch failed"),
+			},
+			refreshOutcome: port.FastForwardUpdated,
+		}
+		result := returnToIntegrationLine(context.Background(), git, testRepository())
+		if result.Status != IntegrationLineReturnFailed || result.Refresh != "" {
+			t.Fatalf("returnToIntegrationLine() = %#v", result)
+		}
+		if git.refreshCalls != 0 {
+			t.Fatalf("a failed switch must never refresh: %d", git.refreshCalls)
+		}
+	})
+}
+
 func TestPublishPullRequestIntegrationLineReturn(t *testing.T) {
 	t.Parallel()
 
@@ -196,6 +392,21 @@ func TestPublishPullRequestIntegrationLineReturn(t *testing.T) {
 		}
 		if strings.Contains(strings.Join(git.calls, ","), "switch") {
 			t.Fatalf("a failed publication must not transition: %v", git.calls)
+		}
+	})
+
+	t.Run("carries the refresh outcome when the adapter offers the capability", func(t *testing.T) {
+		t.Parallel()
+		git := &publishRefreshGit{fakeGitRepository: &fakeGitRepository{clean: true}, outcome: port.FastForwardUpdated}
+		publisher := &fakePublisher{result: port.PublishedPullRequest{URL: "https://example.invalid/pr/1"}}
+		result, err := publishPullRequest(context.Background(), git, publisher, testRepository(), request, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IntegrationLineReturn == nil ||
+			result.IntegrationLineReturn.Status != IntegrationLineReturnSwitched ||
+			result.IntegrationLineReturn.Refresh != IntegrationLineRefreshUpdated {
+			t.Fatalf("publishPullRequest() = %#v", result)
 		}
 	})
 }
