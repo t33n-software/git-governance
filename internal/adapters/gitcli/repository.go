@@ -162,29 +162,28 @@ func (repository *Repository) RemoteURL(ctx context.Context, identity port.Repos
 	return url, nil
 }
 
+// doctorProbeRef is the reserved product-owned reference targeted by the
+// transport authentication probe. It lives outside every branch and tag
+// namespace, so no branch or tag ruleset evaluates it, and a dry-run creation
+// is always a fast-forward: the outcome binds only to transport
+// authentication and write authorization, never to repository-local branch
+// state. The behavioral contract is documented in docs/usage/diagnostics.md.
+const doctorProbeRef = "refs/git-governance/doctor-probe"
+
 // CheckTransportAuthentication verifies that the selected Git transport can
-// authenticate and authorize a dry-run update of the currently checked-out
-// branch. Git does not mutate refs for --dry-run, and the command disables
-// terminal prompts so doctor remains non-interactive.
+// authenticate and authorize a dry-run creation of the reserved probe
+// reference. The probe deliberately avoids the currently checked-out branch:
+// a creation is always a fast-forward, so the result is independent of the
+// checkout shape (a detached HEAD probes identically) and of a local shared
+// line lagging its fetched remote-tracking reference, which the governed
+// model declares expected and harmless. Git does not mutate refs for
+// --dry-run, and the command disables terminal prompts so doctor remains
+// non-interactive. The behavioral contract is documented in
+// docs/usage/diagnostics.md.
 func (repository *Repository) CheckTransportAuthentication(
 	ctx context.Context,
 	identity port.RepositoryIdentity,
 ) error {
-	current := repository.invokeNoPrompt(ctx, identity.Root, nil, "branch", "--show-current")
-	if current.err != nil {
-		return repository.gitAuthenticationProblem(identity, "identify the checked-out branch", current)
-	}
-	branchName := strings.TrimSpace(current.stdout)
-	if branchName == "" {
-		return problem.New(problem.Details{
-			Code:        problem.CodeGitCommandFailed,
-			Category:    problem.CategoryGit,
-			Field:       "Git authentication",
-			Expected:    "a checked-out branch for a dry-run authenticated push",
-			Rule:        "doctor verifies Git transport authentication without mutating remote references",
-			Remediation: "check out a branch, authenticate Git transport, and retry doctor",
-		})
-	}
 	result := repository.invokeNoPrompt(
 		ctx,
 		identity.Root,
@@ -194,7 +193,7 @@ func (repository *Repository) CheckTransportAuthentication(
 		"--no-verify",
 		"--porcelain",
 		identity.Remote,
-		"HEAD:refs/heads/"+branchName,
+		"HEAD:"+doctorProbeRef,
 	)
 	if result.err != nil {
 		return repository.gitAuthenticationProblem(identity, "perform an authenticated dry-run push", result)

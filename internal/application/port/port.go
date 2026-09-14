@@ -74,8 +74,12 @@ type GitRepository interface {
 }
 
 // GitTransportAuthenticator is an optional diagnostic capability. It verifies
-// that the configured Git transport can perform a non-interactive dry-run push
-// without mutating remote references.
+// that the configured Git transport can authenticate and authorize a
+// non-interactive dry-run creation of the reserved probe reference without
+// mutating remote references. The probe binds only to transport
+// authentication and write authorization — never to the checked-out branch,
+// its freshness, or the checkout shape; the behavioral contract is documented
+// in docs/usage/diagnostics.md.
 type GitTransportAuthenticator interface {
 	CheckTransportAuthentication(context.Context, RepositoryIdentity) error
 }

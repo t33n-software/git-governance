@@ -15,12 +15,18 @@ readiness, Lefthook binary/configuration status, local policy mode, and user
 configuration status.
 
 The Git authentication check performs a non-interactive
-`git push --dry-run --no-verify --porcelain` for the current branch and
-selected remote. It disables terminal prompts and skips hooks, validates real push authorization rather than
-anonymous public read access, and never updates a remote ref. A missing,
-expired, or unauthorized Git transport credential makes `doctor` return a
-classified error. GitHub App API authentication remains separate; inspect it
-with `auth status github` and see [GitHub App authentication](authentication.md).
+`git push --dry-run --no-verify --porcelain` that creates the reserved probe
+reference `refs/git-governance/doctor-probe` on the selected remote. A
+creation is always a fast-forward, so the check validates real push
+authorization rather than anonymous public read access — independent of the
+checked-out branch, of a local shared line lagging its fetched
+remote-tracking reference (an expected and harmless state in the governed
+flow), and of the checkout shape: a detached HEAD in an ephemeral CI checkout
+probes identically. The probe disables terminal prompts, skips hooks, and
+never creates or updates a remote ref. A missing, expired, or unauthorized
+Git transport credential makes `doctor` return a classified error. GitHub App
+API authentication remains separate; inspect it with `auth status github` and
+see [GitHub App authentication](authentication.md).
 
 The commit-signing checks prove that the environment can produce governed,
 verifiable commit signatures before any commit is created:

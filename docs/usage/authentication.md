@@ -459,10 +459,15 @@ Enterprise remote; no legacy API-base environment variable is accepted.
 `doctor` verifies Git transport authentication separately with:
 
 ```text
-git push --dry-run --no-verify --porcelain <remote> HEAD:refs/heads/<current-branch>
+git push --dry-run --no-verify --porcelain <remote> HEAD:refs/git-governance/doctor-probe
 ```
 
-It disables terminal prompts and skips Git hooks for that probe. A public read-only repository is
+The probe targets a reserved product-owned reference outside every branch and
+tag namespace: a creation is always a fast-forward, so the result binds only
+to the configured credentials and write authorization — never to the
+checked-out branch, its freshness against the remote, or the checkout shape
+(a detached HEAD probes identically). It disables terminal prompts and skips
+Git hooks for that probe. A public read-only repository is
 therefore not mistaken for authenticated push access. The dry run contacts the
 remote and validates the configured credentials and write authorization, but
 does not create or update a remote ref. A failed or unavailable Git transport

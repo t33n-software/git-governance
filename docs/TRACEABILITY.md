@@ -47,7 +47,7 @@ does not rely on any external governance repository or unpublished rule set.
 | One official regular branch per ticket | VERIFIED | local/remote branch discovery, whitebox test, and real-Git regression test |
 | Explicit staging only | VERIFIED | application and Git adapter tests |
 | Commit creation through stdin | VERIFIED | real local Git integration test |
-| Fail-closed Git transport authentication diagnostic | VERIFIED | non-interactive dry-run push adapter and same-package whitebox tests |
+| Fail-closed Git transport authentication diagnostic | VERIFIED | non-interactive dry-run creation of the reserved probe reference `refs/git-governance/doctor-probe`, independent of the checked-out branch, its freshness, and the checkout shape; adapter and same-package whitebox tests pin the exact probe invocation and every failure propagation |
 | Fail-closed commit-signing readiness diagnostic | VERIFIED | effective-configuration, non-mutating canary sign/verify, and lane machine-identity injection checks with same-package whitebox tests |
 | Commit signature verification on creation | VERIFIED | the policy contract declares `commitSigning: required`; the Git adapter verifies every created commit through `git verify-commit` and rejects unsigned or untrusted objects fail-closed; same-package whitebox tests |
 | First-push publication detection | VERIFIED | real local Git integration test |
@@ -79,7 +79,7 @@ does not rely on any external governance repository or unpublished rule set.
 | `validate pre-push` | IMPLEMENTED | parses every Git stdin ref update, validates the actual remote target, and reuses final local quality evidence only when it exactly matches the outgoing candidate |
 | `config key` | IMPLEMENTED | OS configuration directory, atomic JSON storage |
 | `policy describe`, `completion`, `version` | IMPLEMENTED | policy and environment inspection are read-only; the policy contract declares the required commit signing |
-| `doctor` | IMPLEMENTED | Git version, remote, fail-closed Git transport dry-run authentication, fail-closed commit-signing configuration, canary proof and lane machine-identity checks, Lefthook, policy, configuration, and in-progress-operation checks |
+| `doctor` | IMPLEMENTED | Git version, remote, fail-closed Git transport dry-run authentication against the reserved probe reference, fail-closed commit-signing configuration, canary proof and lane machine-identity checks, Lefthook, policy, configuration, and in-progress-operation checks |
 | Interactive Huh forms and accessible prompts | IMPLEMENTED | tested with accessible form input |
 | Interactive field validation retries | VERIFIED | invalid ticket, slug, commit-subject, and breaking-change values show field diagnostics and retry in place |
 | Workflow input failure summaries | VERIFIED | accepted command inputs accompany classified workflow and branch-creation failures |
@@ -134,7 +134,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Bounded fuzzing | VERIFIED | ticket, branch, commit, and configuration targets passed |
 | Race detection | VERIFIED | `CGO_ENABLED=1 go test -race ./...` passed locally with GCC 16.1.0 |
 | Vulnerability scan | VERIFIED | `govulncheck` v1.5.0 reported no vulnerabilities |
-| Windows amd64 native smoke | VERIFIED | version, policy, and branch-catalog commands passed; `doctor` is intentionally excluded because detached CI checkouts have no branch-bound Git credential |
+| Windows amd64 native smoke | VERIFIED | version, policy, and branch-catalog commands passed; `doctor` is intentionally excluded because the smoke checkout carries no write-authorized Git transport credential |
 | Windows/macOS/Linux cross-builds | VERIFIED | all six promised OS/architecture binaries compiled with `CGO_ENABLED=0` |
 | Native primary-OS full-quality matrix | IMPLEMENTED | CI runs the canonical quality gate natively on Linux, macOS, and Windows; each OS independently enforces lint, tests, uncached 100%-coverage, race, fuzz, and security gates |
 | Native ARM64 smoke tests | IMPLEMENTED | CI matrix contains Ubuntu ARM64, Windows ARM64, and macOS ARM64 runners; remote execution requires the first push |
