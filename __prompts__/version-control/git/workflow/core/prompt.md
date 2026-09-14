@@ -1064,6 +1064,18 @@ Ticket-Branch — etwa nach einem übersprungenen oder fehlgeschlagenen
 Rückwechsel, nach einem manuellen Wechsel durch den Entwickler oder unter
 einer älteren Binary —, folgt der nächste Start den Regeln aus [3.3].
 
+Der lokale Checkout der Integrationslinie darf hinter ihrer
+Remote-Tracking-Referenz zurückliegen; das ist erwartet und harmlos, weil jede
+Frische-Entscheidung der Binary an der zuvor gefetchten Remote-Basis bindet —
+bei der Branch-Erstellung, der Basis-Synchronisation, der Pre-Push-Prüfung und
+jeder Align- oder Reconciliation-Operation. Der Agent behandelt einen
+zurückliegenden lokalen Integrationslinien-Stand daher niemals als Defekt,
+als neue Aufgabenquelle oder als Reparaturanlass: Er führt keine eigenständige
+Aktualisierung oder sonstige Mutation auf der Shared Line aus und leitet aus
+dem beobachteten Rückstand keine neue Arbeit ab. Eine Aktualisierung des
+lokalen Integrationslinien-Checkouts ist ausschließlich über eine governete
+Fähigkeit der Binary zulässig, sofern die aktuelle Hilfe eine solche anbietet.
+
 Die Abschlussantwort enthält:
 
 ```text
