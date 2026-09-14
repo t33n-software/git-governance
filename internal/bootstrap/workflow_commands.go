@@ -1434,6 +1434,12 @@ func addIntegrationLineReturnFields(fields map[string]string, transition *workfl
 	if transition.Detail != "" {
 		fields["integrationLineReturnDetail"] = transition.Detail
 	}
+	if transition.Refresh != "" {
+		fields["integrationLineRefresh"] = string(transition.Refresh)
+	}
+	if transition.RefreshDetail != "" {
+		fields["integrationLineRefreshDetail"] = transition.RefreshDetail
+	}
 }
 
 func newReleaseRequestCommand(application *application) *cobra.Command {

@@ -39,6 +39,12 @@ func TestAddIntegrationLineReturnFields(t *testing.T) {
 		if _, present := fields["integrationLineReturnDetail"]; present {
 			t.Fatalf("empty detail must not render: %v", fields)
 		}
+		if _, present := fields["integrationLineRefresh"]; present {
+			t.Fatalf("empty refresh must not render: %v", fields)
+		}
+		if _, present := fields["integrationLineRefreshDetail"]; present {
+			t.Fatalf("empty refresh detail must not render: %v", fields)
+		}
 	})
 
 	t.Run("renders the detail when present", func(t *testing.T) {
@@ -55,6 +61,25 @@ func TestAddIntegrationLineReturnFields(t *testing.T) {
 		})
 		if fields["integrationLineReturn"] != "skipped-dirty-worktree" ||
 			fields["integrationLineReturnDetail"] != "uncommitted changes are preserved" {
+			t.Fatalf("fields = %v", fields)
+		}
+	})
+
+	t.Run("renders the refresh outcome when present", func(t *testing.T) {
+		t.Parallel()
+		fields := map[string]string{}
+		home, err := branch.ParseName("develop")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addIntegrationLineReturnFields(fields, &workflow.IntegrationLineReturn{
+			Status:        workflow.IntegrationLineReturnSwitched,
+			Branch:        home,
+			Refresh:       workflow.IntegrationLineRefreshDiverged,
+			RefreshDetail: "left untouched",
+		})
+		if fields["integrationLineRefresh"] != "diverged" ||
+			fields["integrationLineRefreshDetail"] != "left untouched" {
 			t.Fatalf("fields = %v", fields)
 		}
 	})

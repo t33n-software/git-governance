@@ -86,6 +86,16 @@ changes are preserved instead, and `failed` when the switch itself failed —
 the created pull request remains valid in every case. Server-side controller
 invocations never switch their ephemeral checkout.
 
+When the workspace is on the integration line after the transition, the
+workflow additionally attempts a guarded refresh of the local `develop`
+checkout against its fetched remote-tracking reference and reports it as
+`integrationLineRefresh`: `updated` when the checkout fast-forwarded,
+`already-current` when it already matched, `diverged` when a fast-forward was
+impossible and the checkout was left untouched, and `failed` when the refresh
+attempt itself failed — the transition and the created pull request remain
+valid in every case. The refresh never creates a merge commit and never
+forces a diverged line.
+
 The returned-to local `develop` checkout may lag behind `origin/develop`. This
 is expected and harmless: branch creation, base synchronization, pre-push
 freshness, and every alignment or reconciliation step bind to the fetched
