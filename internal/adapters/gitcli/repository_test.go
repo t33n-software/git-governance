@@ -212,20 +212,18 @@ func TestCheckTransportAuthenticationUsesNonInteractiveDryRunPush(t *testing.T) 
 	identity := testIdentity()
 	t.Run("succeeds through the environment-aware process runner", func(t *testing.T) {
 		runner := &environmentFakeRunner{fakeRunner: &fakeRunner{results: []processResult{
-			{stdout: "feature/ABC-123-add-export\n"},
 			{},
 		}}}
 		repository := &Repository{runner: runner, timeout: time.Second}
 		if err := repository.CheckTransportAuthentication(context.Background(), identity); err != nil {
 			t.Fatalf("CheckTransportAuthentication() error = %v", err)
 		}
-		if len(runner.calls) != 2 || len(runner.environments) != 2 {
+		if len(runner.calls) != 1 || len(runner.environments) != 1 {
 			t.Fatalf("authentication calls=%#v environments=%#v", runner.calls, runner.environments)
 		}
-		assertCall(t, runner.calls[0], identity.Root, "", "branch", "--show-current")
 		assertCall(
 			t,
-			runner.calls[1],
+			runner.calls[0],
 			identity.Root,
 			"",
 			"push",
@@ -233,23 +231,34 @@ func TestCheckTransportAuthenticationUsesNonInteractiveDryRunPush(t *testing.T) 
 			"--no-verify",
 			"--porcelain",
 			identity.Remote,
-			"HEAD:refs/heads/feature/ABC-123-add-export",
+			"HEAD:refs/git-governance/doctor-probe",
 		)
-		for _, environment := range runner.environments {
-			if strings.Join(environment, ",") != strings.Join(noPromptGitEnvironment, ",") {
-				t.Fatalf("non-interactive environment = %#v", environment)
-			}
+		if strings.Join(runner.environments[0], ",") != strings.Join(noPromptGitEnvironment, ",") {
+			t.Fatalf("non-interactive environment = %#v", runner.environments[0])
 		}
 	})
 
-	t.Run("falls back to a regular runner and rejects a detached HEAD", func(t *testing.T) {
-		runner := &fakeRunner{results: []processResult{{stdout: ""}}}
+	t.Run("probes the reserved reference without resolving a checked-out branch", func(t *testing.T) {
+		runner := &fakeRunner{results: []processResult{{}}}
 		repository := &Repository{runner: runner, timeout: time.Second}
-		err := repository.CheckTransportAuthentication(context.Background(), identity)
-		assertProblemCode(t, err, problem.CodeGitCommandFailed)
-		if len(runner.calls) != 1 {
-			t.Fatalf("fallback authentication calls = %#v", runner.calls)
+		if err := repository.CheckTransportAuthentication(context.Background(), identity); err != nil {
+			t.Fatalf("CheckTransportAuthentication() error = %v", err)
 		}
+		if len(runner.calls) != 1 {
+			t.Fatalf("probe must issue exactly one Git call, got = %#v", runner.calls)
+		}
+		assertCall(
+			t,
+			runner.calls[0],
+			identity.Root,
+			"",
+			"push",
+			"--dry-run",
+			"--no-verify",
+			"--porcelain",
+			identity.Remote,
+			"HEAD:refs/git-governance/doctor-probe",
+		)
 	})
 
 	for _, testCase := range []struct {
@@ -258,17 +267,8 @@ func TestCheckTransportAuthenticationUsesNonInteractiveDryRunPush(t *testing.T) 
 		code    problem.Code
 	}{
 		{
-			name: "branch lookup failure",
-			results: []processResult{{
-				err:      errors.New("branch failed"),
-				exitCode: 1,
-			}},
-			code: problem.CodeGitCommandFailed,
-		},
-		{
 			name: "push authentication failure",
 			results: []processResult{
-				{stdout: "feature/ABC-123-add-export"},
 				{err: errors.New("authentication failed"), exitCode: 128},
 			},
 			code: problem.CodeGitCommandFailed,
@@ -276,7 +276,6 @@ func TestCheckTransportAuthenticationUsesNonInteractiveDryRunPush(t *testing.T) 
 		{
 			name: "push timeout",
 			results: []processResult{
-				{stdout: "feature/ABC-123-add-export"},
 				{err: context.DeadlineExceeded, exitCode: -1},
 			},
 			code: problem.CodeExternalCommandFailed,

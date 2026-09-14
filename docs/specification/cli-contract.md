@@ -1101,7 +1101,9 @@ Read-only diagnostics:
 - repository detected
 - remote present, without disclosing its URL in the human output
 - Git transport authentication through a non-interactive `push --dry-run
-  --porcelain` of the current branch
+  --porcelain` creation of the reserved probe reference
+  `refs/git-governance/doctor-probe`, independent of the checked-out branch
+  and its freshness
 - user configuration readable
 - Lefthook present
 - Lefthook configuration present
