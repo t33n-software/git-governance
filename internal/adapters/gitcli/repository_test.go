@@ -843,3 +843,125 @@ func assertProblemCode(t *testing.T, err error, expected problem.Code) {
 		t.Fatalf("problem code = %q, want %q", actual.Code, expected)
 	}
 }
+
+func TestFastForwardBranch(t *testing.T) {
+	t.Parallel()
+
+	name, err := branch.ParseName("develop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := branch.NewTargetBase("origin", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localRevision := strings.Repeat("a", 40)
+	baseRevision := strings.Repeat("b", 40)
+
+	t.Run("rejects a non remote-tracking base", func(t *testing.T) {
+		t.Parallel()
+		localBase, err := branch.NewLocalBase(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		repository := &Repository{runner: &fakeRunner{}, timeout: time.Second}
+		_, err = repository.FastForwardBranch(context.Background(), testIdentity(), name, localBase)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+	})
+
+	t.Run("reports already current without mutating", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: localRevision + "\n"},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		outcome, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		if err != nil || outcome != port.FastForwardAlreadyCurrent {
+			t.Fatalf("FastForwardBranch() = (%q, %v)", outcome, err)
+		}
+		if len(runner.calls) != 2 {
+			t.Fatalf("already current requires exactly two revision resolutions: %v", runner.calls)
+		}
+	})
+
+	t.Run("fast-forwards an ancestor local branch", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{},
+			{},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		outcome, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		if err != nil || outcome != port.FastForwardUpdated {
+			t.Fatalf("FastForwardBranch() = (%q, %v)", outcome, err)
+		}
+		assertCall(t, runner.calls[2], "C:/repo", "", "merge-base", "--is-ancestor", localRevision, baseRevision)
+		assertCall(t, runner.calls[3], "C:/repo", "", "merge", "--ff-only", "origin/develop")
+	})
+
+	t.Run("reports a diverged branch without mutating", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{err: errors.New("not an ancestor"), exitCode: 1},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		outcome, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		if err != nil || outcome != port.FastForwardDiverged {
+			t.Fatalf("FastForwardBranch() = (%q, %v)", outcome, err)
+		}
+		if len(runner.calls) != 3 {
+			t.Fatalf("a diverged branch must never merge: %v", runner.calls)
+		}
+	})
+
+	t.Run("propagates a local revision failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{err: errors.New("rev-parse failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("propagates a base revision failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{err: errors.New("rev-parse failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("propagates a fast-forward check failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{err: errors.New("merge-base failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("propagates a merge failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{},
+			{err: errors.New("merge failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranch(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}
