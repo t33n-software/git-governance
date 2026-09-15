@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
@@ -236,6 +237,66 @@ func TestBranchRefreshSharedLinesCommandContracts(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeOperationCancelled)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled refresh error = %v, want context cancellation", err)
+		}
+	})
+}
+
+func TestBranchRefreshSharedLinesReportHelpers(t *testing.T) {
+	t.Parallel()
+
+	develop, err := branch.ParseName("develop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := branch.NewTargetBase("origin", develop)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, testCase := range []struct {
+		name   string
+		result branchapp.RefreshSharedLinesResult
+		want   string
+	}{
+		{name: "dry run", result: branchapp.RefreshSharedLinesResult{DryRun: true}, want: "Shared-line refresh plan generated."},
+		{name: "empty result", result: branchapp.RefreshSharedLinesResult{}, want: "No local shared-line checkouts to refresh."},
+		{name: "refreshed", result: branchapp.RefreshSharedLinesResult{Lines: []branchapp.SharedLineRefresh{{Name: develop, Base: base, Outcome: port.FastForwardUpdated}}}, want: "Local shared-line checkouts refreshed."},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if got := sharedLineRefreshSummary(testCase.result); got != testCase.want {
+				t.Fatalf("sharedLineRefreshSummary(%#v) = %q, want %q", testCase.result, got, testCase.want)
+			}
+		})
+	}
+
+	t.Run("fields render plan and per-line outcomes", func(t *testing.T) {
+		t.Parallel()
+		fields := sharedLineRefreshFields(branchapp.RefreshSharedLinesResult{
+			Lines: []branchapp.SharedLineRefresh{{Name: develop, Base: base, Outcome: port.FastForwardUpdated}},
+			Plan:  []branchapp.PlanStep{{Action: "fetch", Detail: "git fetch --prune origin"}},
+		})
+		if fields["lines"] != "1" || fields["line develop"] != "updated" ||
+			fields["plan"] != "fetch: git fetch --prune origin" || fields["dryRun"] != "false" {
+			t.Fatalf("fields = %#v", fields)
+		}
+
+		empty := sharedLineRefreshFields(branchapp.RefreshSharedLinesResult{DryRun: true})
+		if _, found := empty["plan"]; found {
+			t.Fatalf("an empty plan must not render: %#v", empty)
+		}
+	})
+
+	t.Run("data maps the domain types and omits the empty result", func(t *testing.T) {
+		t.Parallel()
+		if data := sharedLineRefreshData(branchapp.RefreshSharedLinesResult{}); data != nil {
+			t.Fatalf("empty data = %#v, want nil", data)
+		}
+		data := sharedLineRefreshData(branchapp.RefreshSharedLinesResult{
+			Lines: []branchapp.SharedLineRefresh{{Name: develop, Base: base, Outcome: port.FastForwardAlreadyCurrent}},
+		})
+		if len(data) != 1 || data[0].Name != "develop" || data[0].Base != "origin/develop" || data[0].Outcome != "already-current" {
+			t.Fatalf("data = %#v", data)
 		}
 	})
 }
