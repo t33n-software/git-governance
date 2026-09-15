@@ -100,6 +100,8 @@ The returned-to local `develop` checkout may lag behind `origin/develop`. This
 is expected and harmless: branch creation, base synchronization, pre-push
 freshness, and every alignment or reconciliation step bind to the fetched
 remote-tracking base, never to the local integration line. Do not treat the
-lag as a defect, and do not repair it inside the governed flow. Outside the
-tool, a manual `git pull --ff-only origin develop` remains the documented way
-to refresh the local checkout.
+lag as a defect, and do not repair it inside the governed flow. When a
+downstream consumer reads the local tree directly and therefore needs the
+fresh checkout, `git governance branch refresh-shared-lines` is the governed,
+fail-closed refresh; outside the tool, a manual `git pull --ff-only origin
+develop` remains the documented fallback.

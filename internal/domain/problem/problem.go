@@ -71,6 +71,8 @@ const (
 	CodeCommitSignatureRequired      Code = "COMMIT_SIGNATURE_REQUIRED"
 	CodeExternalCommandFailed        Code = "EXTERNAL_COMMAND_FAILED"
 	CodeOperationCancelled           Code = "OPERATION_CANCELLED"
+	CodeOperationInProgress          Code = "OPERATION_IN_PROGRESS"
+	CodeSharedLineDiverged           Code = "SHARED_LINE_DIVERGED"
 	CodeInternal                     Code = "INTERNAL"
 )
 

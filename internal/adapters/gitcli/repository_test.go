@@ -964,3 +964,176 @@ func TestFastForwardBranch(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
 	})
 }
+
+func TestFastForwardBranchReference(t *testing.T) {
+	t.Parallel()
+
+	name, err := branch.ParseName("develop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := branch.NewTargetBase("origin", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	localRevision := strings.Repeat("a", 40)
+	baseRevision := strings.Repeat("b", 40)
+
+	t.Run("rejects a non remote-tracking base", func(t *testing.T) {
+		t.Parallel()
+		localBase, err := branch.NewLocalBase(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		runner := &fakeRunner{}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err = repository.FastForwardBranchReference(context.Background(), testIdentity(), name, localBase)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+		if len(runner.calls) != 0 {
+			t.Fatalf("an invalid base must stop before Git calls: %v", runner.calls)
+		}
+	})
+
+	t.Run("reports already current without mutating", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: localRevision + "\n"},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		outcome, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		if err != nil || outcome != port.FastForwardAlreadyCurrent {
+			t.Fatalf("FastForwardBranchReference() = (%q, %v)", outcome, err)
+		}
+		if len(runner.calls) != 2 {
+			t.Fatalf("already current requires exactly two revision resolutions: %v", runner.calls)
+		}
+	})
+
+	t.Run("fast-forwards an ancestor local branch reference with a pinned update", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{},
+			{},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		outcome, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		if err != nil || outcome != port.FastForwardUpdated {
+			t.Fatalf("FastForwardBranchReference() = (%q, %v)", outcome, err)
+		}
+		assertCall(t, runner.calls[2], "C:/repo", "", "merge-base", "--is-ancestor", localRevision, baseRevision)
+		assertCall(t, runner.calls[3], "C:/repo", "", "update-ref", "refs/heads/develop", baseRevision, localRevision)
+	})
+
+	t.Run("reports a diverged branch reference without mutating", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{err: errors.New("not an ancestor"), exitCode: 1},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		outcome, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		if err != nil || outcome != port.FastForwardDiverged {
+			t.Fatalf("FastForwardBranchReference() = (%q, %v)", outcome, err)
+		}
+		if len(runner.calls) != 3 {
+			t.Fatalf("a diverged branch reference must never update the ref: %v", runner.calls)
+		}
+	})
+
+	t.Run("propagates a local revision failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{err: errors.New("rev-parse failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("propagates a base revision failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{err: errors.New("rev-parse failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("propagates a fast-forward check failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{err: errors.New("merge-base failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("propagates a reference update failure", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: localRevision + "\n"},
+			{stdout: baseRevision + "\n"},
+			{},
+			{err: errors.New("update-ref failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		_, err := repository.FastForwardBranchReference(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}
+
+func TestLocalBranches(t *testing.T) {
+	t.Parallel()
+
+	t.Run("enumerates canonical local branches in deterministic order", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{
+			stdout: strings.Join([]string{
+				"refs/heads/main",
+				"refs/heads/noncanonical-local-branch",
+				"refs/heads/develop",
+				"refs/heads/feature/ABC-123-add-export",
+				"refs/heads/develop",
+				"refs/heads/scratch/ABC-123-experiment",
+			}, "\n") + "\n",
+		}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		actual, err := repository.LocalBranches(context.Background(), testIdentity())
+		if err != nil {
+			t.Fatal(err)
+		}
+		names := make([]string, 0, len(actual))
+		for _, name := range actual {
+			names = append(names, name.String())
+		}
+		if strings.Join(names, ",") != "develop,feature/ABC-123-add-export,main,scratch/ABC-123-experiment" {
+			t.Fatalf("LocalBranches() = %v", names)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "for-each-ref", "--format=%(refname)", "refs/heads")
+	})
+
+	t.Run("classifies a listing failure", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{runner: &fakeRunner{results: []processResult{{err: errors.New("for-each-ref failed"), exitCode: 128}}}, timeout: time.Second}
+		_, err := repository.LocalBranches(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("an empty repository has no local branches", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{runner: &fakeRunner{results: []processResult{{}}}, timeout: time.Second}
+		actual, err := repository.LocalBranches(context.Background(), testIdentity())
+		if err != nil || len(actual) != 0 {
+			t.Fatalf("LocalBranches() = (%v, %v)", actual, err)
+		}
+	})
+}

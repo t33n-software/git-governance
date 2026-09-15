@@ -717,6 +717,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `branch create` | E2 | Nur wenn kein vollständiger Workflow diese begrenzte Aktion anbietet; insbesondere reaktive Scratch-Erstellung | Keine Ticket-Branch-Erstellung, kein Ersatz für `workflow ticket start`, kein Reparaturvehikel für Mutation-vor-Workflow |
 | `branch merge-scratch` | E2 | Begrenzte Scratch-Übernahme, wenn der Ticket-Publish-Workflow sie nicht übernimmt | Kontrollierter Squash auf offiziellen Branch |
 | `branch sync-base` | E2 | Bewusste, isolierte Basis-Synchronisation und governeter Wiedereinstieg in ihre konfliktpausierte Rebase- oder Merge-Operation | Nach Mutation und nach Resume Quality erneut prüfen |
+| `branch refresh-shared-lines` | E2 | Ausdrücklich benötigte Frische lokaler Shared-Line-Checkouts, etwa weil ein nachgelagerter Prozess den lokalen Baum liest | Nur Fast-Forward, fail-closed, keine Remote-Mutation, kein Checkout-Wechsel, keine Linien-Erzeugung |
 | `commit create` | E2 | Einen explizit abgegrenzten semantischen Commit erzeugen; nur auf einer verifizierten offiziellen Working-Branch nach freigegebenem Embargo | Nur explizite Pfade, kein implizites Staging |
 | `workflow cleanup` | E1 | Ausschließlich lokal übertragene private Scratch-Branches aufräumen | Löscht keine Remote- oder offiziellen Branches |
 
@@ -1073,8 +1074,9 @@ zurückliegenden lokalen Integrationslinien-Stand daher niemals als Defekt,
 als neue Aufgabenquelle oder als Reparaturanlass: Er führt keine eigenständige
 Aktualisierung oder sonstige Mutation auf der Shared Line aus und leitet aus
 dem beobachteten Rückstand keine neue Arbeit ab. Eine Aktualisierung des
-lokalen Integrationslinien-Checkouts ist ausschließlich über eine governete
-Fähigkeit der Binary zulässig, sofern die aktuelle Hilfe eine solche anbietet.
+lokalen Integrationslinien-Checkouts ist ausschließlich über die dafür im
+Endpoint-Register in [5.2] gebundene governete Fähigkeit der Binary zulässig,
+sofern die aktuelle Hilfe sie anbietet.
 
 Die Abschlussantwort enthält:
 

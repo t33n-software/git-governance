@@ -187,6 +187,11 @@ func TestDryRunCommandContractsCoverWorkflowSurfaces(t *testing.T) {
 			args:    []string{"workflow", "cleanup", "--branch", "scratch/ABC-123-experiment"},
 		},
 		{
+			name:    "shared-line refresh",
+			current: "develop",
+			args:    []string{"branch", "refresh-shared-lines"},
+		},
+		{
 			name:    "doctor",
 			current: "feature/ABC-123-add-export",
 			args:    []string{"doctor"},
@@ -686,6 +691,10 @@ func (*commandGit) OfficialBranchesForTicket(context.Context, port.RepositoryIde
 
 func (*commandGit) Fetch(context.Context, port.RepositoryIdentity) error {
 	return nil
+}
+
+func (git *commandGit) LocalBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
+	return []branch.BranchName{git.current}, nil
 }
 
 func (*commandGit) TargetBaseExists(context.Context, port.RepositoryIdentity, branch.TargetBase) (bool, error) {

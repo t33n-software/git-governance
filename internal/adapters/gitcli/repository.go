@@ -392,6 +392,41 @@ func (repository *Repository) OfficialBranchesForTicket(
 	return resultBranches, nil
 }
 
+// LocalBranches enumerates the local canonical branches in deterministic
+// order. Noncanonical local names are outside the product's governed namespace
+// and are intentionally ignored.
+func (repository *Repository) LocalBranches(ctx context.Context, identity port.RepositoryIdentity) ([]branch.BranchName, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "for-each-ref", "--format=%(refname)", "refs/heads")
+	if result.err != nil {
+		return nil, repository.commandProblem(problem.CodeGitCommandFailed, identity, "list local branches", result)
+	}
+
+	byName := make(map[string]branch.BranchName)
+	names := make([]string, 0)
+	for _, raw := range strings.Split(strings.TrimSpace(result.stdout), "\n") {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		name, err := branch.ParseName(strings.TrimPrefix(ref, "refs/heads/"))
+		if err != nil {
+			continue
+		}
+		if _, found := byName[name.String()]; found {
+			continue
+		}
+		byName[name.String()] = name
+		names = append(names, name.String())
+	}
+	sort.Strings(names)
+
+	branches := make([]branch.BranchName, 0, len(names))
+	for _, name := range names {
+		branches = append(branches, byName[name])
+	}
+	return branches, nil
+}
+
 // Fetch updates remote-tracking references while pruning deleted remote refs.
 func (repository *Repository) Fetch(ctx context.Context, identity port.RepositoryIdentity) error {
 	result := repository.invoke(ctx, identity.Root, nil, "fetch", "--prune", identity.Remote)
@@ -786,16 +821,7 @@ func (repository *Repository) FastForwardBranch(
 	base branch.TargetBase,
 ) (port.FastForwardOutcome, error) {
 	if !base.IsRemoteTracking() {
-		return "", problem.New(problem.Details{
-			Code:        problem.CodeBranchBaseInvalid,
-			Category:    problem.CategoryRepository,
-			Field:       "target base",
-			Actual:      base.String(),
-			Expected:    "a remote-tracking target base",
-			Rule:        "a guarded fast-forward updates a local branch only from its fetched remote-tracking reference",
-			Example:     identity.Remote + "/develop",
-			Remediation: "fetch the selected remote and target the fetched remote-tracking base",
-		})
+		return "", invalidFastForwardBase(base, identity.Remote)
 	}
 	localRevision, err := repository.ResolveRevision(ctx, identity, name.String())
 	if err != nil {
@@ -820,6 +846,69 @@ func (repository *Repository) FastForwardBranch(
 		return "", repository.commandProblem(problem.CodeGitCommandFailed, identity, "fast-forward the local branch to its fetched base", result)
 	}
 	return port.FastForwardUpdated, nil
+}
+
+// FastForwardBranchReference advances a local branch reference to its fetched
+// remote-tracking base when — and only when — that update is a fast-forward.
+// The write is pinned to the resolved local revision, so a concurrent ref move
+// rejects the update instead of silently losing it. The caller owns the
+// preconditions: the branch exists locally and is not checked out in any
+// worktree, so the reference update never touches a working tree.
+func (repository *Repository) FastForwardBranchReference(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+	name branch.BranchName,
+	base branch.TargetBase,
+) (port.FastForwardOutcome, error) {
+	if !base.IsRemoteTracking() {
+		return "", invalidFastForwardBase(base, identity.Remote)
+	}
+	localRevision, err := repository.ResolveRevision(ctx, identity, name.String())
+	if err != nil {
+		return "", err
+	}
+	baseRevision, err := repository.ResolveRevision(ctx, identity, base.String())
+	if err != nil {
+		return "", err
+	}
+	if localRevision == baseRevision {
+		return port.FastForwardAlreadyCurrent, nil
+	}
+	ancestor, err := repository.canFastForward(ctx, identity, localRevision, baseRevision)
+	if err != nil {
+		return "", err
+	}
+	if !ancestor {
+		return port.FastForwardDiverged, nil
+	}
+	result := repository.invoke(
+		ctx,
+		identity.Root,
+		nil,
+		"update-ref",
+		"refs/heads/"+name.String(),
+		baseRevision,
+		localRevision,
+	)
+	if result.err != nil {
+		return "", repository.commandProblem(problem.CodeGitCommandFailed, identity, "fast-forward the local branch reference to its fetched base", result)
+	}
+	return port.FastForwardUpdated, nil
+}
+
+// invalidFastForwardBase is the single rejection of a non remote-tracking
+// fast-forward base shared by both guarded fast-forward capabilities.
+func invalidFastForwardBase(base branch.TargetBase, remote string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeBranchBaseInvalid,
+		Category:    problem.CategoryRepository,
+		Field:       "target base",
+		Actual:      base.String(),
+		Expected:    "a remote-tracking target base",
+		Rule:        "a guarded fast-forward updates a local branch only from its fetched remote-tracking reference",
+		Example:     remote + "/develop",
+		Remediation: "fetch the selected remote and target the fetched remote-tracking base",
+	})
 }
 
 // canFastForward reports whether the local revision is an ancestor of the
@@ -1446,3 +1535,5 @@ var _ port.RevisionResolver = (*Repository)(nil)
 var _ port.FinalQualityEvidenceStore = (*Repository)(nil)
 var _ port.MergeContinuator = (*Repository)(nil)
 var _ port.ActiveMergeTargetInspector = (*Repository)(nil)
+var _ port.LocalBranchLister = (*Repository)(nil)
+var _ port.BranchReferenceFastForwarder = (*Repository)(nil)

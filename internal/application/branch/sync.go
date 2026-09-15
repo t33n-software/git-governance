@@ -736,7 +736,7 @@ func unsupportedSyncFamily(name branch.BranchName) error {
 		Expected:    "an official working branch",
 		Rule:        "base synchronization is defined for official published or unpublished working branches",
 		Example:     "feature/ABC-123-add-export-button",
-		Remediation: "use the matching workflow for release, support, hotfix, or scratch work",
+		Remediation: "refresh a local shared-line checkout with branch refresh-shared-lines; use the matching workflow for release, support, hotfix, or scratch work",
 	})
 }
 
