@@ -137,7 +137,7 @@ func TestGitCLIAdapterAgainstLocalRepositories(t *testing.T) {
 		t.Fatalf("CommitMessagesSince() = (%q, %v)", messages, err)
 	}
 
-	advanceRemoteDevelop(t, remote, "upstream-one.txt", "one")
+	advanceRemoteLine(t, remote, "develop", "upstream-one.txt", "one")
 	if err := adapter.Fetch(ctx, identity); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestGitCLIAdapterAgainstLocalRepositories(t *testing.T) {
 	if err := adapter.Commit(ctx, identity, mustMessage(t, "fix(ABC-124): add rebase coverage")); err != nil {
 		t.Fatal(err)
 	}
-	advanceRemoteDevelop(t, remote, "upstream-two.txt", "two")
+	advanceRemoteLine(t, remote, "develop", "upstream-two.txt", "two")
 	if err := adapter.Fetch(ctx, identity); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestGitCLIAdapterContinuesAResolvedRebase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	advanceRemoteDevelop(t, remote, "conflict.txt", "remote change")
+	advanceRemoteLine(t, remote, "develop", "conflict.txt", "remote change")
 	if err := adapter.Fetch(ctx, identity); err != nil {
 		t.Fatal(err)
 	}
@@ -313,6 +313,70 @@ func TestGitCLIAdapterContinuesAResolvedRebase(t *testing.T) {
 	current, err := adapter.CurrentBranch(ctx, identity)
 	if err != nil || current != working {
 		t.Fatalf("CurrentBranch() after continuation = (%q, %v)", current.String(), err)
+	}
+}
+
+func TestGitCLIAdapterRefreshesSharedLineCheckouts(t *testing.T) {
+	t.Parallel()
+
+	local, remote := setupRepository(t)
+	adapter := gitcli.New(gitcli.Options{Timeout: 10 * time.Second})
+	ctx := context.Background()
+	identity, err := adapter.Discover(ctx, local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity.Remote = "origin"
+
+	current, err := adapter.CurrentBranch(ctx, identity)
+	if err != nil || current.String() != "develop" {
+		t.Fatalf("CurrentBranch() = (%q, %v)", current.String(), err)
+	}
+
+	advanceRemoteLine(t, remote, "develop", "refresh-develop.txt", "advance develop")
+	advanceRemoteLine(t, remote, "main", "refresh-main.txt", "advance main")
+
+	refresher := branchapp.NewSharedLineRefresher(adapter)
+	result, err := refresher.Refresh(ctx, branchapp.RefreshSharedLinesRequest{Repository: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Fetched || len(result.Lines) != 2 {
+		t.Fatalf("Refresh() = %#v", result)
+	}
+	for _, line := range result.Lines {
+		if line.Outcome != port.FastForwardUpdated {
+			t.Fatalf("line %q outcome = %q, want updated", line.Name.String(), line.Outcome)
+		}
+	}
+	if head := strings.TrimSpace(runGit(t, local, "rev-parse", "develop")); head != strings.TrimSpace(runGit(t, local, "rev-parse", "origin/develop")) {
+		t.Fatalf("develop was not fast-forwarded: %q", head)
+	}
+	if head := strings.TrimSpace(runGit(t, local, "rev-parse", "refs/heads/main")); head != strings.TrimSpace(runGit(t, local, "rev-parse", "origin/main")) {
+		t.Fatalf("main reference was not fast-forwarded: %q", head)
+	}
+	if current, err := adapter.CurrentBranch(ctx, identity); err != nil || current.String() != "develop" {
+		t.Fatalf("the refresh must never switch the checkout: (%q, %v)", current.String(), err)
+	}
+
+	// The repeated run is idempotent: every line reports already-current.
+	result, err = refresher.Refresh(ctx, branchapp.RefreshSharedLinesRequest{Repository: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range result.Lines {
+		if line.Outcome != port.FastForwardAlreadyCurrent {
+			t.Fatalf("repeated line %q outcome = %q, want already-current", line.Name.String(), line.Outcome)
+		}
+	}
+
+	// The dry run plans without fetching or mutating.
+	dryRun, err := refresher.Refresh(ctx, branchapp.RefreshSharedLinesRequest{Repository: identity, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dryRun.DryRun || dryRun.Fetched || len(dryRun.Plan) != 2 {
+		t.Fatalf("dry-run Refresh() = %#v", dryRun)
 	}
 }
 
@@ -348,17 +412,17 @@ func canonicalRepositoryPath(t *testing.T, path string) string {
 	return filepath.Clean(resolved)
 }
 
-func advanceRemoteDevelop(t *testing.T, remote, fileName, contents string) {
+func advanceRemoteLine(t *testing.T, remote, line, fileName, contents string) {
 	t.Helper()
 
 	other := filepath.Join(t.TempDir(), "other")
 	runGit(t, filepath.Dir(other), "clone", remote, other)
 	configureGitIdentity(t, other)
-	runGit(t, other, "switch", "develop")
+	runGit(t, other, "switch", line)
 	writeFile(t, filepath.Join(other, fileName), contents+"\n")
 	runGit(t, other, "add", "--", fileName)
-	runGit(t, other, "commit", "-m", "chore(ABC-1): advance develop")
-	runGit(t, other, "push", "origin", "develop")
+	runGit(t, other, "commit", "-m", "chore(ABC-1): advance "+line)
+	runGit(t, other, "push", "origin", line)
 }
 
 func configureGitIdentity(t *testing.T, directory string) {

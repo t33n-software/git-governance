@@ -177,6 +177,30 @@ type BranchFastForwarder interface {
 	) (FastForwardOutcome, error)
 }
 
+// LocalBranchLister is an optional capability for adapters that can enumerate
+// the local canonical branches of a repository. Keeping it separate avoids
+// forcing unrelated Git adapters and test fakes to implement a read they never
+// invoke.
+type LocalBranchLister interface {
+	LocalBranches(ctx context.Context, repository RepositoryIdentity) ([]branch.BranchName, error)
+}
+
+// BranchReferenceFastForwarder is an optional capability for adapters that can
+// advance a local branch reference to its fetched remote-tracking base when —
+// and only when — that update is a fast-forward. The caller owns the
+// preconditions: the branch exists locally and is not checked out in any
+// worktree, so the pinned reference update never touches a working tree. A
+// diverged branch is reported, never forced, and never produces a merge
+// commit.
+type BranchReferenceFastForwarder interface {
+	FastForwardBranchReference(
+		ctx context.Context,
+		repository RepositoryIdentity,
+		name branch.BranchName,
+		base branch.TargetBase,
+	) (FastForwardOutcome, error)
+}
+
 // KeyPolicy validates a syntactically valid key against the active local
 // policy. The first implementation only checks syntax; a bundle adapter can
 // add repository authorization later.

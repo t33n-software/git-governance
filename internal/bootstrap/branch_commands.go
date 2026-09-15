@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -23,6 +24,7 @@ func newBranchCommand(application *application) *cobra.Command {
 		newBranchCreateCommand(application),
 		newScratchMergeCommand(application),
 		newBranchSyncBaseCommand(application),
+		newBranchRefreshSharedLinesCommand(application),
 	)
 	return command
 }
@@ -434,6 +436,125 @@ func syncBaseBranchNotCurrent(current, requested branch.BranchName) error {
 		Example:     "git governance branch sync-base --strategy merge",
 		Remediation: "switch to the requested branch before running branch sync-base",
 	})
+}
+
+// newBranchRefreshSharedLinesCommand binds the on-demand, fail-closed
+// fast-forward refresh of local shared-line checkouts. The command never
+// pushes, never switches the checkout, and never creates a missing line.
+func newBranchRefreshSharedLinesCommand(application *application) *cobra.Command {
+	var linesRaw []string
+	command := &cobra.Command{
+		Use:   "refresh-shared-lines",
+		Short: "Fast-forward local shared-line checkouts to their fetched remote-tracking references",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			lines, err := parseSharedLineSelection(linesRaw)
+			if err != nil {
+				return err
+			}
+			for _, line := range lines {
+				inputs.add("shared line", line.String())
+			}
+			if err := application.confirmMutation(
+				command.Context(),
+				"Refresh shared lines",
+				"Fast-forward local shared-line checkouts to their fetched remote-tracking references?",
+			); err != nil {
+				return err
+			}
+			result, err := services.refreshSharedLines.Refresh(command.Context(), branchapp.RefreshSharedLinesRequest{
+				Repository: repository,
+				Lines:      lines,
+				DryRun:     application.options.dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			report := port.Report{
+				Operation: "branch.refresh-shared-lines",
+				Summary: application.withInteractiveFetchSummary(
+					sharedLineRefreshSummary(result),
+					repository.Remote,
+					result.Fetched,
+				),
+				Fields: sharedLineRefreshFields(result),
+			}
+			if len(result.Lines) > 0 {
+				report.Data = sharedLineRefreshData(result)
+			}
+			return application.report(command, report)
+		}),
+	}
+	registerSharedLineFlag(command, &linesRaw, "to refresh; repeatable; defaults to every local shared-line checkout")
+	return command
+}
+
+// parseSharedLineSelection parses every explicitly supplied shared-line value;
+// the shared-line family guard itself is enforced fail-closed by the use case.
+func parseSharedLineSelection(raw []string) ([]branch.BranchName, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	lines := make([]branch.BranchName, 0, len(raw))
+	for _, value := range raw {
+		name, err := branch.ParseName(value)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, name)
+	}
+	return lines, nil
+}
+
+func sharedLineRefreshSummary(result branchapp.RefreshSharedLinesResult) string {
+	if result.DryRun {
+		return "Shared-line refresh plan generated."
+	}
+	if len(result.Lines) == 0 {
+		return "No local shared-line checkouts to refresh."
+	}
+	return "Local shared-line checkouts refreshed."
+}
+
+func sharedLineRefreshFields(result branchapp.RefreshSharedLinesResult) map[string]string {
+	fields := map[string]string{
+		"dryRun": boolString(result.DryRun),
+		"lines":  strconv.Itoa(len(result.Lines)),
+	}
+	if len(result.Plan) > 0 {
+		fields["plan"] = planText(result.Plan)
+	}
+	for _, line := range result.Lines {
+		fields["line "+line.Name.String()] = string(line.Outcome)
+	}
+	return fields
+}
+
+// sharedLineRefreshReport is the machine-readable projection of one refreshed
+// line; the report boundary maps the domain types to their stable string form.
+type sharedLineRefreshReport struct {
+	Name    string `json:"name"`
+	Base    string `json:"base"`
+	Outcome string `json:"outcome"`
+}
+
+func sharedLineRefreshData(result branchapp.RefreshSharedLinesResult) []sharedLineRefreshReport {
+	if len(result.Lines) == 0 {
+		return nil
+	}
+	data := make([]sharedLineRefreshReport, 0, len(result.Lines))
+	for _, line := range result.Lines {
+		data = append(data, sharedLineRefreshReport{
+			Name:    line.Name.String(),
+			Base:    line.Base.String(),
+			Outcome: string(line.Outcome),
+		})
+	}
+	return data
 }
 
 func branchCreationSummary(result branchapp.CreateResult) string {

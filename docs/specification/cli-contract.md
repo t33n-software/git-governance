@@ -464,7 +464,48 @@ paused operation in a governed manner. In `workflow ticket publish`, the same
 state is additionally presented as a retry step: after resolution and staging,
 retry resumes the existing rebase.
 
-## 10. `commit create`
+## 10. `branch refresh-shared-lines`
+
+```text
+git governance branch refresh-shared-lines [--line <shared-line>]...
+```
+
+Refreshes local shared-line checkouts against their fetched remote-tracking
+references. A lagging local checkout of a shared line is an expected and
+harmless state in the governed flow, because every freshness decision binds to
+the fetched remote base. Some downstream consumers, however, read the local
+tree directly and therefore need an explicit, governed freshness point. This
+endpoint is that point: on demand, fail-closed, and without any remote
+mutation.
+
+Behavior:
+
+- The target set is every locally present shared-line checkout (`main`,
+  `develop`, `release/<semver>`, `support/<major.minor>`), or exactly the
+  repeatable `--line` selection. Each selected value must parse as a shared
+  line and exist locally; the command never creates a missing line.
+- `git fetch --prune <remote>` runs first, so every decision binds to the
+  freshly fetched remote-tracking references.
+- The command refuses to run while a merge, rebase, or cherry-pick is in
+  progress, and it requires a clean worktree when the checked-out branch is
+  one of the targets.
+- A checked-out target advances through `git merge --ff-only`; every other
+  target advances through an atomic reference update pinned to the resolved
+  local revision, so a concurrent ref move rejects the write instead of
+  silently losing it.
+- Every line reports `updated`, `already-current`, or `diverged`. A diverged
+  line is left untouched and fails the run closed with the named line; the
+  already refreshed lines of the same run stay observable in the error
+  context.
+- The command never pushes, never switches the checkout, never creates a
+  merge commit, and never forces.
+
+`--dry-run` validates the target set against the last fetched state and shows
+the plan without fetching or mutating. Server-side controller compositions
+never run this command: their ephemeral checkouts carry no local shared-line
+state to refresh.
+
+## 11. `commit create`
 
 ### 8.1 Options
 
@@ -539,7 +580,7 @@ would in principle be permissible per the reference governance, but it is not
 a necessary product use case. After the first push, amend is forbidden as a
 routine. Force push is offered by no command.
 
-## 11. `commit validate`
+## 12. `commit validate`
 
 ```text
 git governance commit validate --message-file <path>
@@ -562,7 +603,7 @@ Checks:
 For `commit-msg`, `--message-file` is always used. The file is read bounded;
 NUL and inadmissible control characters are rejected.
 
-## 12. `workflow ticket start`
+## 13. `workflow ticket start`
 
 ### 10.1 Purpose
 
@@ -606,7 +647,7 @@ working branch. Transfer stable results later in a controlled manner via
 squash or cherry-pick into the official ticket branch.
 ```
 
-## 13. `workflow ticket publish`
+## 14. `workflow ticket publish`
 
 This command is called after development and local tests. It is not an
 automatically continuing part of `ticket start`.
@@ -695,7 +736,7 @@ git governance --interactive never --yes workflow ticket publish \
 On `scratch/*`, the original `--type`/`--subject` and `--commit-body` inputs
 remain required; with ambiguity, `--target` remains mandatory.
 
-## 14. `workflow hotfix start`
+## 15. `workflow hotfix start`
 
 Mandatory options:
 
@@ -805,7 +846,7 @@ ephemeral checkout after the created pull request; the post-publication
 transition to `develop` (see `workflow ticket publish`) is a local operator
 behavior only.
 
-## 15. Release commands
+## 16. Release commands
 
 ### 13.1 `workflow release cut`
 
@@ -1028,7 +1069,7 @@ workflow base metadata. Official ticket, hotfix, release, and support branches
 are no local CLI cleanup targets. The command does not claim to be able to
 prove a hosting merge or forward/backport completion.
 
-## 16. `validate pre-push`
+## 17. `validate pre-push`
 
 This command is the Lefthook and manual pre-push surface.
 
@@ -1054,7 +1095,7 @@ The validator never executes a rebase or merge itself. If a matching final
 proof is missing, the configured full suite runs as the local raw-push
 fallback. It blocks with a concrete, policy-compliant instruction.
 
-## 17. Configuration commands
+## 18. Configuration commands
 
 ```text
 git governance config key add PLATFORM2
@@ -1071,7 +1112,7 @@ Rules:
 - ticket numbers are not stored as a global default
 - commits derive the ticket from the current branch
 
-## 18. `policy describe`
+## 19. `policy describe`
 
 Outputs the active executable policy versioned:
 
@@ -1092,7 +1133,7 @@ Included are:
 Documentation and conformance tests use this output so that no second regex
 truth arises in hooks or examples.
 
-## 19. `doctor`
+## 20. `doctor`
 
 Read-only diagnostics:
 
@@ -1119,7 +1160,7 @@ API sessions remain separate from this and are checked through
 `doctor` installs, repairs, or mutates nothing without a separate explicit
 command.
 
-## 20. Human and JSON output
+## 21. Human and JSON output
 
 ### 19.1 Human
 
@@ -1178,7 +1219,7 @@ How to fix it:
 JSON field names and exit codes are public contracts and are versioned
 compatibly.
 
-## 21. Internal composition
+## 22. Internal composition
 
 Delivery adapters collect inputs and produce commands. Workflows call
 application services directly:
@@ -1202,7 +1243,7 @@ workflow command
 
 Only external consumers and automation use the CLI surface.
 
-## 22. Adoption from the previous tool
+## 23. Adoption from the previous tool
 
 | Existing capability | Target decision |
 |---|---|

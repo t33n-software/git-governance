@@ -64,7 +64,7 @@ does not rely on any external governance repository or unpublished rule set.
 
 | Command area | Status | Notes |
 |---|---|---|
-| `branch list`, `validate`, `create`, `merge-scratch`, `sync-base` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, structured-only commit composition with the mandatory scratch-transfer body, and the governed `sync-base --resume` continuation of conflicted rebase and merge synchronizations |
+| `branch list`, `validate`, `create`, `merge-scratch`, `sync-base`, `refresh-shared-lines` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, structured-only commit composition with the mandatory scratch-transfer body, and the governed `sync-base --resume` continuation of conflicted rebase and merge synchronizations; `refresh-shared-lines` fast-forwards local shared-line checkouts fail-closed against their fetched remote-tracking references and reports per-line outcomes without ever pushing, switching the checkout, creating a merge commit, or forcing |
 | `commit create`, `validate` | IMPLEMENTED | explicit staging, branch-derived ticket context, explicit family selection, the envelope-free subject, and the machine-known body duty are enforced |
 | `workflow ticket start` | IMPLEMENTED | optional scratch branch and provider-neutral PR intent |
 | `workflow ticket publish` | IMPLEMENTED | reports conditional rebase state, runs final local quality only after synchronization, records revision-bound local Git metadata, resumes resolved rebase and scratch-transfer conflicts interactively or with `--resume`, creates a PR only through an explicit configured provider with the mandatory canonically structured description, and returns the local workspace to `develop` after a created pull request |
@@ -91,6 +91,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Rule | Status | Behavior |
 |---|---|---|
 | Regular work starts from `origin/develop` | VERIFIED | direct remote base, no local `develop` checkout/pull required |
+| On-demand local shared-line refresh | VERIFIED | `branch refresh-shared-lines` fast-forwards every locally present or explicitly selected shared-line checkout fail-closed: fetch first, no in-progress Git operation, a clean worktree for a checked-out target, per-line `updated`/`already-current`/`diverged` outcomes, and a fail-closed named reason for any diverged line; same-package whitebox tests, CLI contract tests, and a real local Git integration test cover both the checked-out and the reference update paths |
 | Hotfix starts from actual affected line | VERIFIED | only `main`, `release/*`, or `support/*` accepted |
 | Hotfix PR targets actual affected line | IMPLEMENTED | hotfix publish requires and uses the affected main/release/support line |
 | Specialized workflow base metadata | VERIFIED | local Git metadata records hotfix, stabilization, and propagation bases for later sync and pre-push validation |

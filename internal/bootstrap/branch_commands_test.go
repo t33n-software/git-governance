@@ -30,7 +30,7 @@ func TestBranchCommandTreeAndListReportContracts(t *testing.T) {
 	for _, child := range command.Commands() {
 		children[child.Name()] = true
 	}
-	for _, expected := range []string{"list", "validate", "create", "merge-scratch", "sync-base"} {
+	for _, expected := range []string{"list", "validate", "create", "merge-scratch", "sync-base", "refresh-shared-lines"} {
 		if !children[expected] {
 			t.Fatalf("branch command children = %#v, missing %q", children, expected)
 		}
@@ -1304,6 +1304,15 @@ type branchCommandGit struct {
 	switchedBranches  []branch.BranchName
 	squashedBranches  []branch.BranchName
 	committedMessages []commitmsg.Message
+
+	localBranchList    []branch.BranchName
+	localBranchListErr error
+	ffOutcome          port.FastForwardOutcome
+	ffErr              error
+	ffCalls            []string
+	ffReferenceOutcome port.FastForwardOutcome
+	ffReferenceErr     error
+	ffReferenceCalls   []string
 }
 
 func newBranchCommandGit(t *testing.T, current string) *branchCommandGit {
@@ -1570,6 +1579,38 @@ func (git *branchCommandGit) Push(
 	}
 	git.pushes = append(git.pushes, name)
 	return nil
+}
+
+func (git *branchCommandGit) LocalBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
+	if git.localBranchListErr != nil {
+		return nil, git.localBranchListErr
+	}
+	if git.localBranchList != nil {
+		return append([]branch.BranchName(nil), git.localBranchList...), nil
+	}
+	return []branch.BranchName{git.current}, nil
+}
+
+func (git *branchCommandGit) FastForwardBranch(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName, _ branch.TargetBase) (port.FastForwardOutcome, error) {
+	git.ffCalls = append(git.ffCalls, name.String())
+	if git.ffErr != nil {
+		return "", git.ffErr
+	}
+	if git.ffOutcome != "" {
+		return git.ffOutcome, nil
+	}
+	return port.FastForwardUpdated, nil
+}
+
+func (git *branchCommandGit) FastForwardBranchReference(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName, _ branch.TargetBase) (port.FastForwardOutcome, error) {
+	git.ffReferenceCalls = append(git.ffReferenceCalls, name.String())
+	if git.ffReferenceErr != nil {
+		return "", git.ffReferenceErr
+	}
+	if git.ffReferenceOutcome != "" {
+		return git.ffReferenceOutcome, nil
+	}
+	return port.FastForwardUpdated, nil
 }
 
 var _ port.GitRepository = (*branchCommandGit)(nil)

@@ -207,8 +207,8 @@ func TestServicesWireDependenciesAndQualityFallback(t *testing.T) {
 	}, options)
 
 	services := application.services()
-	if services.git != git || services.branches == nil || services.sync == nil || services.commits == nil ||
-		services.tickets == nil || services.releases == nil || services.preferences == nil || services.doctor == nil {
+	if services.git != git || services.branches == nil || services.sync == nil || services.refreshSharedLines == nil ||
+		services.commits == nil || services.tickets == nil || services.releases == nil || services.preferences == nil || services.doctor == nil {
 		t.Fatal("services did not construct the complete application graph")
 	}
 	if gitTimeout != options.timeout || storePath != options.config {

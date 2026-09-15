@@ -36,7 +36,8 @@ answers for every endpoint, and why it deliberately carries no option list.
 The core contains an endpoint registry for:
 
 ```text
-branch validation, synchronization, and governed synchronization resume
+branch validation, synchronization, governed synchronization resume, and the
+on-demand shared-line refresh of local checkouts
 commit creation and validation
 ticket start and publication
 hotfix start, record validation, delivery verification and propagation

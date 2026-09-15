@@ -69,17 +69,18 @@ type application struct {
 }
 
 type services struct {
-	git         port.GitRepository
-	branches    *branchapp.Service
-	sync        *branchapp.Synchronizer
-	scratch     *branchapp.ScratchMerger
-	commits     *commitapp.Service
-	tickets     *workflow.TicketService
-	releases    *workflow.ReleaseService
-	lifecycle   port.ReleaseLifecycleProvider
-	preferences *policy.PreferencesService
-	doctor      *policy.DoctorService
-	githubAuth  github.AuthProvider
+	git                port.GitRepository
+	branches           *branchapp.Service
+	sync               *branchapp.Synchronizer
+	refreshSharedLines *branchapp.SharedLineRefresher
+	scratch            *branchapp.ScratchMerger
+	commits            *commitapp.Service
+	tickets            *workflow.TicketService
+	releases           *workflow.ReleaseService
+	lifecycle          port.ReleaseLifecycleProvider
+	preferences        *policy.PreferencesService
+	doctor             *policy.DoctorService
+	githubAuth         github.AuthProvider
 }
 
 func defaultRuntime() Runtime {
@@ -243,17 +244,18 @@ func (application *application) services() services {
 		WithProtectedLineRequestProvider(protectedRequests)
 	policyInspector, _ := application.runtime.KeyPolicy.(port.PolicyInspector)
 	return services{
-		git:         git,
-		branches:    branches,
-		sync:        sync,
-		scratch:     scratch,
-		commits:     commits,
-		tickets:     tickets,
-		releases:    releases,
-		lifecycle:   lifecycle,
-		preferences: policy.NewPreferencesService(store),
-		doctor:      policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
-		githubAuth:  githubAuth,
+		git:                git,
+		branches:           branches,
+		sync:               sync,
+		refreshSharedLines: branchapp.NewSharedLineRefresher(git),
+		scratch:            scratch,
+		commits:            commits,
+		tickets:            tickets,
+		releases:           releases,
+		lifecycle:          lifecycle,
+		preferences:        policy.NewPreferencesService(store),
+		doctor:             policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
+		githubAuth:         githubAuth,
 	}
 }
 

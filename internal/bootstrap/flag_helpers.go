@@ -154,6 +154,12 @@ func registerManifestTargetLineFlag(command *cobra.Command, target *string) {
 	registerValueDomainFlag(command, target, "target-line", "", cliparam.ManifestTargetLine(), "")
 }
 
+// registerSharedLineFlag binds the repeatable shared-line selector of the
+// refresh endpoint (shaped; the full shared-line set).
+func registerSharedLineFlag(command *cobra.Command, target *[]string, context string) {
+	registerValueDomainSliceFlag(command, target, "line", cliparam.PropagationTargetLine().WithLead("shared line"), context)
+}
+
 // registerTicketKeyFlag binds the ticket key flag (free-constrained).
 func registerTicketKeyFlag(command *cobra.Command, target *string) {
 	registerValueDomainFlag(command, target, "key", "", cliparam.TicketKey(), "")
