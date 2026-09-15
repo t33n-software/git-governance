@@ -19,11 +19,18 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
+// integrationGitTimeout gives every single Git command enough headroom to
+// survive the heavy parallel load of the full quality gate (race detector,
+// fuzzing, concurrent builds, antivirus scanning on Windows) without masking
+// genuine hangs. It aligns with the two-minute timeouts the repository's own
+// quality gate grants its commands.
+const integrationGitTimeout = 2 * time.Minute
+
 func TestGitCLIAdapterAgainstLocalRepositories(t *testing.T) {
 	t.Parallel()
 
 	local, remote := setupRepository(t)
-	adapter := gitcli.New(gitcli.Options{Timeout: 10 * time.Second})
+	adapter := gitcli.New(gitcli.Options{Timeout: integrationGitTimeout})
 	ctx := context.Background()
 
 	identity, err := adapter.Discover(ctx, local)
@@ -182,7 +189,7 @@ func TestScratchSquashMergeAgainstLocalRepository(t *testing.T) {
 	t.Parallel()
 
 	local, _ := setupRepository(t)
-	adapter := gitcli.New(gitcli.Options{Timeout: 10 * time.Second})
+	adapter := gitcli.New(gitcli.Options{Timeout: integrationGitTimeout})
 	ctx := context.Background()
 	identity, err := adapter.Discover(ctx, local)
 	if err != nil {
@@ -253,7 +260,7 @@ func TestGitCLIAdapterContinuesAResolvedRebase(t *testing.T) {
 	t.Parallel()
 
 	local, remote := setupRepository(t)
-	adapter := gitcli.New(gitcli.Options{Timeout: 10 * time.Second})
+	adapter := gitcli.New(gitcli.Options{Timeout: integrationGitTimeout})
 	ctx := context.Background()
 	identity, err := adapter.Discover(ctx, local)
 	if err != nil {
@@ -320,7 +327,7 @@ func TestGitCLIAdapterRefreshesSharedLineCheckouts(t *testing.T) {
 	t.Parallel()
 
 	local, remote := setupRepository(t)
-	adapter := gitcli.New(gitcli.Options{Timeout: 10 * time.Second})
+	adapter := gitcli.New(gitcli.Options{Timeout: integrationGitTimeout})
 	ctx := context.Background()
 	identity, err := adapter.Discover(ctx, local)
 	if err != nil {
