@@ -23,7 +23,13 @@ ersetzt keine solche Regel und erfindet keine Tool-Fähigkeit.
    Limits oder projektspezifischen Quality-Kommandos.
 3. Ein Adapter darf ausschließlich die Binary-Auflösung oder den
    Transportmechanismus festlegen. Er darf weder Endpunktsemantik noch
-   Governance-Reihenfolge abschwächen oder verändern.
+   Governance-Reihenfolge abschwächen oder verändern. Einzige Ausnahme ist
+   die Aktivierungs-Triage aus [3.0]: Ein Adapter darf die Kern-Ladung für
+   einen Turn nur dann aufschieben, wenn dieser Turn nach den fail-safe
+   Regeln des Turn-Intent-Gates eindeutig eine Frage ohne Änderungsabsicht
+   ist. Jeder Zweifel erzwingt die vollständige Initialisierung, und der
+   Kern bindet die Klassifizierung beim ersten aufgabenführenden Turn
+   autoritativ nach.
 4. Sichtbare lokale Interfaces, Signaturen, Schemas oder bestehende
    Dokumentation sind Impact-Evidenz. Sie sind keine eigenständige
    Architekturautorität, solange der Auftrag keine explizite Vertragsangleichung
@@ -91,6 +97,7 @@ zwingend ein eigenes, von allen anderen Bereichen unterscheidbares Symbol.
 | ⚠️ | Konflikt-Recovery | `PAUSED_CONFLICT`, Konfliktanalyse und -Resolution, governeter Resume-Pfad |
 | 🚧 | Warten & Blockiert | `WAITING_FOR_*`, `BLOCKED`, ausstehende Benutzer- oder externe Entscheidungen |
 | 🏁 | Abschluss & Aufräumen | `COMPLETE`, Abschlussantwort, `workflow cleanup` |
+| ❓ / ▶️ | Turn-Intent & Modus-Gate | Turn-Intent-Klassifizierung, Question-Mode-Eintritt (❓), Task-Mode-Eintritt und Workflow-Start (▶️), verzögerte Initialisierung |
 
 Verbindliche Ableitungsregeln:
 
@@ -106,6 +113,10 @@ Verbindliche Ableitungsregeln:
    vollständigen Prompt-Inhalt, vertrauliche Werte oder umfangreiche
    Tool-Payloads aus. Audit-Datensätze dokumentieren nur Inputs, Quelle,
    Ergebnis, Vertrauen und Gate-Status.
+5. Das Turn-Intent & Modus-Gate besitzt zwei zustandsgebundene Symbole:
+   ❓ für den Eintritt in den Question-Mode und ▶️ für den Eintritt in den
+   Task-Mode beziehungsweise den Workflow-Start. Beide werden nur beim
+   Modus-Eintritt oder -Übergang ausgegeben, niemals turn-weise wiederholt.
 
 ### 0.4 Vollständigkeits- und Fail-Closed-Regel
 
@@ -158,7 +169,8 @@ für den passenden governeten Workflow.
 ### 2.1 Zustandsautomat
 
 ```text
-BRANCH_CONTEXT_CHECK
+TURN_INTENT_CLASSIFICATION
+-> BRANCH_CONTEXT_CHECK
 -> SHARED_LINE_GUARD
 -> ENVIRONMENT_READY
 -> INTAKE_READY
@@ -175,6 +187,8 @@ BRANCH_CONTEXT_CHECK
 Ausnahmezustände:
 
 ```text
+QUESTION_MODE
+WAITING_FOR_INTENT_DECISION
 WAITING_FOR_BRANCH_DECISION
 WAITING_FOR_TICKET
 WAITING_FOR_USER_DECISION
@@ -197,6 +211,10 @@ Der Agent führt diese Zustandsflächen jederzeit explizit:
 - execution_level = workflow | command | raw_git | none
 - ticket_binding = user_provided | confirmed_proposal | missing
 - provider_session_state = not_required | unverified | verified | unavailable
+- turn_intent_mode = unbound | question | task | ambiguous_pending
+- workflow_initialization_state = deferred | in_progress | completed
+- active_task_scope = none | bound
+- mode_notice_emitted = none | question | task
 ```
 
 `mutation_embargo = active` ist der Initialzustand nach
@@ -238,6 +256,8 @@ Der Agent führt mindestens diese Nachweise als explizite Arbeitsoberfläche:
 - publication_verified
 - pr_description_verified
 - pull_request_url
+- turn_intent_classified
+- mode_transition_recorded
 ```
 
 Zusatznachweise, nur bei Betroffenheit:
@@ -250,6 +270,7 @@ Zusatznachweise, nur bei Betroffenheit:
 - ticket_binding_confirmed          (Benutzer hat Vorschlag oder Ersatzwerte bestätigt)
 - provider_session_verified         (Aufgabenmuster mit Provider-Publikation; genau einmal pro Scope)
 - current_branch_pr_state_checked   (Start auf einer official_working Branch)
+- deferred_initialization_completed (erster aufgabenführender Turn nach einer Fragephase)
 ```
 
 Für Release- und Hotfix-Wege ergänzt der Agent nur bei Betroffenheit:
@@ -277,6 +298,86 @@ Scope exakt passt; `branch_context_checked` ist niemals Ersatz für
 
 ## [3] INITIALISIERUNG UND BRANCH-KONTEXT
 [INTENT: ANWEISUNG]
+
+### 3.0 Turn-Intent-Gate vor jeder Initialisierung
+
+Vor jeder Branch-Prüfung, Umgebungsdiagnose und jedem Intake klassifiziert
+der Agent jeden neuen Benutzer-Turn verbindlich: Trägt der Turn einen
+Arbeitsauftrag, der in eine Git-Wirkung mündet, oder ist er eine Frage
+ohne Änderungsabsicht? Das Gate entscheidet, ob die Workflow-Maschinerie
+für diesen Turn überhaupt aktiviert wird. Es ist die einzige Stelle, an
+der über den Workflow-Eintritt entschieden wird.
+
+#### 3.0.1 Multi-Decision-Matrix: Turn-Intent
+
+Der Agent berechnet den Task-Intent-Score von 0 bis 100 aus diesen
+gewichteten Achsen:
+
+| Achse | Gewicht | Hoher Score bedeutet |
+|---|---|---|
+| Mutations-Imperativ, an ein Repo-Artefakt gebunden (erstelle, ändere, lösche, implementiere, behebe, erweitere) | 30 | expliziter Änderungsauftrag |
+| Workflow-Domänen-Vokabular (Ticket, Branch, Commit, Pull Request, Release, Hotfix, Publish, Workflow starten) | 25 | Git-Governance-Aufgaben-Domäne |
+| Imperative Direktive (Second-Person-Befehl statt Interrogativ) | 15 | Befehl, nicht Anfrage |
+| Konkrete Mutations-Zielbindung (Ticket-ID, Branch oder zu ändernde Dateien benannt) | 15 | konkretes Mutationsziel |
+| Sessions-Kontinuations-Trigger (jetzt umsetzen, Implementierung starten — nach einer Fragephase) | 15 | Implementierungs-Trigger |
+
+Negative Evidenz senkt den Score: Interrogativpronomen (was, wie, warum,
+erkläre, zeige), ein abschließendes Fragezeichen, Meta-Fragen über den
+Workflow selbst und das Fehlen jedes Mutations-Verbs.
+
+| Score | Bindung | Aktion |
+|---|---|---|
+| 80–100 | `task` | vollständiger Workflow-Pfad ab `BRANCH_CONTEXT_CHECK` |
+| 55–79 | `ambiguous_pending` | genau eine kurze Klärungsfrage; weder Workflow-Start noch inhaltliche Antwort vor der Antwort des Benutzers |
+| 0–54 | `question` | direkte Antwort; der Workflow bleibt dormant |
+
+Die Klassifizierung ist evidenzbasiert aus der Matrix abzuleiten, niemals
+aus einer gefühlten Frage-Ähnlichkeit. Jede Mutations-Imperativ-Evidenz
+erzwingt mindestens `ambiguous_pending`.
+
+#### 3.0.2 Question-Mode
+
+Im Question-Mode bleibt der Workflow dormant: keine Branch-Prüfung, keine
+Umgebungsdiagnose, kein Intake, keine Help-first-Kaskade und keine
+Initialisierung. Erlaubt sind die reine Textantwort und read-only
+Orientierung (Status, Historie, Datei-Lektüre, Suche), soweit die Frage
+sie benötigt. Verboten sind jede Mutation, jedes Staging, jeder Commit,
+jede Branch-Operation und jeder Workflow-Dispatch. Der Question-Mode ist
+fail-closed: Eine als Frage fehlklassifizierte Aufgabe kann niemals eine
+ungoverned Mutation erzeugen, sondern nur einen verzögerten Start.
+
+Der Eintritt in den Question-Mode wird genau einmal mit dem Symbol ❓
+signalisiert; solange der Modus bestehen bleibt, wird das Symbol nicht
+wiederholt.
+
+#### 3.0.3 Transition in den Task-Mode
+
+Erreicht ein späterer Turn das Band `task`, oder bestätigt der Benutzer
+nach `ambiguous_pending` den Arbeitsauftrag, wechselt der Modus einmalig
+mit dem Symbol ▶️ in den Task-Mode. Der Übergang holt die aufgeschobene
+Initialisierung vollständig und ohne Abkürzung nach: Adapter-Initialisierung,
+soweit ausstehend, dann der Zustandsautomat ab `BRANCH_CONTEXT_CHECK`. Der
+Nachweis `deferred_initialization_completed` ist Voraussetzung für jeden
+späteren Übergang. Eine Frage-Antwort-Phase ist niemals Ersatz für einen
+Initialisierungs-Nachweis.
+
+#### 3.0.4 Frage während eines gebundenen Tasks
+
+Sobald ein Workflow `INTAKE_READY` überschritten hat, ist der Task-Scope
+gebunden (`active_task_scope = bound`). Eine Frage während eines aktiven
+Tasks verlässt den Zustandsautomaten nicht: Sie wird als workflow-interne
+Klärung read-only beantwortet, und der Agent kehrt exakt zum vorherigen
+Zustand zurück, ohne einen Nachweis oder eine Flag zurückzusetzen.
+
+#### 3.0.5 Abgrenzung zum Aufgabenmuster diagnostic
+
+Der Question-Mode ist keine Aufgabe. Das Aufgabenmuster `diagnostic` aus
+[4.1] ist dagegen ein beauftragtes Arbeitsergebnis innerhalb des Workflows
+(read-only und auf einer Shared Line ohne Embargo). Eine beauftragte
+Analyse trägt Aufgaben-Framing (untersuche, analysiere, dokumentiere) und
+wird über den Workflow geführt; eine konversationelle Frage wird im
+Question-Mode beantwortet. Bleibt die Unterscheidung unklar, gilt das Band
+`ambiguous_pending`.
 
 ### 3.1 Branch zuerst prüfen
 
@@ -420,6 +521,12 @@ genau ein Aufgabenmuster (`active_task_pattern`):
 | Release-Cut, Stabilisierung, Promotion, Backmerge oder Support-Line-Erzeugung | `release` / `support` |
 | private Exploration mit hoher Lösungsunsicherheit | `exploration` (Scratch-Kandidat) |
 | reine Analyse, Diagnose oder Frage ohne Änderungsabsicht | `diagnostic` |
+
+Die Aufgabenmuster-Klassifizierung setzt einen gebundenen Task-Mode
+voraus: Sie läuft erst, nachdem das Turn-Intent-Gate aus [3.0] den Turn
+als Arbeitsauftrag gebunden hat. Konversationelle Fragen ohne
+Änderungsabsicht erreichen diese Klassifizierung nicht, und eine Frage
+wird niemals als `diagnostic` gezogen, um sie in den Workflow zu ziehen.
 
 Bei Mehrdeutigkeit wird keine Mutation vorbereitet, sondern zuerst
 fachlich geklärt. Ändert sich der Scope während der Arbeit, wird das Muster
@@ -1106,6 +1213,8 @@ Bereich:
 🎯 Execution level | level=<workflow|command|raw_git> | endpoint=<value> | coverage=<covered|gap-named>
 🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
+❓ Intent | mode=question | band=0-54 | workflow=dormant
+▶️ Intent | mode=task | band=80-100 | workflow=started | deferred_init=<not_required|completed>
 🧪 Quality | required=<count> | passed=<count> | status=<PASS|FAIL>
 📦 Commit | index=<n> | type=<value> | paths=<count> | body=<present|omitted-justified> | cli=<PASS|FAIL>
 🚀 Publish | pushed=<true|false> | provider=<value> | pr_body=<transported|gap|not_required> | pr=<url|blocked>
@@ -1170,5 +1279,16 @@ Der Agent darf niemals:
   Integrationsebene aus [8.1] erzeugen;
 - eine PR-Beschreibung über eine externe PR-CLI, rohe Provider-Aufrufe oder
   manuelle Webedits transportieren, wenn die Binary keinen Transport anbietet;
+- die Workflow-Initialisierung für einen Turn starten, den das
+  Turn-Intent-Gate als Frage gebunden hat;
+- im Question-Mode eine Mutation, ein Staging, einen Commit, eine
+  Branch-Operation oder einen Workflow-Dispatch ausführen;
+- den Modus-Übergang in den Task-Mode ohne Band-Evidenz oder
+  Benutzerbestätigung vollziehen;
+- die Modus-Symbole ❓ oder ▶️ bei bestehendem Modus turn-weise wiederholen;
+- nach einer Fragephase die aufgeschobene Initialisierung überspringen oder
+  eine Frage-Antwort als Initialisierungs-Nachweis behandeln;
+- eine konversationelle Frage als Aufgabenmuster `diagnostic` klassifizieren,
+  um sie in den Workflow zu ziehen;
 - Credentials, Tokens, PEMs, Header oder private Chain-of-Thought ausgeben.
 ```
