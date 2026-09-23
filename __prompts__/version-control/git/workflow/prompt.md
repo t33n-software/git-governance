@@ -30,8 +30,13 @@ core/prompt.md
    -Löschung — wird ausschließlich über die Zustandskette in [2] in den
    Core-Workflow geführt. Es gibt keinen zweiten Einstiegspfad.
 3. Der erste sichtbare Schritt des Agents nach Aktivierung ist die
+   Turn-Intent-Triage gemäß dem Turn-Intent-Gate des Kerns: Ist der
+   aktuelle Turn eindeutig eine Frage ohne Änderungsabsicht, bleibt der
+   Adapter dormant, und die Initialisierung läuft erst beim ersten
+   aufgabenführenden Turn vollständig ab. Bei jedem Zweifel und bei jedem
+   Arbeitsauftrag ist der erste sichtbare Schritt die
    Adapter-Initialisierung. Der Agent beginnt weder mit der fachlichen
-   Analyse der Benutzeraufgabe noch mit Datei-Suche, Datei-Edits,
+   Analyse eines Arbeitsauftrags noch mit Datei-Suche, Datei-Edits,
    Commit-Vorbereitung oder einem manuellen Workflow-Nachbau.
 4. Ein Auslassen der Adapter-Initialisierung ist kein alternativer Pfad,
    sondern ein Vertragsbruch. Erkennt der Agent nachträglich, dass er ohne
@@ -76,6 +81,11 @@ Ausnahmezustand:
 ```text
 BLOCKED
 ```
+
+Die Kette startet erst beim ersten aufgabenführenden Turn: Solange das
+Turn-Intent-Gate des Kerns den aktuellen Turn eindeutig als Frage bindet,
+verbleibt der Adapter dormant vor `CORE_PATH_RESOLVED`, und kein Zustand
+der Kette wird belegt.
 
 ### 1.2 Laufzeit-Oberflächen
 
@@ -123,6 +133,20 @@ Bootstrap-Operationen erlaubt:
 Jede andere Operation — fachliche Analyse der Benutzeraufgabe, Datei-Suche
 über den Core-Pfad hinaus, Datei-Edits, Staging, Commits, Branch-Operationen
 oder rohes Git — ist bis `CORE_WORKFLOW_EXECUTING` embargoed.
+
+Ausnahme für den Question-Mode des Kerns: Solange das Turn-Intent-Gate den
+aktuellen Turn eindeutig als Frage ohne Änderungsabsicht gebunden hat, sind
+zusätzlich erlaubt:
+
+```text
+- die reine Textantwort auf die Frage;
+- read-only Orientierung (Status, Historie, Datei-Lektüre, Suche), soweit
+  die Frage sie benötigt;
+- die einmalige ❓-Statusmeldung beim Eintritt in den Question-Mode.
+```
+
+Die Ausnahme endet mit dem ersten aufgabenführenden Turn; die
+Initialisierung wird dann vollständig und ohne Abkürzung nachgeholt.
 
 ### 1.5 Invalidierung und Neuankerung
 
@@ -297,6 +321,10 @@ Der Core ist als Binary-basierter Workflow in anderen Projekten wiederverwendbar
 Dieses Adaptermodul ist nur dort erforderlich, wo `git-governance` aus
 dem Go-Source-Entrypoint statt als ausgelieferte Binary ausgeführt wird.
 
+Die Turn-Intent-Triage in [0.1] ist keine Duplikation der Kern-Matrix: Sie
+ist die vom Kern ausdrücklich autorisierte Aktivierungs-Brücke dieses
+Repositorys und trägt keine eigene Klassifizierungs-Policy.
+
 ## [6] AUSGABEFORMAT
 [INTENT: ANWEISUNG]
 
@@ -319,6 +347,11 @@ Ab `CORE_WORKFLOW_EXECUTING` gilt ausschließlich die Symbol-Registry und das
 Ausgabeformat des Core. Der Adapter verwendet die Core-Bereichs-Symbole niemals
 für eigene Bootstrap-Schritte und ergänzt die Registry nicht.
 
+Für den Eintritt in den Question-Mode verwendet der Agent das Symbol ❓ des
+Turn-Intent-Gates — genau einmal beim Eintritt, niemals turn-weise
+wiederholt. Das Symbol gehört zum autorisierten Gate des Kerns und ist kein
+Adapter-Bootstrap-Symbol.
+
 Die Datensätze enthalten keine Secrets, private Gedankenketten oder
 vollständige fremde Toolausgaben.
 
@@ -329,9 +362,10 @@ Der Agent darf niemals:
 
 ```text
 - diese Datei als passive Referenz behandeln, obwohl sie im Kontext präsent ist;
-- vor CORE_WORKFLOW_EXECUTING eine fachliche Analyse, Datei-Suche über den
-  Core-Pfad hinaus, Datei-Editierung, Staging, Commits, Branch-Operationen
-  oder rohes Git beginnen;
+- vor CORE_WORKFLOW_EXECUTING eine fachliche Analyse eines Arbeitsauftrags,
+  Datei-Suche über den Core-Pfad hinaus, Datei-Editierung, Staging, Commits,
+  Branch-Operationen oder rohes Git beginnen — ausgenommen die ausdrücklich
+  in [1.4] erlaubten Question-Mode-Operationen;
 - den Core nur auszugsweise, zusammengefasst oder aus dem Gedächtnis übernehmen;
 - den Core durch Repository-Dokumentation, Quellcode oder externe
   Dokumentation substituieren;
