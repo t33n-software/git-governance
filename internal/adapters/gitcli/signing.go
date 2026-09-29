@@ -53,6 +53,10 @@ func (repository *Repository) SigningConfiguration(
 	if err != nil {
 		return port.SigningConfiguration{}, err
 	}
+	name, err := repository.gitConfigValue(ctx, identity, "user.name")
+	if err != nil {
+		return port.SigningConfiguration{}, err
+	}
 	email, err := repository.gitConfigValue(ctx, identity, "user.email")
 	if err != nil {
 		return port.SigningConfiguration{}, err
@@ -72,6 +76,7 @@ func (repository *Repository) SigningConfiguration(
 		Format:                 format,
 		SigningKey:             signingKey,
 		SigningKeyReadable:     signingFileReadable(identity.Root, signingKey),
+		UserName:               name,
 		UserEmail:              email,
 		SignProgram:            program,
 		AllowedSignersFile:     allowedSigners,

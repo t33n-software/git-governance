@@ -596,15 +596,21 @@ func (*prePushGit) InspectPushUpdate(context.Context, port.RepositoryIdentity, b
 var _ port.GitRepository = (*prePushGit)(nil)
 
 type commandGit struct {
-	current         branch.BranchName
-	messages        []string
-	workflowBases   map[string]branch.TargetBase
-	workflowBaseErr error
-	remoteURL       string
-	remoteURLErr    error
-	discoverErr     error
-	signingConfig   port.SigningConfiguration
-	signingProofErr error
+	current          branch.BranchName
+	messages         []string
+	workflowBases    map[string]branch.TargetBase
+	workflowBaseErr  error
+	remoteURL        string
+	remoteURLErr     error
+	discoverErr      error
+	signingConfig    port.SigningConfiguration
+	signingProofErr  error
+	hasCommits       bool
+	anyRef           bool
+	existingBranches map[string]bool
+	stagedQueue      []bool
+	pushErr          error
+	pushed           []branch.BranchName
 }
 
 func newCommandGit(t *testing.T, current string, messages []string) *commandGit {
@@ -621,10 +627,12 @@ func newCommandGit(t *testing.T, current string, messages []string) *commandGit 
 			Format:                 "ssh",
 			SigningKey:             "C:/keys/signing.key",
 			SigningKeyReadable:     true,
+			UserName:               "Lane Tester",
 			UserEmail:              "lane@example.invalid",
 			AllowedSignersFile:     "C:/keys/allowed_signers",
 			AllowedSignersReadable: true,
 		},
+		hasCommits: true,
 	}
 }
 
@@ -665,8 +673,8 @@ func (git *commandGit) ProveSigningCapability(context.Context, port.RepositoryId
 	return git.signingProofErr
 }
 
-func (*commandGit) HasCommits(context.Context, port.RepositoryIdentity) (bool, error) {
-	return true, nil
+func (git *commandGit) HasCommits(context.Context, port.RepositoryIdentity) (bool, error) {
+	return git.hasCommits, nil
 }
 
 func (*commandGit) IsWorktreeClean(context.Context, port.RepositoryIdentity) (bool, error) {
@@ -681,7 +689,10 @@ func (*commandGit) ValidateBranchRef(context.Context, port.RepositoryIdentity, b
 	return nil
 }
 
-func (*commandGit) BranchExists(context.Context, port.RepositoryIdentity, branch.BranchName) (bool, error) {
+func (git *commandGit) BranchExists(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName) (bool, error) {
+	if git.existingBranches != nil {
+		return git.existingBranches[name.String()], nil
+	}
 	return false, nil
 }
 
@@ -774,7 +785,12 @@ func (*commandGit) HasUnmergedConflicts(context.Context, port.RepositoryIdentity
 	return false, nil
 }
 
-func (*commandGit) HasStagedChanges(context.Context, port.RepositoryIdentity) (bool, error) {
+func (git *commandGit) HasStagedChanges(context.Context, port.RepositoryIdentity) (bool, error) {
+	if len(git.stagedQueue) > 0 {
+		staged := git.stagedQueue[0]
+		git.stagedQueue = git.stagedQueue[1:]
+		return staged, nil
+	}
 	return true, nil
 }
 
@@ -786,8 +802,38 @@ func (*commandGit) Commit(context.Context, port.RepositoryIdentity, commitmsg.Me
 	return nil
 }
 
-func (*commandGit) Push(context.Context, port.RepositoryIdentity, branch.BranchName, bool) error {
+func (git *commandGit) Push(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName, _ bool) error {
+	git.pushed = append(git.pushed, name)
+	return git.pushErr
+}
+
+// PreviewStage resolves a fixed content-set preview for the governed
+// repository birth.
+func (*commandGit) PreviewStage(context.Context, port.RepositoryIdentity, []string) ([]string, error) {
+	return []string{"README.md"}, nil
+}
+
+// HasAnyRef reports the fake's configured reference state.
+func (git *commandGit) HasAnyRef(context.Context, port.RepositoryIdentity) (bool, error) {
+	return git.anyRef, nil
+}
+
+// VerifyCommitSignature accepts the fake's genesis commit signature.
+func (*commandGit) VerifyCommitSignature(context.Context, port.RepositoryIdentity, string) error {
 	return nil
+}
+
+// InstallHooks reports the canonical hook boundary as installed.
+func (*commandGit) InstallHooks(context.Context, port.RepositoryIdentity) (port.HookInstallation, error) {
+	return port.HookInstallation{
+		Directory: "C:/repo/.git/hooks",
+		Hooks:     []string{"commit-msg", "pre-push"},
+	}, nil
+}
+
+// ResolveRevision resolves every born ref to the same fake genesis revision.
+func (*commandGit) ResolveRevision(context.Context, port.RepositoryIdentity, string) (string, error) {
+	return "0123456789abcdef0123456789abcdef01234567", nil
 }
 
 func (git *commandGit) InspectPushUpdate(context.Context, port.RepositoryIdentity, branch.TargetBase, string, string) (port.PushUpdateInspection, error) {

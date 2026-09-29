@@ -34,6 +34,7 @@ content governance.
 || INV-009 | CONSTRAINT | Current hotfix capability boundary | No | Active |
 || INV-010 | CONSTRAINT | Commit-message and pull-request-description content governance | Yes | Active |
 || INV-011 | WORKFLOW | Completed-pull-request branch detection and post-publication workspace transition | Yes | Active |
+|| INV-012 | CONSTRAINT | Governed repository birth and the unborn branch context | Yes | Active |
 
 ---
 
@@ -121,7 +122,8 @@ conflict recovery
 **Description:**
 
 Immediately after branch detection, the core classifies the checked-out branch
-as `shared_line`, `official_working`, `scratch`, `detached`, or `unknown`.
+as `shared_line`, `official_working`, `scratch`, `unborn`, `detached`, or
+`unknown`.
 On `main`, `develop`, `release/*`, and `support/*`, a binding mutation embargo
 activates before any other work:
 
@@ -565,6 +567,51 @@ branch feature/ABC-123-add-export is checked out with an open pull request
 ```
 
 Status archaeology on a completed handoff is the noise the probe eliminates.
+
+---
+
+### 3.12 INV-012: Governed repository birth and the unborn branch context
+[INTENT: SPECIFICATION]
+
+**Type:** CONSTRAINT
+
+**Description:**
+
+A repository without commits and without references binds the branch context
+`unborn` instead of `shared_line`: no shared line exists yet that the guard
+could protect. The `unborn` context never activates the mutation embargo,
+because creating the initial content set is the birth's input, not a mutation
+of a shared line.
+
+The birth itself runs only through the governed level-1 workflow
+`workflow bootstrap`: it creates the signed genesis commit on `main`, creates
+`develop` from the same revision, installs the canonical hook boundary, and
+emits the genesis evidence record; the remote birth of the shared lines is a
+separately confirmed `--push` step. Every other workflow stays blocked on an
+unborn repository until the birth has completed.
+
+**Affected Files:**
+
+|| Path | Relevance | Elements |
+||------|-----------|----------|
+|| `core/prompt.md` | Unborn branch context, birth routing, birth prohibitions | Sections [3.1], [3.2], [4.1], [4.3], [5.5], and [10] |
+
+**Positive Example(s):**
+
+```text
+an unborn repository (no HEAD commit, no refs)
+-> the branch context binds `unborn`; no embargo activates
+-> the initial content set is created as the birth input
+-> `workflow bootstrap` births main and develop under governance
+```
+
+**Negative Example(s):**
+
+```text
+an unborn repository is classified as a shared line
+-> the mutation embargo blocks the initial content set
+-> the birth is forced into raw Git outside the governed surface
+```
 
 ---
 

@@ -117,6 +117,7 @@ CONVENTIONS.md  adapter constraints
 DESCRIPTION.md  adapter architecture
 CHANGELOG.md    adapter version history
 core/           portable workflow and its own metadata pair
+prompt-affectedness-guard/  CLI-surface drift guard and its own metadata pair
 ```
 
 The repository's stable Cursor rule entrypoint remains a relative Git symlink

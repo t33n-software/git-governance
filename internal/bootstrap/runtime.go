@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,6 +78,7 @@ type services struct {
 	commits            *commitapp.Service
 	tickets            *workflow.TicketService
 	releases           *workflow.ReleaseService
+	bootstrap          *workflow.BootstrapService
 	lifecycle          port.ReleaseLifecycleProvider
 	preferences        *policy.PreferencesService
 	doctor             *policy.DoctorService
@@ -252,10 +254,18 @@ func (application *application) services() services {
 		commits:            commits,
 		tickets:            tickets,
 		releases:           releases,
-		lifecycle:          lifecycle,
-		preferences:        policy.NewPreferencesService(store),
-		doctor:             policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
-		githubAuth:         githubAuth,
+		bootstrap: workflow.NewBootstrapService(branches, git, application.runtime.KeyPolicy, application.runtime.Tools).
+			WithSigningReadiness(policy.SigningConfigurationProblem).
+			WithPolicySnapshot(func() string {
+				description := policy.Describe()
+				return "schemaVersion=" + strconv.Itoa(description.SchemaVersion) +
+					" keyPolicy=" + description.KeyPolicy +
+					" commitSigning=" + description.CommitSigning
+			}),
+		lifecycle:   lifecycle,
+		preferences: policy.NewPreferencesService(store),
+		doctor:      policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
+		githubAuth:  githubAuth,
 	}
 }
 

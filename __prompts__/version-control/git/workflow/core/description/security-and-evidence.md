@@ -37,6 +37,11 @@ The core requires:
 - no mutation of protected shared lines, including file edits, staging,
   commits, branch creation, or branch switching before a governed workflow
   has created the official working branch;
+- no repository birth through raw Git, `branch create`, or `commit create`:
+  the only governed birth path is `workflow bootstrap`, and `main` or
+  `develop` are never created outside the governed birth;
+- no treatment of the unborn state as a shared-line embargo case and no
+  workflow other than the birth on an unborn repository;
 - no raw-Git replacement where a governed CLI workflow exists;
 - no implicit staging, amend, force push, reset or automatic stash;
 - no static token, private-key, PEM or authorization-header exposure;

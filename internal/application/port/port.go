@@ -92,6 +92,7 @@ type SigningConfiguration struct {
 	Format                 string
 	SigningKey             string
 	SigningKeyReadable     bool
+	UserName               string
 	UserEmail              string
 	SignProgram            string
 	AllowedSignersFile     string
@@ -107,6 +108,43 @@ type SigningConfiguration struct {
 type GitSigningInspector interface {
 	SigningConfiguration(ctx context.Context, repository RepositoryIdentity) (SigningConfiguration, error)
 	ProveSigningCapability(ctx context.Context, repository RepositoryIdentity, configuration SigningConfiguration) error
+}
+
+// StagePreviewer is an optional capability for adapters that can resolve the
+// effective initial content set of explicit stage paths without mutating the
+// index. The preview binds the boundary scan to exactly the paths a later
+// stage operation would add.
+type StagePreviewer interface {
+	PreviewStage(ctx context.Context, repository RepositoryIdentity, paths []string) ([]string, error)
+}
+
+// RefExistenceInspector is an optional capability for adapters that can prove
+// whether any Git reference exists at all. The governed repository birth
+// requires this proof: an unborn repository carries no references.
+type RefExistenceInspector interface {
+	HasAnyRef(ctx context.Context, repository RepositoryIdentity) (bool, error)
+}
+
+// CommitSignatureVerifier is an optional capability for adapters that can
+// prove the signature of an existing commit object. The genesis finalizer
+// re-proves the signature of the created genesis commit independently of the
+// creation path.
+type CommitSignatureVerifier interface {
+	VerifyCommitSignature(ctx context.Context, repository RepositoryIdentity, revision string) error
+}
+
+// HookInstallation proves the installed local hook boundary of a repository.
+type HookInstallation struct {
+	Directory string
+	Hooks     []string
+}
+
+// HookInstaller is an optional capability for adapters that can install the
+// repository's hook boundary and prove the installed hooks. The governed
+// repository birth installs the boundary so every subsequent operation is
+// governed from the first commit onward.
+type HookInstaller interface {
+	InstallHooks(ctx context.Context, repository RepositoryIdentity) (HookInstallation, error)
 }
 
 // CherryPickContinuator is consumed only by workflows that must resume a

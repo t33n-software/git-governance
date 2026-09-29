@@ -1,5 +1,6 @@
 # Workflow commands
 
+- [Repository bootstrap](bootstrap.md)
 - [Ticket start](tickets/start.md)
 - [Ticket publish](tickets/publish.md)
 - [Resume ticket publication](tickets/resume.md)
