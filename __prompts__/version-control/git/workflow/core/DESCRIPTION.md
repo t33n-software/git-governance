@@ -7,9 +7,10 @@
 [INTENT: CONTEXT]
 
 `core/prompt.md` is the portable, binary-oriented agent workflow for
-`git-governance`. It defines how an agent safely carries a ticket from
-intake through a governed branch, semantic commits, verification, publication,
-release, hotfix delivery, propagation, and final evidence.
+`git-governance`. It defines how an agent safely births an unborn repository
+under governance and carries a ticket from intake through a governed branch,
+semantic commits, verification, publication, release, hotfix delivery,
+propagation, and final evidence.
 
 This surface is the modularized description root. It behaves as the
 navigation hub for the metadata-owned detail package `description/`; every

@@ -87,6 +87,7 @@ zwingend ein eigenes, von allen anderen Bereichen unterscheidbares Symbol.
 | 🧭 | Kontext & Guard | Branch-Ermittlung und -Klassifizierung, Shared-Line-Guard, Mutations-Embargo, Fortsetzungsentscheidung, `branch validate`, `branch list` |
 | 🩺 | Umgebung & Policy | `doctor`, `policy describe`, `config`, Binary-Version, Plattform- und Toolchain-Prüfung, einmaliger Provider-Session-Prefetch über `auth status`, `auth login` als Remediation |
 | 🎯 | Intake & Entscheidungsbindung | Aufgabenmuster-Klassifizierung, Ticket-, Family- und Slug-Bindung, Ausführungsebenen-Entscheidung, Scratch-Bewertung |
+| 🐣 | Repository-Geburt | `workflow bootstrap` — die governete Geburt eines ungeborenen Repositorys (Genesis-Commit auf `main`, `develop` aus derselben Revision, Hook-Boundary, Evidence-Record, separat bestätigte Publication) |
 | 🌱 | Branch-Bereitstellung | `workflow ticket start`, `branch create`, `branch sync-base` — governete Erzeugung und Basis-Ausrichtung von Working-Branches außerhalb der Spezial-Lanes |
 | 🛠️ | Implementierung | Acceptance-Ledger-Ausführung, Datei-Edits, `branch merge-scratch`, sonstige konfliktfreie Umsetzungsschritte |
 | 🧪 | Verifikation | Quality-Suite, Tests, Coverage und repositorylokale Prüfungen |
@@ -203,11 +204,11 @@ BLOCKED
 Der Agent führt diese Zustandsflächen jederzeit explizit:
 
 ```text
-- current_branch_class = shared_line | official_working | scratch | detached | unknown
+- current_branch_class = shared_line | official_working | scratch | unborn | detached | unknown
 - current_branch_pr_state = unchecked | none | open | merged | unknown
 - mutation_embargo = active | released | not_required
 - mutation_release_channel = workflow_start | confirmed_continuation | none
-- active_task_pattern = ticket | hotfix | release | support | exploration | diagnostic | unbound
+- active_task_pattern = ticket | hotfix | release | support | exploration | diagnostic | bootstrap | unbound
 - execution_level = workflow | command | raw_git | none
 - ticket_binding = user_provided | confirmed_proposal | missing
 - provider_session_state = not_required | unverified | verified | unavailable
@@ -397,6 +398,14 @@ Vor jeder Mutation:
    Fortsetzungsentscheidung auf einer `official_working`-Branch.
 6. Bewahre alle fremden oder unklaren Änderungen unverändert.
 
+Ermittelt die Branch-Prüfung ein Repository ohne Commits und ohne Refs (der
+`doctor`-Nachweis „repository has no commits" oder ein fehlschlagender
+HEAD-Beweis), bindet der Agent den Branch-Kontext `unborn`: Es existiert noch
+keine Shared Line, die geschützt werden müsste. Der `unborn`-Kontext ist der
+einzige, in dem das Mutations-Embargo nicht aktiviert wird — die Erstellung
+des initialen Content-Sets ist der Input der Geburt, keine Mutation an einer
+Shared Line.
+
 Der ausgecheckte Branch ist ein Befund, keine Absicht: Ein Entwickler kann
 zwischenzeitlich selbstständig gewechselt haben, etwa um einen Stand auf einer
 anderen Branch zu prüfen. Der Agent leitet aus dem aktuellen Branch daher
@@ -419,6 +428,7 @@ Branch verbindlich:
 | `shared_line` | `main`, `develop`, `release/*`, `support/*` | `active` |
 | `official_working` | ticketgebundene Working-Branch (`feature/*`, `fix/*`, `docs/*`, `refactor/*`, `chore/*`, `test/*`, `perf/*`, `hotfix/*`) | `not_required` |
 | `scratch` | `scratch/*` | `not_required`, aber niemals PR-Quelle |
+| `unborn` | Repository ohne Commits und ohne Refs (ungeborene `main`) | `not_required` — die Geburt über `workflow bootstrap` ist der einzige governete Pfad und erzeugt die Shared Lines selbst |
 | `detached` / `unknown` | kein eindeutiger Branch | `BLOCKED` bis Benutzerentscheidung |
 
 Solange `mutation_embargo = active` gilt, sind die folgenden Operationen
@@ -519,6 +529,7 @@ genau ein Aufgabenmuster (`active_task_pattern`):
 | ticketgebundene neue Fähigkeit, regulärer Fix, Doku, Umbau, Tooling, Tests oder Performance auf der Integrationslinie | `ticket` |
 | Fehler auf `main`, einer aktiven `release/*`- oder `support/*`-Linie | `hotfix` |
 | Release-Cut, Stabilisierung, Promotion, Backmerge oder Support-Line-Erzeugung | `release` / `support` |
+| Geburt eines ungeborenen Repositorys (kein HEAD-Commit, keine Refs) | `bootstrap` |
 | private Exploration mit hoher Lösungsunsicherheit | `exploration` (Scratch-Kandidat) |
 | reine Analyse, Diagnose oder Frage ohne Änderungsabsicht | `diagnostic` |
 
@@ -549,9 +560,10 @@ geprüft. Ein späterer Provider-Laufzeitfehler — etwa eine zwischenzeitlich
 widerrufene oder abgelaufene Session — ist ein technischer Fail-closed-Pfad
 des jeweiligen Endpunkts und wird als `BLOCKED` mit Re-Login-Remediation
 gemeldet; dafür existiert bewusst keine prompt-seitige Wiederholungslogik.
-Muster ohne Provider-Wirkung (`diagnostic`, reine lokale `exploration`)
-setzen `provider_session_state = not_required` und benötigen diesen Nachweis
-nicht.
+Muster ohne Provider-Wirkung (`diagnostic`, reine lokale `exploration`,
+`bootstrap`) setzen `provider_session_state = not_required` und benötigen diesen
+Nachweis nicht — die separat bestätigte `--push`-Publication der Geburt ist
+ein Git-Push der Shared Lines, keine Provider-PR-Erzeugung.
 
 ### 4.2 Ausführungsebenen-Hierarchie
 
@@ -608,6 +620,9 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `official_working` | Fortsetzung desselben Tickets | Fortsetzungslogik aus [3.3]; fehlende Evidenz ab frühestem Gate nachholen |
 | `official_working` | neue, andere Aufgabe | Pull-Request-Zustand der Branch prüfen ([3.1]): bei `open` oder `merged` abgeschlossene Übergabe — direkter neuer Ticket-Intake ohne Fortsetzungsfrage; bei `none` oder `unknown` Fortsetzungsentscheidung beim Benutzer einholen |
 | `scratch` | `exploration` | Scratch-Regeln aus [4.8]; Überführung nur kontrolliert auf die offizielle Branch |
+| `unborn` | `bootstrap` | Kein Embargo; Intake (Ticket der Geburt); dann `workflow bootstrap`; das initiale Content-Set entsteht vor der Geburt auf dem ungeborenen Repository |
+| `unborn` | `ticket` / `hotfix` / `release` / `support` / `exploration` | `BLOCKED`: die Geburt geht jedem anderen Workflow voraus — zuerst `workflow bootstrap`, danach bindet der geborene Kontext die regulären Pfade |
+| `unborn` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
 | `detached` / `unknown` | jedes Muster | `BLOCKED` bis Benutzerentscheidung |
 
 Aus dieser Matrix abgeleitete Hartverbote:
@@ -869,6 +884,20 @@ Release-Delivery umfasst mehr als den PR-Merge. Reconciliation beginnt erst
 nach Nachweis von Promotion, immutablem Tag, Artefakten, Release und allen
 verpflichtenden Freigaben. Ein Controller kann vorbereiten, aber nie direkt in
 eine Shared Line mergen.
+
+### 5.5 Repository-Geburt
+
+| Endpoint | Ebene | Wann er erforderlich ist | Ergebnisgrenze |
+|---|---|---|---|
+| `workflow bootstrap` | E1 | Ein ungeborenes Repository (kein HEAD-Commit, keine Refs) governet gebären; einziger zulässiger Pfad zur Erzeugung von `main` und `develop` | Geborenes Repository: signierter Genesis-Commit auf `main`, `develop` aus derselben Revision, installierte Hook-Boundary, Genesis-Evidence-Record; die Remote-Geburt der Shared Lines erfolgt nur separat bestätigt über `--push` |
+
+Die Geburt ist der vom Shared-Line-Guard referenzierte governete
+Erzeugungspfad für `main` und `develop`: Sie ist keine Ausnahme vom Guard,
+sondern der einzige Workflow, der die Shared Lines erzeugen darf. Der Endpunkt
+verweigert auf einem bereits geborenen Repository fail-closed
+(Idempotenz-Grenze), mutiert niemals ohne ausdrückliche Bestätigung und zeigt
+mit `--dry-run` den vollständigen Genesis-Plan inklusive aller
+Preflight-Ergebnisse, ohne zu mutieren.
 
 ## [6] IMPLEMENTIERUNG, SEMANTISCHE COMMITS UND QUALITY
 [INTENT: ANWEISUNG]
@@ -1206,13 +1235,14 @@ das Pipe-Format kennzeichnet den Datensatz, das Symbol kennzeichnet den
 Bereich:
 
 ```text
-🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL>
+🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|unborn|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL>
 🧭 Guard | embargo=<active|released|not_required> | release_channel=<workflow_start|confirmed_continuation|none> | reverify=<PASS|FAIL>
-🎯 Task | pattern=<ticket|hotfix|release|support|exploration|diagnostic> | ticket=<value>
+🎯 Task | pattern=<ticket|hotfix|release|support|exploration|diagnostic|bootstrap> | ticket=<value>
 🎯 Discovery | level=<gh|context-tool|github-api|unavailable> | prs_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
 🎯 Execution level | level=<workflow|command|raw_git> | endpoint=<value> | coverage=<covered|gap-named>
 🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
+🐣 Bootstrap | ticket=<value> | revision=<value> | refs=<value> | published=<true|false> | dry_run=<true|false>
 ❓ Intent | mode=question | band=0-54 | workflow=dormant
 ▶️ Intent | mode=task | band=80-100 | workflow=started | deferred_init=<not_required|completed>
 🧪 Quality | required=<count> | passed=<count> | status=<PASS|FAIL>
@@ -1244,6 +1274,11 @@ Der Agent darf niemals:
 - `branch create` oder einen Branch-Wechsel als Reparaturvehikel verwenden,
   um bereits auf einer Shared Line entstandene Änderungen eigenständig zu
   überführen;
+- eine Repository-Geburt über rohes Git, `branch create` oder `commit create`
+  ausführen — der einzige governete Geburtsweg ist `workflow bootstrap`;
+- `main` oder `develop` außerhalb der governeten Geburt erzeugen;
+- den `unborn`-Zustand als Shared-Line-Embargo-Fall behandeln oder auf einem
+  ungeborenen Repository einen anderen Workflow als die Geburt starten;
 - einen Ebene-1-Workflow durch manuell aneinandergereihte Ebene-2-Kommandos
   oder rohes Git nachbauen;
 - rohes Git für eine Fähigkeit verwenden, die die Binary über einen Endpunkt
