@@ -310,7 +310,7 @@ func (result *DoctorResult) appendSigningChecks(
 		return
 	}
 
-	if err := signingConfigurationProblem(configuration); err != nil {
+	if err := SigningConfigurationProblem(configuration); err != nil {
 		result.Checks = append(result.Checks, Check{
 			Name:   "Commit signing configuration",
 			OK:     false,
@@ -400,9 +400,11 @@ func (result *DoctorResult) appendSigningFailure(err error) {
 	result.signingError = err
 }
 
-// signingConfigurationProblem evaluates the effective signing facts against
-// the governed baseline in a fixed order and reports the first violation.
-func signingConfigurationProblem(configuration port.SigningConfiguration) error {
+// SigningConfigurationProblem evaluates the effective signing facts against
+// the governed baseline in a fixed order and reports the first violation. It
+// is the single source of truth for signing readiness: doctor diagnostics and
+// the governed repository birth consume the same evaluation.
+func SigningConfigurationProblem(configuration port.SigningConfiguration) error {
 	if !configuration.SigningEnabled {
 		return problem.New(problem.Details{
 			Code:        problem.CodeConfigurationUnavailable,

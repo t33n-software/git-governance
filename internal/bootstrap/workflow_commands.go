@@ -28,6 +28,7 @@ func newWorkflowCommand(application *application) *cobra.Command {
 		newHotfixWorkflowCommand(application),
 		newReleaseWorkflowCommand(application),
 		newCleanupWorkflowCommand(application),
+		newBootstrapWorkflowCommand(application),
 	)
 	return command
 }
@@ -1440,6 +1441,127 @@ func addIntegrationLineReturnFields(fields map[string]string, transition *workfl
 	if transition.RefreshDetail != "" {
 		fields["integrationLineRefreshDetail"] = transition.RefreshDetail
 	}
+}
+
+func newBootstrapWorkflowCommand(application *application) *cobra.Command {
+	var (
+		keyRaw     string
+		numberRaw  string
+		stagePaths []string
+		push       bool
+	)
+	command := &cobra.Command{
+		Use:   "bootstrap",
+		Short: "Birth an unborn repository under the governed lifecycle",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			key, err := application.resolveKey(command.Context(), services, keyRaw)
+			if err != nil {
+				return err
+			}
+			inputs.add("ticket key", key.String())
+			number, err := application.resolveNumber(command.Context(), numberRaw)
+			if err != nil {
+				return err
+			}
+			inputs.add("ticket number", number.String())
+			id := ticket.NewID(key, number)
+			if len(stagePaths) > 0 {
+				inputs.add("stage paths", strings.Join(stagePaths, ", "))
+			}
+			inputs.add("publish shared lines", boolString(push))
+			if err := application.confirmMutation(
+				command.Context(),
+				"Bootstrap repository",
+				"Create the signed genesis commit on main, create develop from the same revision, and install the hook boundary?",
+			); err != nil {
+				return err
+			}
+			result, err := services.bootstrap.Bootstrap(command.Context(), workflow.BootstrapRequest{
+				Repository: repository,
+				Ticket:     id,
+				StagePaths: stagePaths,
+				Push:       push,
+				DryRun:     application.options.dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			published := false
+			if push && !result.DryRun {
+				confirmed := true
+				if application.promptAvailable() && !application.options.yes {
+					confirmed, err = application.prompt().Confirm(command.Context(), port.ConfirmRequest{
+						Label: "Publish shared lines",
+						Description: "Push the born shared lines main and develop to " + repository.Remote +
+							"? This is the governed remote birth of the repository.",
+						Default: true,
+					})
+					if err != nil {
+						return err
+					}
+				}
+				if confirmed {
+					if err := services.bootstrap.PublishBornLines(command.Context(), repository); err != nil {
+						return err
+					}
+					published = true
+				}
+			}
+			summary := "Repository bootstrap completed."
+			if result.DryRun {
+				summary = "Repository bootstrap plan generated."
+			} else if published {
+				summary = "Repository bootstrap and publication completed."
+			}
+			fields := map[string]string{
+				"ticket":    id.String(),
+				"published": boolString(published),
+				"dryRun":    boolString(result.DryRun),
+				"plan":      bootstrapPlanText(result.Plan),
+			}
+			var data any
+			if !result.DryRun {
+				fields["revision"] = result.Record.Revision
+				fields["refs"] = strings.Join(result.Record.Refs, ", ")
+				fields["signatureVerified"] = boolString(result.Record.SignatureVerified)
+				fields["policySnapshot"] = result.Record.PolicySnapshot
+				fields["actor"] = result.Record.Actor
+				fields["createdAt"] = result.Record.CreatedAt.Format(time.RFC3339)
+				data = result.Record
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.bootstrap",
+				Summary:   summary,
+				Fields:    fields,
+				Data:      data,
+			})
+		}),
+	}
+	// Flag help texts in this file render the value domains of their endpoint;
+	// every flag belongs to exactly one value class and carries its
+	// class-specific help duty. Canonical conventions:
+	// docs/conventions/cli/value-domain-model.md and
+	// docs/conventions/cli/help-contract.md.
+	registerTicketKeyFlag(command, &keyRaw)
+	registerTicketNumberFlag(command, &numberRaw)
+	registerStageFlag(command, &stagePaths)
+	command.Flags().BoolVar(&push, "push", false, "push the born shared lines main and develop after the local genesis (separately confirmed; requires a bound remote)")
+	return command
+}
+
+// bootstrapPlanText renders the genesis plan steps in the compact
+// semicolon-separated report form.
+func bootstrapPlanText(steps []branchapp.PlanStep) string {
+	parts := make([]string, 0, len(steps))
+	for _, step := range steps {
+		parts = append(parts, step.String())
+	}
+	return strings.Join(parts, "; ")
 }
 
 func newReleaseRequestCommand(application *application) *cobra.Command {

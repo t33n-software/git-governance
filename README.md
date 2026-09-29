@@ -19,6 +19,7 @@ rules per repository.
   and `branch sync-base`
 - `commit create` and `commit validate`
 - `workflow ticket start` and `workflow ticket publish`
+- `workflow bootstrap`
 - `workflow hotfix start`, `workflow hotfix publish`, and
   `workflow hotfix propagate`
 - `workflow release cut`, `workflow release stabilize`,

@@ -19,6 +19,7 @@ func signingConfigResults(configuration map[string]string) []processResult {
 		"commit.gpgsign",
 		"gpg.format",
 		"user.signingkey",
+		"user.name",
 		"user.email",
 		"gpg.ssh.program",
 		"gpg.ssh.allowedSignersFile",
@@ -40,6 +41,7 @@ func validSigningConfigValues() map[string]string {
 		"commit.gpgsign":             "true",
 		"gpg.format":                 "ssh",
 		"user.signingkey":            "unused",
+		"user.name":                  "Lane Tester",
 		"user.email":                 "lane@example.invalid",
 		"gpg.ssh.allowedSignersFile": "unused",
 	}
@@ -72,6 +74,7 @@ func TestSigningConfigurationReadsTheEffectiveConfig(t *testing.T) {
 		}
 		if !configuration.SigningEnabled || configuration.Format != "ssh" ||
 			configuration.SigningKey != key || !configuration.SigningKeyReadable ||
+			configuration.UserName != "Lane Tester" ||
 			configuration.UserEmail != "lane@example.invalid" ||
 			configuration.SignProgram != "custom-signer" ||
 			configuration.AllowedSignersFile != allowed || !configuration.AllowedSignersReadable ||
@@ -83,6 +86,7 @@ func TestSigningConfigurationReadsTheEffectiveConfig(t *testing.T) {
 			{"config", "--type=bool", "--get", "commit.gpgsign"},
 			{"config", "--get", "gpg.format"},
 			{"config", "--get", "user.signingkey"},
+			{"config", "--get", "user.name"},
 			{"config", "--get", "user.email"},
 			{"config", "--get", "gpg.ssh.program"},
 			{"config", "--get", "gpg.ssh.allowedSignersFile"},
@@ -107,7 +111,7 @@ func TestSigningConfigurationReadsTheEffectiveConfig(t *testing.T) {
 			t.Fatal(err)
 		}
 		if configuration.SigningEnabled || configuration.Format != "" || configuration.SigningKey != "" ||
-			configuration.SigningKeyReadable || configuration.UserEmail != "" || configuration.SignProgram != "" ||
+			configuration.SigningKeyReadable || configuration.UserName != "" || configuration.UserEmail != "" || configuration.SignProgram != "" ||
 			configuration.AllowedSignersFile != "" || configuration.AllowedSignersReadable {
 			t.Fatalf("unset SigningConfiguration() = %#v", configuration)
 		}
@@ -139,7 +143,7 @@ func TestSigningConfigurationReadsTheEffectiveConfig(t *testing.T) {
 
 	t.Run("config read failures stop the inspection", func(t *testing.T) {
 		t.Parallel()
-		for index := 0; index < 6; index++ {
+		for index := 0; index < 7; index++ {
 			index := index
 			t.Run("read "+strconv.Itoa(index), func(t *testing.T) {
 				t.Parallel()

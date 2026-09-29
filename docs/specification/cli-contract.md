@@ -1069,6 +1069,47 @@ workflow base metadata. Official ticket, hotfix, release, and support branches
 are no local CLI cleanup targets. The command does not claim to be able to
 prove a hosting merge or forward/backport completion.
 
+### 13.9 `workflow bootstrap`
+
+`workflow bootstrap` births an unborn repository under the governed lifecycle.
+It is the only governed creation path of the shared lines `main` and
+`develop`; `branch create` and `commit create` refuse that state by contract.
+
+```text
+git governance workflow bootstrap \
+  --key ABC \
+  --ticket 1 \
+  --stage .
+```
+
+Add `--push` for the separately confirmed remote birth of both shared lines.
+
+Flow:
+
+1. Preflight (read-only, fail-closed): prove the unborn state (no HEAD
+   commit, no references), the unborn HEAD targeting `main`, an idle Git
+   state, an empty index, the Git version, the signing configuration with a
+   verified canary, the committer identity, the Lefthook executable and
+   `lefthook.yml`, the policy snapshot, the ticket key policy, and the
+   content boundary of the explicit content set. `--push` additionally
+   requires a bound remote before any mutation.
+2. Genesis mutation (one bound transaction): stage the explicit content set,
+   create the signed `chore(<ticket>): initialize the governed repository`
+   commit on `main`, create `develop` from the same revision, and install the
+   canonical `commit-msg` and `pre-push` hook boundary.
+3. Finalizer (read-only): prove both born refs against the governed
+   validation, the shared revision, the verified signature, and the
+   materialized hooks.
+4. Evidence: emit the genesis record (repository, revision, refs, signature
+   status, policy snapshot, time, actor); `--output json` carries it as data.
+5. Publication (separately confirmed): with `--push`, push `main` and
+   `develop` with upstream configuration. Without a bound remote, `--push` is
+   refused with a named remediation before any mutation.
+
+A born repository is refused fail-closed (`REPOSITORY_ALREADY_BORN`); the
+local genesis is reversible until publication. `--dry-run` prints the complete
+preflight result and the full plan without mutating Git.
+
 ## 17. `validate pre-push`
 
 This command is the Lefthook and manual pre-push surface.

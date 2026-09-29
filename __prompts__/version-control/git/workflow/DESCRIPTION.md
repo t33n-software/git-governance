@@ -16,10 +16,15 @@ workflow/
 ├── CONVENTIONS.md
 ├── DESCRIPTION.md
 ├── CHANGELOG.md
-└── core/
+├── core/
+│   ├── prompt.md
+│   │   -> complete portable binary-oriented workflow
+│   ├── CONVENTIONS.md
+│   ├── DESCRIPTION.md
+│   └── CHANGELOG.md
+└── prompt-affectedness-guard/
     ├── prompt.md
-    │   -> complete portable binary-oriented workflow
-    ├── CONVENTIONS.md
+    │   -> CLI-surface drift guard for the adapter and the core
     ├── DESCRIPTION.md
     └── CHANGELOG.md
 ```
@@ -203,7 +208,9 @@ carries no tool-specific injection metadata.
 | `core/CONVENTIONS.md` | Portable core conventions |
 | `core/DESCRIPTION.md` | Portable core architecture |
 | `core/CHANGELOG.md` | Portable core history |
+| `prompt-affectedness-guard/prompt.md` | CLI-surface drift guard for the adapter and the core |
 | `.cursor/rules/governed-task-to-pr-workflow.mdc` | Stable relative Cursor symlink to this adapter |
+| `.cursor/rules/workflow-prompt-affectedness-guard.mdc` | Stable relative Cursor symlink to the drift guard |
 
 ## 9. Execution Context for LLM Agents
 [INTENT: CONTEXT]
