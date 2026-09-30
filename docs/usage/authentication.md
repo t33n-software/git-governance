@@ -151,7 +151,7 @@ so), rather than under an unrelated personal account.
 Configure the registration in this order:
 
 1. **Identity**
-   - Choose a short, unique name, for example `git-governance-pr`.
+   - Choose a short, unique name, for example `git-governance-source-publisher`.
    - Add a clear description such as `Creates governed pull requests.`
    - Set **Homepage URL** to the project or repository URL.
    - Leave **Callback URL** and **Setup URL** empty. Device Flow does not use a
