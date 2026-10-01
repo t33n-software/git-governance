@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -594,5 +595,79 @@ func configurationProblem(field, expected, remediation string) error {
 	})
 }
 
+const (
+	pullRequestInventoryPageSize = 100
+	pullRequestInventoryMaxPages = 100
+)
+
+// pullRequestInventoryResponse is the bounded projection of one listed
+// pull request: the identifier, the title, the author, and the creation
+// time.
+type pullRequestInventoryResponse struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	User   struct {
+		Login string `json:"login"`
+	} `json:"user"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// ListPullRequests enumerates the complete open and closed pull-request
+// surface of one repository through pagination. Exceeding the bounded
+// pagination budget fails closed instead of silently truncating the surface.
+func (publisher *Publisher) ListPullRequests(
+	ctx context.Context,
+	query port.PullRequestInventoryQuery,
+) ([]port.PullRequestSummary, error) {
+	apiBase, repository, err := publisher.lifecycleTarget(query.RemoteURL)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]port.PullRequestSummary, 0)
+	for page := 1; page <= pullRequestInventoryMaxPages; page++ {
+		values := url.Values{
+			"state":    {"all"},
+			"per_page": {strconv.Itoa(pullRequestInventoryPageSize)},
+			"page":     {strconv.Itoa(page)},
+		}
+		response, err := publisher.request(ctx, repository, http.MethodGet, repositoryEndpoint(apiBase, repository, "pulls", values), nil)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
+			return nil, responseProblemWithBody(response, "list the repository pull requests")
+		}
+		var listed []pullRequestInventoryResponse
+		decodeErr := decodeResponse(response.Body, &listed)
+		_ = response.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, pullRequest := range listed {
+			summaries = append(summaries, port.PullRequestSummary{
+				Number:    strconv.Itoa(pullRequest.Number),
+				Title:     pullRequest.Title,
+				Author:    pullRequest.User.Login,
+				CreatedAt: pullRequest.CreatedAt,
+			})
+		}
+		if len(listed) < pullRequestInventoryPageSize {
+			return summaries, nil
+		}
+	}
+	return nil, problem.New(problem.Details{
+		Code:        problem.CodeExternalCommandFailed,
+		Category:    problem.CategoryExternal,
+		Field:       "GitHub pull request inventory",
+		Actual:      "more than the bounded pagination budget of pull requests",
+		Expected:    "a bounded complete pull-request surface",
+		Rule:        "the allocation inventory must read the complete surface and never silently truncate it",
+		Remediation: "archive or narrow the pull-request history before allocating a new ticket number",
+	})
+}
+
 var _ port.PullRequestPublisher = (*Publisher)(nil)
 var _ port.PullRequestPublisherPreflight = (*Publisher)(nil)
+var _ port.PullRequestInventoryLister = (*Publisher)(nil)

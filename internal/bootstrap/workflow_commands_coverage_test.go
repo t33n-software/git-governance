@@ -21,7 +21,7 @@ func TestWorkflowCommandsDryRunHappyPaths(t *testing.T) {
 	}{
 		{
 			name:    "ticket start",
-			current: "feature/ABC-123-add-export",
+			current: "develop",
 			args: []string{
 				"workflow", "ticket", "start",
 				"--family", "feature",
@@ -37,8 +37,13 @@ func TestWorkflowCommandsDryRunHappyPaths(t *testing.T) {
 			args:     []string{"workflow", "ticket", "publish", "--branch", "feature/ABC-123-add-export"},
 		},
 		{
+			name:    "ticket inventory",
+			current: "feature/ABC-123-add-export",
+			args:    []string{"workflow", "ticket", "inventory", "--key", "ABC"},
+		},
+		{
 			name:    "hotfix start",
-			current: "hotfix/ABC-999-payment-timeout",
+			current: "develop",
 			args: []string{
 				"workflow", "hotfix", "start",
 				"--key", "ABC",
@@ -728,7 +733,7 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 }
 
 func TestInteractiveTicketStartReportsRemoteRefresh(t *testing.T) {
-	git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+	git := newBranchCommandGit(t, "develop")
 	application := newBranchCommandApplication(git, nil, &commandHelperPrompt{}, "human")
 	application.options.yes = true
 

@@ -614,7 +614,7 @@ func TestWorkflowCommandsAttachInputsToPostValidationFailures(t *testing.T) {
 	}{
 		{
 			name:    "ticket start includes scratch slug",
-			current: "feature/ABC-123-add-export",
+			current: "develop",
 			args: []string{
 				"workflow", "ticket", "start",
 				"--family", "feature", "--key", "ABC", "--ticket", "123", "--slug", "add-export",

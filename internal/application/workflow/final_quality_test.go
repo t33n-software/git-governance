@@ -102,7 +102,7 @@ func TestTicketServiceFinalQualityRunsAfterSynchronizationAndBeforePush(t *testi
 	base := mustBase("origin", "develop")
 	git := newFinalTicketGit(name, base)
 	runner := &finalTicketQualityRunner{}
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	finalQuality := branchapp.NewFinalQualityGate(git, runner)
 	sync := branchapp.NewSynchronizer(git, branches, runner).WithFinalQualityGate(finalQuality)
 	service := NewTicketService(branches, sync, git, runner, nil).WithFinalQualityGate(finalQuality)
@@ -204,7 +204,7 @@ func newFinalTicketGit(name branch.BranchName, base branch.TargetBase) *finalTic
 }
 
 func newFinalTicketService(git *finalTicketGit, runner *finalTicketQualityRunner) *TicketService {
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	finalQuality := branchapp.NewFinalQualityGate(git, runner)
 	sync := branchapp.NewSynchronizer(git, branches, runner).WithFinalQualityGate(finalQuality)
 	return NewTicketService(branches, sync, git, runner, nil).WithFinalQualityGate(finalQuality)

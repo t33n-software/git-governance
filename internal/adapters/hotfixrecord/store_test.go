@@ -211,12 +211,14 @@ func TestResolveLocationRestrictsRecordDirectory(t *testing.T) {
 }
 
 type testFilesystem struct {
-	info     os.FileInfo
-	statErr  error
-	data     string
-	readErr  error
-	statPath string
-	readPath string
+	info       os.FileInfo
+	statErr    error
+	data       string
+	readErr    error
+	statPath   string
+	readPath   string
+	readDirErr error
+	entries    []os.DirEntry
 }
 
 func (filesystem *testFilesystem) ReadFile(path string) ([]byte, error) {
@@ -225,6 +227,16 @@ func (filesystem *testFilesystem) ReadFile(path string) ([]byte, error) {
 		return nil, filesystem.readErr
 	}
 	return []byte(filesystem.data), nil
+}
+
+func (filesystem *testFilesystem) ReadDir(path string) ([]os.DirEntry, error) {
+	if filesystem.readDirErr != nil {
+		return nil, filesystem.readDirErr
+	}
+	if filesystem.entries != nil {
+		return filesystem.entries, nil
+	}
+	return nil, os.ErrNotExist
 }
 
 func (filesystem *testFilesystem) Stat(path string) (os.FileInfo, error) {
@@ -247,6 +259,21 @@ func (info testFileInfo) ModTime() time.Time { return time.Time{} }
 func (info testFileInfo) IsDir() bool        { return info.directory }
 func (info testFileInfo) Sys() any           { return nil }
 
+// testDirEntry is the configurable directory-entry fake for listing tests:
+// it names one controlled record-directory entry and carries either a
+// resolvable file info or an info read failure.
+type testDirEntry struct {
+	name    string
+	dir     bool
+	info    os.FileInfo
+	infoErr error
+}
+
+func (entry *testDirEntry) Name() string               { return entry.name }
+func (entry *testDirEntry) IsDir() bool                { return entry.dir }
+func (entry *testDirEntry) Type() os.FileMode          { return 0o600 }
+func (entry *testDirEntry) Info() (os.FileInfo, error) { return entry.info, entry.infoErr }
+
 func validRecordContents() string {
 	return fmt.Sprintf(
 		`{"schemaVersion":1,"ticket":"GOV-42","incident":"INC-42","affectedLine":"main","targetVersion":"1.0.2","previousTag":"v1.0.1","expectedPullRequest":{"source":"hotfix/GOV-42-main-hotfix-patch-delivery","target":"main"},"manifest":["%s"],"commitBudgetException":"","propagationTargets":["develop"]}`,
@@ -262,4 +289,147 @@ func mustTicket(t *testing.T, raw string) ticket.ID {
 		t.Fatal(err)
 	}
 	return value
+}
+
+func TestListHotfixReleaseRecords(t *testing.T) {
+	t.Parallel()
+
+	t.Run("lists every reviewed record below the controlled directory", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		directory := filepath.Join(root, filepath.FromSlash(recordDirectory))
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "GOV-42.json"), []byte(validRecordContents()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		other := strings.Replace(validRecordContents(), `"ticket":"GOV-42"`, `"ticket":"GOV-43"`, 1)
+		other = strings.Replace(other, "hotfix/GOV-42-", "hotfix/GOV-43-", 1)
+		if err := os.WriteFile(filepath.Join(directory, "GOV-43.json"), []byte(other), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "notes.txt"), []byte("not a record"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(directory, "nested"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+
+		records, err := New().ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(records) != 2 {
+			t.Fatalf("ListHotfixReleaseRecords() = %#v", records)
+		}
+		if records[0].Record.Ticket().String() != "GOV-42" ||
+			records[0].Location != ".git-governance/hotfix-release-records/GOV-42.json" {
+			t.Fatalf("first record = %#v", records[0])
+		}
+		if records[1].Record.Ticket().String() != "GOV-43" {
+			t.Fatalf("second record = %#v", records[1])
+		}
+	})
+
+	t.Run("a repository without the record directory has no records", func(t *testing.T) {
+		t.Parallel()
+		records, err := New().ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()})
+		if err != nil || records != nil {
+			t.Fatalf("ListHotfixReleaseRecords() = (%#v, %v)", records, err)
+		}
+	})
+
+	t.Run("honors cancellation", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := New().ListHotfixReleaseRecords(ctx, port.RepositoryIdentity{Root: t.TempDir()}); !errors.Is(err, context.Canceled) {
+			t.Fatalf("ListHotfixReleaseRecords() error = %v", err)
+		}
+	})
+
+	t.Run("rejects unavailable stores and roots", func(t *testing.T) {
+		t.Parallel()
+		var nilStore *Store
+		if _, err := nilStore.ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()}); err == nil {
+			t.Fatal("nil Store unexpectedly listed records")
+		}
+		if _, err := (&Store{}).ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()}); err == nil {
+			t.Fatal("Store without a filesystem unexpectedly listed records")
+		}
+		if _, err := New().ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{}); err == nil {
+			t.Fatal("empty repository root unexpectedly listed records")
+		}
+	})
+
+	t.Run("a directory read failure fails the listing closed", func(t *testing.T) {
+		t.Parallel()
+		store := &Store{filesystem: &testFilesystem{readDirErr: errors.New("unreadable directory")}}
+		if _, err := store.ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()}); err == nil {
+			t.Fatal("ListHotfixReleaseRecords unexpectedly succeeded")
+		}
+	})
+
+	t.Run("a corrupt record fails the listing closed", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		directory := filepath.Join(root, filepath.FromSlash(recordDirectory))
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "GOV-42.json"), []byte("{"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New().ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: root}); err == nil {
+			t.Fatal("ListHotfixReleaseRecords accepted a corrupt record")
+		}
+	})
+
+	t.Run("an oversized record fails the listing closed", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		directory := filepath.Join(root, filepath.FromSlash(recordDirectory))
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "GOV-42.json"), []byte(strings.Repeat("x", maxRecordBytes+1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New().ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: root}); err == nil {
+			t.Fatal("ListHotfixReleaseRecords accepted an oversized record")
+		}
+	})
+
+	t.Run("a record whose info cannot be read fails the listing closed", func(t *testing.T) {
+		t.Parallel()
+		store := &Store{filesystem: &testFilesystem{entries: []os.DirEntry{
+			&testDirEntry{name: "GOV-42.json", infoErr: errors.New("unreadable info")},
+		}}}
+		if _, err := store.ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()}); err == nil {
+			t.Fatal("ListHotfixReleaseRecords unexpectedly succeeded")
+		}
+	})
+
+	t.Run("a record that cannot be read fails the listing closed", func(t *testing.T) {
+		t.Parallel()
+		store := &Store{filesystem: &testFilesystem{
+			entries: []os.DirEntry{&testDirEntry{name: "GOV-42.json", info: testFileInfo{size: 1}}},
+			readErr: errors.New("unreadable record"),
+		}}
+		if _, err := store.ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()}); err == nil {
+			t.Fatal("ListHotfixReleaseRecords unexpectedly succeeded")
+		}
+	})
+
+	t.Run("a record larger than its reported size fails the listing closed", func(t *testing.T) {
+		t.Parallel()
+		store := &Store{filesystem: &testFilesystem{
+			entries: []os.DirEntry{&testDirEntry{name: "GOV-42.json", info: testFileInfo{size: 1}}},
+			data:    strings.Repeat("x", maxRecordBytes+1),
+		}}
+		if _, err := store.ListHotfixReleaseRecords(context.Background(), port.RepositoryIdentity{Root: t.TempDir()}); err == nil {
+			t.Fatal("ListHotfixReleaseRecords unexpectedly succeeded")
+		}
+	})
 }

@@ -7,6 +7,7 @@ import (
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/hotfix"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
@@ -26,6 +27,7 @@ type ReleaseService struct {
 	tickets               *TicketService
 	quality               port.QualityRunner
 	records               port.HotfixReleaseRecordStore
+	allocation            *ticketalloc.Service
 	manifestPublication   bool
 	integrationLineReturn bool
 }
@@ -57,6 +59,17 @@ func NewReleaseService(branches *branchapp.Service, git port.GitRepository, publ
 		git:       git,
 		publisher: publisher,
 	}
+}
+
+// WithTicketAllocation wires the fail-closed ticket-number allocation gate
+// into the protected-line request workflow: the requested number is
+// validated against a fresh full-surface inventory immediately before the
+// durable request record binds it. These records consume ticket numbers
+// without any pull request, so no branch or pull-request surface can make
+// them visible. An unwired gate fails closed.
+func (service *ReleaseService) WithTicketAllocation(allocation *ticketalloc.Service) *ReleaseService {
+	service.allocation = allocation
+	return service
 }
 
 // WithTicketService wires publication behavior into release workflows without
@@ -398,6 +411,9 @@ func (service *ReleaseService) RequestProtectedLine(
 	if service.protectedRequests == nil {
 		return RequestProtectedLineResult{}, internalDependencyError("protected-line request provider")
 	}
+	if service.allocation == nil {
+		return RequestProtectedLineResult{}, ticketalloc.GateUnavailable()
+	}
 	if request.Ticket.Key().String() == "" || request.Ticket.Number().String() == "" {
 		return RequestProtectedLineResult{}, invalidWorkflowInput(
 			"a ticket-bound release request",
@@ -417,6 +433,9 @@ func (service *ReleaseService) RequestProtectedLine(
 	}
 	remoteURL, err := service.git.RemoteURL(ctx, repository)
 	if err != nil {
+		return RequestProtectedLineResult{}, err
+	}
+	if err := service.allocation.ValidateFree(ctx, repository, request.Ticket); err != nil {
 		return RequestProtectedLineResult{}, err
 	}
 	authorized, err := service.protectedRequests.AuthorizeProtectedLineRequest(ctx, port.ProtectedLineRequestAuthorization{

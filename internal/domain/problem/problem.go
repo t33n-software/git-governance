@@ -41,6 +41,7 @@ const (
 	CodeBranchBaseInvalid            Code = "BRANCH_BASE_INVALID"
 	CodeBranchAlreadyExists          Code = "BRANCH_ALREADY_EXISTS"
 	CodeTicketBranchAlreadyExists    Code = "TICKET_BRANCH_ALREADY_EXISTS"
+	CodeTicketNumberAlreadyAllocated Code = "TICKET_NUMBER_ALREADY_ALLOCATED"
 	CodeBranchPublicationUnknown     Code = "BRANCH_PUBLICATION_UNKNOWN"
 	CodeScratchSourceBranchMissing   Code = "SCRATCH_SOURCE_BRANCH_MISSING"
 	CodeScratchTargetBranchMissing   Code = "SCRATCH_TARGET_BRANCH_MISSING"

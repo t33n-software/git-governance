@@ -3,9 +3,9 @@ package branchapp
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
@@ -13,8 +13,9 @@ import (
 
 // Service owns canonical branch validation and creation orchestration.
 type Service struct {
-	git       port.GitRepository
-	keyPolicy port.KeyPolicy
+	git        port.GitRepository
+	keyPolicy  port.KeyPolicy
+	allocation *ticketalloc.Service
 }
 
 // NewService creates a branch application service.
@@ -23,6 +24,16 @@ func NewService(git port.GitRepository, keyPolicy port.KeyPolicy) *Service {
 		git:       git,
 		keyPolicy: keyPolicy,
 	}
+}
+
+// WithTicketAllocation wires the fail-closed ticket-number allocation gate
+// into every ticket-scoped branch creation: the requested number is
+// validated against a fresh full-surface inventory immediately before the
+// branch binds it. An unwired gate fails closed instead of allocating an
+// unverified number.
+func (service *Service) WithTicketAllocation(allocation *ticketalloc.Service) *Service {
+	service.allocation = allocation
+	return service
 }
 
 // ValidateRequest describes a branch validation request.
@@ -201,32 +212,35 @@ func (service *Service) ensureBranchAvailability(
 			Remediation: "choose a new branch name or switch to the existing branch",
 		})
 	}
-	if !requiresExclusiveTicketBranch(request.Family, request.WorkflowManaged) {
-		return nil
+	// Every ticket-scoped branch creation gates the requested number against a
+	// fresh full-surface allocation inventory immediately before the branch
+	// binds it: regular non-managed work and workflow-managed hotfix starts
+	// claim fresh numbers and require a free number, while workflow-managed
+	// fix, docs, and chore creations continue their ticket's stabilization or
+	// propagation across active lines, so their number is the ticket's own
+	// allocation. A scratch branch is created only from an already gated
+	// same-ticket official branch.
+	if scopedTicket, ticketScoped := name.Ticket(); ticketScoped && requiresTicketNumberGate(request.Family, request.WorkflowManaged) {
+		if service.allocation == nil {
+			return ticketalloc.GateUnavailable()
+		}
+		if err := service.allocation.ValidateFree(ctx, repository, scopedTicket); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
-	existing, err := service.git.OfficialBranchesForTicket(ctx, repository, request.Ticket)
-	if err != nil {
-		return err
+// requiresTicketNumberGate reports whether one branch creation binds a fresh
+// ticket number that the allocation inventory must validate as free.
+func requiresTicketNumberGate(family branch.Family, workflowManaged bool) bool {
+	if family == branch.FamilyScratch {
+		return false
 	}
-	if len(existing) == 0 {
-		return nil
+	if family == branch.FamilyHotfix {
+		return true
 	}
-
-	names := make([]string, 0, len(existing))
-	for _, candidate := range existing {
-		names = append(names, candidate.String())
-	}
-	return problem.New(problem.Details{
-		Code:        problem.CodeTicketBranchAlreadyExists,
-		Category:    problem.CategoryGovernance,
-		Field:       "ticket",
-		Actual:      request.Ticket.String() + " on " + strings.Join(names, ", "),
-		Expected:    "no existing official regular branch for the same ticket",
-		Rule:        "normal ticket work uses exactly one official branch per ticket",
-		Example:     "feature/ABC-123-add-export-button",
-		Remediation: "continue on the existing official branch or close it before starting unrelated ticket work",
-	})
+	return requiresExclusiveTicketBranch(family, workflowManaged)
 }
 
 func requiresExclusiveTicketBranch(family branch.Family, workflowManaged bool) bool {

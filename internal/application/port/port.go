@@ -223,6 +223,23 @@ type LocalBranchLister interface {
 	LocalBranches(ctx context.Context, repository RepositoryIdentity) ([]branch.BranchName, error)
 }
 
+// RemoteBranchLister is an optional capability for adapters that can enumerate
+// the fetched remote-tracking canonical branches of the selected remote. The
+// allocation inventory reads the branch-ref surface through it; keeping the
+// capability separate avoids forcing unrelated adapters and test fakes to
+// implement a read they never invoke.
+type RemoteBranchLister interface {
+	RemoteBranches(ctx context.Context, repository RepositoryIdentity) ([]branch.BranchName, error)
+}
+
+// CommitSubjectLister is an optional capability for adapters that can read the
+// complete commit subject history across every reachable reference, including
+// unborn repositories that carry none. The allocation inventory parses those
+// subjects with the canonical commit header grammar; it never string-matches.
+type CommitSubjectLister interface {
+	CommitSubjects(ctx context.Context, repository RepositoryIdentity) ([]string, error)
+}
+
 // BranchReferenceFastForwarder is an optional capability for adapters that can
 // advance a local branch reference to its fetched remote-tracking base when —
 // and only when — that update is a fast-forward. The caller owns the
@@ -458,6 +475,21 @@ type HotfixReleaseRecordStore interface {
 	) (hotfix.ReleaseRecord, error)
 }
 
+// HotfixReleaseRecord binds one reviewed release record to its
+// repository-relative location for the allocation inventory.
+type HotfixReleaseRecord struct {
+	Record   hotfix.ReleaseRecord
+	Location string
+}
+
+// HotfixReleaseRecordLister is an optional capability for adapters that can
+// enumerate every reviewed release record below the controlled repository
+// record directory. The allocation inventory derives hotfix record numbers
+// from the schema-validated records themselves.
+type HotfixReleaseRecordLister interface {
+	ListHotfixReleaseRecords(ctx context.Context, repository RepositoryIdentity) ([]HotfixReleaseRecord, error)
+}
+
 // HotfixManifestProgress records one in-progress ordered propagation in
 // repository-local Git metadata. It is not a reviewed release record and
 // never grants publication authority.
@@ -524,6 +556,31 @@ type PullRequestPublisher interface {
 // can validate credentials and routing before a Git branch is pushed.
 type PullRequestPublisherPreflight interface {
 	Validate(ctx context.Context, publication PullRequestPublication) error
+}
+
+// PullRequestInventoryQuery identifies the repository whose complete open and
+// closed pull-request surface is enumerated through a hosting provider.
+type PullRequestInventoryQuery struct {
+	Repository RepositoryIdentity
+	RemoteURL  string
+}
+
+// PullRequestSummary carries one provider-neutral pull-request record of the
+// allocation inventory.
+type PullRequestSummary struct {
+	Number    string
+	Title     string
+	Author    string
+	CreatedAt time.Time
+}
+
+// PullRequestInventoryLister is an optional capability for hosting adapters
+// that can enumerate the complete pull-request surface of one repository
+// through pagination. The allocation inventory parses titles with the
+// canonical ticket grammars; it never string-matches, and a surface that
+// cannot be read completely fails the inventory closed.
+type PullRequestInventoryLister interface {
+	ListPullRequests(ctx context.Context, query PullRequestInventoryQuery) ([]PullRequestSummary, error)
 }
 
 // SharedLineDispatchRequest describes a provider-owned request to create a
@@ -639,6 +696,31 @@ type ProtectedLineRequestProvider interface {
 		ctx context.Context,
 		request ProtectedLineFinalizationRequest,
 	) (ProtectedLineFinalizationResult, error)
+}
+
+// ProtectedLineRequestInventoryQuery identifies the repository whose durable
+// protected-line request records are enumerated through a hosting provider.
+type ProtectedLineRequestInventoryQuery struct {
+	Repository RepositoryIdentity
+	RemoteURL  string
+}
+
+// ProtectedLineRequestRecord binds one durable request record to its provider
+// creation time for the allocation inventory.
+type ProtectedLineRequestRecord struct {
+	Request   releaserequest.Request
+	CreatedAt time.Time
+}
+
+// ProtectedLineRequestInventoryLister is an optional capability for hosting
+// adapters that can enumerate every durable protected-line request record of
+// one repository. These records consume ticket numbers without any pull
+// request, so they are allocation evidence no pull-request scan can see.
+type ProtectedLineRequestInventoryLister interface {
+	ListProtectedLineRequests(
+		ctx context.Context,
+		query ProtectedLineRequestInventoryQuery,
+	) ([]ProtectedLineRequestRecord, error)
 }
 
 // MainHotfixDeliveryRequest binds a reviewed record to its repository before a

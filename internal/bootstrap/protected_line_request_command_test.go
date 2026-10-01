@@ -56,7 +56,7 @@ func (publisher *protectedLineCommandPublisher) FinalizeProtectedLineRequest(
 }
 
 func TestProtectedLineRequestCommandsRequireControllerBoundary(t *testing.T) {
-	command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(newCommandGit(t, "feature/GOV-50-release-request-execution", nil)))
+	command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(newCommandGit(t, "develop", nil)))
 	_, err := executeBootstrapCommand(
 		t,
 		command,
@@ -74,7 +74,7 @@ func TestProtectedLineRequestCommandsRequireControllerBoundary(t *testing.T) {
 
 func TestProtectedLineRequestCommandsBindControllerInputs(t *testing.T) {
 	publisher := &protectedLineCommandPublisher{}
-	runtime := commandRuntime(newCommandGit(t, "feature/GOV-50-release-request-execution", nil))
+	runtime := commandRuntime(newCommandGit(t, "develop", nil))
 	runtime.Publisher = publisher
 	runtime.GitHubWorkflowTokenEnabled = func() bool { return true }
 	runtime.GitHubWorkflowToken = func() string { return "ephemeral-token" }
@@ -143,7 +143,7 @@ func TestProtectedLineRequestCommandsBindControllerInputs(t *testing.T) {
 
 func TestProtectedLineRequestCommandFailurePaths(t *testing.T) {
 	newCommand := func(publisher *protectedLineCommandPublisher, enabled bool) *cobra.Command {
-		runtime := commandRuntime(newCommandGit(t, "feature/GOV-50-release-request-execution", nil))
+		runtime := commandRuntime(newCommandGit(t, "develop", nil))
 		runtime.Publisher = publisher
 		runtime.GitHubWorkflowTokenEnabled = func() bool { return enabled }
 		runtime.GitHubWorkflowToken = func() string { return "ephemeral-token" }

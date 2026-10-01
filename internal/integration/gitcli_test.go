@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/t33n-software/git-governance/internal/adapters/gitcli"
+	"github.com/t33n-software/git-governance/internal/adapters/hotfixrecord"
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/policy"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
@@ -75,13 +77,20 @@ func TestGitCLIAdapterAgainstLocalRepositories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = branchapp.NewService(adapter, policy.SyntaxOnlyKeyPolicy{}).Create(ctx, branchapp.CreateRequest{
-		Repository: identity,
-		Family:     branch.FamilyFix,
-		Ticket:     duplicateTicket,
-		Slug:       duplicateSlug,
-	})
-	assertProblemCode(t, err, problem.CodeTicketBranchAlreadyExists)
+	_, err = branchapp.NewService(adapter, policy.SyntaxOnlyKeyPolicy{}).
+		WithTicketAllocation(ticketalloc.New(ticketalloc.Dependencies{
+			LocalBranches:  adapter,
+			RemoteBranches: adapter,
+			CommitSubjects: adapter,
+			HotfixRecords:  hotfixrecord.New(),
+		})).
+		Create(ctx, branchapp.CreateRequest{
+			Repository: identity,
+			Family:     branch.FamilyFix,
+			Ticket:     duplicateTicket,
+			Slug:       duplicateSlug,
+		})
+	assertProblemCode(t, err, problem.CodeTicketNumberAlreadyAllocated)
 	current, err := adapter.CurrentBranch(ctx, identity)
 	if err != nil || current.String() != feature.String() {
 		t.Fatalf("CurrentBranch() = (%q, %v)", current.String(), err)

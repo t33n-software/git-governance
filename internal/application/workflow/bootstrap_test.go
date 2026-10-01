@@ -235,6 +235,7 @@ func (fake *bootstrapTools) FileExists(path string) (bool, error) {
 
 func newBootstrapService(git port.GitRepository, tools port.ToolInspector) *BootstrapService {
 	return NewBootstrapService(branchapp.NewService(git, &fakeKeyPolicy{}), git, &fakeKeyPolicy{}, tools).
+		WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{})).
 		WithSigningReadiness(func(configuration port.SigningConfiguration) error {
 			if !configuration.SigningEnabled {
 				return problem.New(problem.Details{
@@ -522,6 +523,7 @@ func TestBootstrapContentSetAndKeyPolicy(t *testing.T) {
 		t.Parallel()
 		git := newBootstrapGit()
 		service := NewBootstrapService(branchapp.NewService(git, &fakeKeyPolicy{err: errors.New("key rejected")}), git, &fakeKeyPolicy{err: errors.New("key rejected")}, newBootstrapTools()).
+			WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{})).
 			WithSigningReadiness(func(port.SigningConfiguration) error { return nil }).
 			WithPolicySnapshot(func() string { return "snapshot" })
 		if _, err := service.Bootstrap(context.Background(), bootstrapRequest()); err == nil ||

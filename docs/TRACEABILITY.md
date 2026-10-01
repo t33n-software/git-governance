@@ -66,6 +66,7 @@ does not rely on any external governance repository or unpublished rule set.
 |---|---|---|
 | `branch list`, `validate`, `create`, `merge-scratch`, `sync-base`, `refresh-shared-lines` | IMPLEMENTED | CLI contract tests cover help, JSON, flags, dry-run behavior, structured-only commit composition with the mandatory scratch-transfer body, and the governed `sync-base --resume` continuation of conflicted rebase and merge synchronizations; `refresh-shared-lines` fast-forwards local shared-line checkouts fail-closed against their fetched remote-tracking references and reports per-line outcomes without ever pushing, switching the checkout, creating a merge commit, or forcing |
 | `commit create`, `validate` | IMPLEMENTED | explicit staging, branch-derived ticket context, explicit family selection, the envelope-free subject, and the machine-known body duty are enforced |
+| `workflow ticket inventory` | IMPLEMENTED | read-only allocation inventory: derives allocated numbers, holder evidence, and the next free number for one ticket key from every governed surface (branch refs, commit envelopes, hotfix release records, PR titles, protected-line request records), names absent platform surfaces in provider-less repositories, and fails closed on any incompletely readable surface |
 | `workflow ticket start` | IMPLEMENTED | optional scratch branch and provider-neutral PR intent |
 | `workflow ticket publish` | IMPLEMENTED | reports conditional rebase state, runs final local quality only after synchronization, records revision-bound local Git metadata, resumes resolved rebase and scratch-transfer conflicts interactively or with `--resume`, creates a PR only through an explicit configured provider with the mandatory canonically structured description, and returns the local workspace to `develop` after a created pull request |
 | `workflow hotfix start` | IMPLEMENTED | affected-line selection is mandatory |
@@ -92,6 +93,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Rule | Status | Behavior |
 |---|---|---|
 | Regular work starts from `origin/develop` | VERIFIED | direct remote base, no local `develop` checkout/pull required |
+| Ticket-number allocation gates | IMPLEMENTED | every ticket-consuming endpoint (`workflow ticket start`, `workflow hotfix start`, `workflow release request`, `workflow release stabilize`, `workflow bootstrap`, `branch create`) validates the requested key and number against a fresh full-surface allocation inventory immediately before binding — fetch first, inventory second, mutation third — and fails closed with `TICKET_NUMBER_ALREADY_ALLOCATED` (governance category, exit 3) carrying the holder evidence per surface; the canonical allocation-surface inventory and rule set live in `docs/conventions/tickets/ticket-allocation.md` (TAL-R001–R010); workflow-managed fix, docs, and chore stabilizations continue their ticket's own allocation while regular fresh work and managed hotfix starts require a free number |
 | On-demand local shared-line refresh | VERIFIED | `branch refresh-shared-lines` fast-forwards every locally present or explicitly selected shared-line checkout fail-closed: fetch first, no in-progress Git operation, a clean worktree for a checked-out target, per-line `updated`/`already-current`/`diverged` outcomes, and a fail-closed named reason for any diverged line; same-package whitebox tests, CLI contract tests, and a real local Git integration test cover both the checked-out and the reference update paths |
 | Hotfix starts from actual affected line | VERIFIED | only `main`, `release/*`, or `support/*` accepted |
 | Hotfix PR targets actual affected line | IMPLEMENTED | hotfix publish requires and uses the affected main/release/support line |
@@ -188,13 +190,14 @@ does not rely on any external governance repository or unpublished rule set.
 | Direct scratch selection | require/select an official ticket-branch base before creation | IMPLEMENTED |
 | Application-level scratch base guard | reject remote-tracking scratch bases even for programmatic callers | IMPLEMENTED |
 | Regular ticket exclusivity | reject a second official regular branch for one ticket after fetch | IMPLEMENTED |
+| Ticket-number allocation uniqueness | derive allocation truth from every governed surface and gate every ticket-consuming endpoint fail-closed; duplicate allocations such as RG-37 (protected-line request record plus pull request) and RG-8 are structurally prevented because durable request records are inventory evidence no PR-title scan can see | IMPLEMENTED |
 | GitHub App session isolation | scope native refresh sessions, in-memory refresh state, authorization state, status, logout, and credential resolution by host, account, and configured client ID; reject legacy storage without selecting or migrating it | IMPLEMENTED |
 | Project-agnostic quality gates | explicit repository-local command-array configuration; absent config reports `unconfigured` instead of pass | IMPLEMENTED |
 | Final local publish quality | full suite runs after final synchronization; short-lived local Git metadata is reused only for an exact fresh candidate and otherwise falls back | IMPLEMENTED |
 
 ## Explicit non-goals in v1
 
-- No live ticket-registry lookup.
+- No live tracker lookup; the repo-side ticket-number allocation inventory is a governed read-only capability derived from repository surfaces, not a tracker integration.
 - GitHub pull-request publication is supported only through the explicit GitHub adapter; other provider-specific APIs remain out of scope.
 - No automatic self-update.
 - No direct mutation of protected shared lines.

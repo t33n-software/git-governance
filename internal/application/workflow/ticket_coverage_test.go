@@ -404,7 +404,7 @@ func TestPublishTicketTransfersScratchThroughSharedMerger(t *testing.T) {
 	target := mustBranch("feature/ABC-123-add-export")
 	message := mustScratchCommitMessage(t, "feat(ABC-123): add export")
 	git := newScratchTicketWorkflowGit(source, target)
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	sync := branchapp.NewSynchronizer(git, branches, nil)
 	service := NewTicketService(branches, sync, git, nil, nil).
 		WithScratchMerger(branchapp.NewScratchMerger(git, branches))
@@ -440,7 +440,7 @@ func TestPublishTicketPlansScratchTransferDuringDryRun(t *testing.T) {
 	target := mustBranch("feature/ABC-123-add-export")
 	message := mustScratchCommitMessage(t, "feat(ABC-123): add export")
 	git := newScratchTicketWorkflowGit(source, target)
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	sync := branchapp.NewSynchronizer(git, branches, nil)
 	service := NewTicketService(branches, sync, git, nil, nil).
 		WithScratchMerger(branchapp.NewScratchMerger(git, branches))
@@ -481,7 +481,7 @@ func TestPublishTicketScratchTransferFailurePaths(t *testing.T) {
 
 	t.Run("requires the composed scratch merger", func(t *testing.T) {
 		git := newScratchTicketWorkflowGit(source, target)
-		branches := branchapp.NewService(git, &fakeKeyPolicy{})
+		branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 		service := NewTicketService(branches, branchapp.NewSynchronizer(git, branches, nil), git, nil, nil)
 
 		_, err := service.PublishTicket(context.Background(), request())
@@ -490,7 +490,7 @@ func TestPublishTicketScratchTransferFailurePaths(t *testing.T) {
 
 	t.Run("requires a scratch commit message", func(t *testing.T) {
 		git := newScratchTicketWorkflowGit(source, target)
-		branches := branchapp.NewService(git, &fakeKeyPolicy{})
+		branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 		service := NewTicketService(branches, branchapp.NewSynchronizer(git, branches, nil), git, nil, nil).
 			WithScratchMerger(branchapp.NewScratchMerger(git, branches))
 		missingMessage := request()
@@ -504,7 +504,7 @@ func TestPublishTicketScratchTransferFailurePaths(t *testing.T) {
 		squashErr := errors.New("squash conflict")
 		git := newScratchTicketWorkflowGit(source, target)
 		git.squashErr = squashErr
-		branches := branchapp.NewService(git, &fakeKeyPolicy{})
+		branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 		service := NewTicketService(branches, branchapp.NewSynchronizer(git, branches, nil), git, nil, nil).
 			WithScratchMerger(branchapp.NewScratchMerger(git, branches))
 

@@ -1094,16 +1094,16 @@ func newTicketService(git *fakeGitRepository, quality port.QualityRunner, publis
 
 func newTicketServiceWithGit(git port.GitRepository, quality port.QualityRunner, publisher port.PullRequestPublisher) *TicketService {
 	keys := &fakeKeyPolicy{}
-	branches := branchapp.NewService(git, keys)
+	branches := branchapp.NewService(git, keys).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	sync := branchapp.NewSynchronizer(git, branches, quality)
 	return NewTicketService(branches, sync, git, quality, publisher)
 }
 
 func newReleaseService(git *fakeGitRepository, publisher port.PullRequestPublisher) *ReleaseService {
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	sync := branchapp.NewSynchronizer(git, branches, nil)
 	tickets := NewTicketService(branches, sync, git, nil, publisher)
-	return NewReleaseService(branches, git, publisher).WithTicketService(tickets)
+	return NewReleaseService(branches, git, publisher).WithTicketService(tickets).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 }
 
 func testRepository() port.RepositoryIdentity {
