@@ -21,12 +21,15 @@
 
 1. `00-push-protections.json` (binds only private/internal repositories)
 2. `01-ticket-working-branches.json`
-3. `02-develop.*` (both classes)
-4. `03-main.*` (both classes)
-5. `04-release.*` (both classes; check `do_not_enforce_on_create: true`)
-6. `05-support.*` (both classes; check `do_not_enforce_on_create: true`)
-7. `08-tag-namespace-floor.json` (active; no delivery lane affected)
-8. `07-release-version-tags.json` (initially `disabled`; activation only
+3. `06-shared-line-floor.json` (classless; precondition-free — the deletion
+   floor waits for neither the class flip nor the signature governance and
+   closes the `pending` activation window immediately)
+4. `02-develop.*` (both classes)
+5. `03-main.*` (both classes)
+6. `04-release.*` (both classes; check `do_not_enforce_on_create: true`)
+7. `05-support.*` (both classes; check `do_not_enforce_on_create: true`)
+8. `08-tag-namespace-floor.json` (active; no delivery lane affected)
+9. `07-release-version-tags.json` (initially `disabled`; activation only
    after verified tag creation through the release-automation identity, see
    [Tag governance](tag-governance.md))
 
@@ -59,6 +62,9 @@ never passed through project files, command history, or source code.
 - A merged `feature/*` PR deletes its remote head branch.
 - The deletion protection prevents the deletion of `main`, `develop`,
   `release/*`, and `support/*`.
+- The deletion floor already binds repositories whose `quality-gates`
+  property is still `pending`: an automatic head-branch deletion never
+  removes a shared line before its reconciliation outcome is recorded.
 - A `develop` PR allows only merge, rebase, and squash; a PR onto `main`,
   `release/*`, or `support/*` allows only merge commits.
 - A shared-line PR without the approval of the bound CODEOWNERS owner is
