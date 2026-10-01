@@ -682,9 +682,9 @@ Die Erkennung wählt genau eine Fähigkeitsebene, in dieser Reihenfolge:
 
 | Priorität | Ebene | Auswahlbedingung |
 |---|---|---|
-| P1 | `gh`-Integration | `gh` ist verfügbar, authentifiziert und kann die Pull Requests des gebundenen Projekts lesen |
-| P2 | Kontext-Tools | Ein im Kontext verfügbares Tool deckt das Lesen offener und geschlossener Pull Requests tatsächlich ab |
-| P3 | GitHub-API | Das gebundene Repository ist nachweislich öffentlich; anonyme `curl`-/Fetch-Anfragen sind zulässig |
+| P1 | Gouvernete Inventur-Fähigkeit der Binary | Die Allokations-Inventur ist über den Help-first-Vertrag der Binary verfügbar und misst die vollständige Flächeninventur des gebundenen Projekts |
+| P2 | Kontext-Tools | Ein im Kontext verfügbares Tool deckt die vollständige Flächeninventur tatsächlich ab |
+| P3 | Plattform-Lesewege der Binary-Ports | `gh`-/API-Zugriffe dienen ausschließlich als Lesewege der Ports für Plattform-Flächen; P3 ist nur für nachweislich öffentliche Repositories zulässig |
 | P4 | Keine Erkennung | Keine der Ebenen P1–P3 ist verfügbar, oder das Repository ist nicht öffentlich und kein authentifizierter Zugriff existiert |
 
 Verbindliche Regeln:
@@ -705,26 +705,32 @@ gewählte Ebene und den Auswahlgrund benennt.
 
 #### 4.5.3 Evidenzgewinnung und Vorschlagsmatrix
 
-Auf der gewählten Ebene analysiert der Agent offene und geschlossene Pull
-Requests des gebundenen Projekts und extrahiert daraus bereits verwendete
-sowie noch offene Keys und Ticket-Nummern. Als ergänzende Evidenz dürfen ein
-aus der Diagnose bekanntes Standard-Key-Profil und gleichnamig belegte
-bestehende Branches einfließen.
+Die Vorschlagsbasis ist die gouvernete Inventur-Fähigkeit der Binary
+(Help-first re-anchored): das vollständige Flächeninventar über alle
+Allokationsflächen des gebundenen Projekts — Branch-Refs (lokal und remote),
+Commit-Envelope-Historie über alle Refs, Hotfix-Release-Records,
+Genesis-Record, PR-/MR-Titel (offen und geschlossen, vollständig paginiert)
+und Protected-Line-Request-Records. „Frei" ist erst nach vollständiger
+Inventur bewiesen; eine Fläche, die nicht vollständig lesbar ist, schließt
+die Inventur fail-closed. Ausschließliche Projektionsbasen — etwa ein
+PR-Titel-Scan, ein festes Seitenfenster oder eine Titel-only-Sicht — sind
+keine zulässige Evidenz für eine Allokationsentscheidung oder einen
+Vorschlag.
 
-Aus dieser Evidenz und dem klassifizierten Aufgabenmuster erstellt die
+Aus diesem Inventar und dem klassifizierten Aufgabenmuster erstellt die
 Multi-Decision-Matrix einen Vorschlag:
 
 | Entscheidungsachse | Eingang | Wirkung auf den Vorschlag |
 |---|---|---|
 | Aufgabenmuster | `active_task_pattern` aus [4.1] | Familien- und Workflow-Passung des Vorschlags |
-| Verwendete Keys | Key-Verteilung in den PR-Titeln | Dominanter, zur Aufgabe passender Key |
-| Höchste Ticket-Nummer | Größte belegte Nummer im gewählten Key | Vorschlag = höchste belegte Nummer + 1 |
-| Offene Tickets | Noch offene PRs mit Ticket-Bezug | Keine erneute Belegung einer offenen Nummer |
+| Verwendete Keys | Key-Verteilung über die inventarisierten Flächen | Dominanter, zur Aufgabe passender Key |
+| Belegte Nummern | Halter-Evidenz je Fläche aus dem Inventar des gewählten Keys | Keine erneute Belegung einer belegten Nummer; Kollisionen sind zusätzlich durch die Intake-Gates der Binary ausfallsicher gesichert |
+| Höchste Ticket-Nummer | Größte belegte Nummer im gewählten Key laut Inventar | Vorschlag = nächste freie Nummer aus der Inventur |
 | Ausführungsebene | `execution_level` aus [4.2] | Der Vorschlag wird für den Ebene-1-Workflow formuliert; ist Ebene 2 relevant, werden dieselben Werte für die dortigen Kommando-Eingaben vorgeschlagen |
 
 Der Vorschlag enthält immer den Key, die Ticket-Nummer, die Evidenzbasis
-(welche Pull Requests ausgewertet wurden) und die Ebene, die zur Filterung
-geführt hat.
+(die gescannten Flächen mit ihren Scan-Zuständen) und die Ebene, die zur
+Filterung geführt hat.
 
 #### 4.5.4 Interaktive Bestätigung
 
@@ -834,6 +840,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 
 | Endpoint | Ebene | Wann er erforderlich ist | Ergebnisgrenze |
 |---|---|---|---|
+| `workflow ticket inventory` | RO | Next-free-/Belegtheits-Inventur vor Ticket-Intake | Keine Mutation |
 | `workflow ticket start` | E1 | Einen neuen offiziellen regulären Ticket-Workflow starten; einziger zulässiger Pfad zur Erzeugung einer regulären Ticket-Branch | Erstellt offiziellen Branch; optional Scratch nur nach Entscheidung |
 | `workflow ticket publish` | E1 | Offiziellen Branch validieren, synchronisieren, pushen und PR vorbereiten | Vollständige Publish-Gates; Provider-PR nur bei expliziter Anforderung |
 | `branch create` | E2 | Nur wenn kein vollständiger Workflow diese begrenzte Aktion anbietet; insbesondere reaktive Scratch-Erstellung | Keine Ticket-Branch-Erstellung, kein Ersatz für `workflow ticket start`, kein Reparaturvehikel für Mutation-vor-Workflow |
@@ -1238,7 +1245,7 @@ Bereich:
 🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|unborn|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL>
 🧭 Guard | embargo=<active|released|not_required> | release_channel=<workflow_start|confirmed_continuation|none> | reverify=<PASS|FAIL>
 🎯 Task | pattern=<ticket|hotfix|release|support|exploration|diagnostic|bootstrap> | ticket=<value>
-🎯 Discovery | level=<gh|context-tool|github-api|unavailable> | prs_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
+🎯 Discovery | level=<inventory> | surfaces_scanned=<count> | release_records_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
 🎯 Execution level | level=<workflow|command|raw_git> | endpoint=<value> | coverage=<covered|gap-named>
 🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
