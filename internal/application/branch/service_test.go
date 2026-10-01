@@ -314,7 +314,7 @@ func TestValidateAllowsSharedLinesButChecksRefAndPolicy(t *testing.T) {
 
 	git := &fakeGitRepository{}
 	keys := &fakeKeyPolicy{}
-	service := NewService(git, keys)
+	service := NewService(git, keys).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 
 	main := mustBranch("main")
 	if _, err := service.Validate(context.Background(), ValidateRequest{Repository: testRepository(), Name: main}); err != nil {
@@ -342,14 +342,14 @@ func TestValidateRejectsInvalidStateAndPropagatesDependencies(t *testing.T) {
 
 	feature := mustBranch("feature/ABC-123-add-export")
 	t.Run("repository root is required", func(t *testing.T) {
-		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{}).Validate(
+		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{})).Validate(
 			context.Background(),
 			ValidateRequest{Name: feature},
 		)
 		assertProblemCode(t, err, problem.CodeRepositoryNotFound)
 	})
 	t.Run("branch name is required", func(t *testing.T) {
-		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{}).Validate(
+		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{})).Validate(
 			context.Background(),
 			ValidateRequest{Repository: testRepository()},
 		)
@@ -358,7 +358,7 @@ func TestValidateRejectsInvalidStateAndPropagatesDependencies(t *testing.T) {
 	t.Run("cancelled context stops validation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{}).Validate(
+		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{})).Validate(
 			ctx,
 			ValidateRequest{Repository: testRepository(), Name: feature},
 		)
@@ -366,7 +366,7 @@ func TestValidateRejectsInvalidStateAndPropagatesDependencies(t *testing.T) {
 	})
 	t.Run("key policy failure is preserved", func(t *testing.T) {
 		expected := errors.New("policy denied")
-		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{err: expected}).Validate(
+		_, err := NewService(&fakeGitRepository{}, &fakeKeyPolicy{err: expected}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{})).Validate(
 			context.Background(),
 			ValidateRequest{Repository: testRepository(), Name: feature},
 		)
@@ -376,7 +376,7 @@ func TestValidateRejectsInvalidStateAndPropagatesDependencies(t *testing.T) {
 	})
 	t.Run("git ref failure is preserved", func(t *testing.T) {
 		expected := errors.New("invalid ref")
-		_, err := NewService(&fakeGitRepository{validateRefErr: expected}, &fakeKeyPolicy{}).Validate(
+		_, err := NewService(&fakeGitRepository{validateRefErr: expected}, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{})).Validate(
 			context.Background(),
 			ValidateRequest{Repository: testRepository(), Name: feature},
 		)
@@ -385,7 +385,7 @@ func TestValidateRejectsInvalidStateAndPropagatesDependencies(t *testing.T) {
 		}
 	})
 	t.Run("nil key policy remains optional", func(t *testing.T) {
-		if _, err := NewService(&fakeGitRepository{}, nil).Validate(
+		if _, err := NewService(&fakeGitRepository{}, nil).WithTicketAllocation(newTestAllocation(&allocationSurfaces{})).Validate(
 			context.Background(),
 			ValidateRequest{Repository: testRepository(), Name: feature},
 		); err != nil {
@@ -399,7 +399,7 @@ func TestCreateRegularBranch(t *testing.T) {
 
 	git := &fakeGitRepository{hasCommits: true, clean: true}
 	keys := &fakeKeyPolicy{}
-	service := NewService(git, keys)
+	service := NewService(git, keys).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 	request := regularRequest()
 
 	actual, err := service.Create(context.Background(), request)
@@ -412,7 +412,7 @@ func TestCreateRegularBranch(t *testing.T) {
 	if git.createdName.String() != actual.Name.String() || git.createdBase.String() != "origin/develop" || !git.createdSwitch {
 		t.Fatalf("create call = (%q, %q, %t)", git.createdName, git.createdBase, git.createdSwitch)
 	}
-	expectedCalls := "validate-ref,has-commits,worktree-clean,fetch,target-base-exists,branch-exists,official-branches-for-ticket,create-branch"
+	expectedCalls := "validate-ref,has-commits,worktree-clean,fetch,target-base-exists,branch-exists,create-branch"
 	if got := strings.Join(git.calls, ","); got != expectedCalls {
 		t.Fatalf("calls = %q, want %q", got, expectedCalls)
 	}
@@ -422,7 +422,7 @@ func TestCreateDryRunNeverMutates(t *testing.T) {
 	t.Parallel()
 
 	git := &fakeGitRepository{hasCommits: true, clean: true}
-	service := NewService(git, &fakeKeyPolicy{})
+	service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 	request := regularRequest()
 	request.DryRun = true
 	switchTo := false
@@ -435,7 +435,7 @@ func TestCreateDryRunNeverMutates(t *testing.T) {
 	if !actual.DryRun || actual.Switched || len(actual.Plan) != 2 {
 		t.Fatalf("Create() = %#v", actual)
 	}
-	if got := strings.Join(git.calls, ","); got != "validate-ref,has-commits,branch-exists,official-branches-for-ticket" {
+	if got := strings.Join(git.calls, ","); got != "validate-ref,has-commits,branch-exists" {
 		t.Fatalf("dry-run calls = %q", got)
 	}
 }
@@ -444,7 +444,7 @@ func TestCreateHonorsSkipFetchAndExplicitNoSwitch(t *testing.T) {
 	t.Parallel()
 
 	git := &fakeGitRepository{hasCommits: true, clean: true}
-	service := NewService(git, &fakeKeyPolicy{})
+	service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 	request := regularRequest()
 	request.SkipFetch = true
 	switchTo := false
@@ -513,7 +513,7 @@ func TestCreateStopsBeforeMutationOnInvalidState(t *testing.T) {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			service := NewService(testCase.git, &fakeKeyPolicy{})
+			service := NewService(testCase.git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 			_, err := service.Create(context.Background(), testCase.request)
 			assertProblemCode(t, err, testCase.code)
 			if got := strings.Join(testCase.git.calls, ","); got != testCase.calls {
@@ -595,7 +595,7 @@ func TestCreateSpecialBranchesRequireCorrectBases(t *testing.T) {
 
 	t.Run("workflow hotfix from main", func(t *testing.T) {
 		git := &fakeGitRepository{hasCommits: true, clean: true}
-		service := NewService(git, &fakeKeyPolicy{})
+		service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 		actual, err := service.Create(context.Background(), hotfixRequest(true))
 		if err != nil {
 			t.Fatal(err)
@@ -607,7 +607,7 @@ func TestCreateSpecialBranchesRequireCorrectBases(t *testing.T) {
 
 	t.Run("scratch requires official base", func(t *testing.T) {
 		git := &fakeGitRepository{}
-		service := NewService(git, &fakeKeyPolicy{})
+		service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 		request := regularRequest()
 		request.Family = domainbranch.FamilyScratch
 		request.Base = nil
@@ -617,7 +617,7 @@ func TestCreateSpecialBranchesRequireCorrectBases(t *testing.T) {
 
 	t.Run("scratch uses matching local official base", func(t *testing.T) {
 		git := &fakeGitRepository{hasCommits: true, clean: true}
-		service := NewService(git, &fakeKeyPolicy{})
+		service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 		request := regularRequest()
 		request.Family = domainbranch.FamilyScratch
 		request.Slug = mustSlug("exploration")
@@ -634,7 +634,7 @@ func TestCreateSpecialBranchesRequireCorrectBases(t *testing.T) {
 
 	t.Run("scratch rejects a different ticket base", func(t *testing.T) {
 		git := &fakeGitRepository{}
-		service := NewService(git, &fakeKeyPolicy{})
+		service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 		request := regularRequest()
 		request.Family = domainbranch.FamilyScratch
 		request.Slug = mustSlug("exploration")
@@ -649,7 +649,7 @@ func TestCreateSpecialBranchesRequireCorrectBases(t *testing.T) {
 
 	t.Run("scratch rejects a remote tracking base", func(t *testing.T) {
 		git := &fakeGitRepository{}
-		service := NewService(git, &fakeKeyPolicy{})
+		service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 		request := regularRequest()
 		request.Family = domainbranch.FamilyScratch
 		request.Slug = mustSlug("exploration")
@@ -670,12 +670,12 @@ func TestCreateRejectsAnotherOfficialRegularBranchForTheSameTicket(t *testing.T)
 	git := &fakeGitRepository{
 		hasCommits: true,
 		clean:      true,
-		official:   []domainbranch.BranchName{mustBranch("fix/ABC-123-existing-ticket-work")},
 	}
-	service := NewService(git, &fakeKeyPolicy{})
+	surfaces := &allocationSurfaces{branchNames: []string{"fix/ABC-123-existing-ticket-work"}}
+	service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(surfaces))
 
 	_, err := service.Create(context.Background(), regularRequest())
-	assertProblemCode(t, err, problem.CodeTicketBranchAlreadyExists)
+	assertProblemCode(t, err, problem.CodeTicketNumberAlreadyAllocated)
 	if strings.Contains(strings.Join(git.calls, ","), "create-branch") {
 		t.Fatalf("duplicate ticket must stop before branch creation: %v", git.calls)
 	}
@@ -689,7 +689,7 @@ func TestCreateAllowsWorkflowManagedBranchesToReuseTicketAcrossActiveLines(t *te
 		clean:      true,
 		official:   []domainbranch.BranchName{mustBranch("feature/ABC-123-existing-ticket-work")},
 	}
-	service := NewService(git, &fakeKeyPolicy{})
+	service := NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&allocationSurfaces{}))
 	base := mustBase("origin", "release/2.8.0")
 	request := CreateRequest{
 		Repository:      testRepository(),

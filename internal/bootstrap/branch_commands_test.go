@@ -181,7 +181,7 @@ func TestBranchValidateCommandContracts(t *testing.T) {
 
 func TestBranchCreateCommandContracts(t *testing.T) {
 	t.Run("parses root and creation flags then creates a regular branch", func(t *testing.T) {
-		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git := newBranchCommandGit(t, "develop")
 		command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(git))
 
 		output, err := executeBootstrapCommand(
@@ -223,7 +223,7 @@ func TestBranchCreateCommandContracts(t *testing.T) {
 	})
 
 	t.Run("shows the completed remote refresh in the interactive summary", func(t *testing.T) {
-		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git := newBranchCommandGit(t, "develop")
 		application := newBranchCommandApplication(git, nil, &commandHelperPrompt{}, "human")
 		application.options.yes = true
 
@@ -334,7 +334,7 @@ func TestBranchCreateCommandContracts(t *testing.T) {
 
 	t.Run("preserves report writer failures after a successful creation", func(t *testing.T) {
 		writeErr := errors.New("output unavailable")
-		git := newBranchCommandGit(t, "feature/ABC-123-add-export")
+		git := newBranchCommandGit(t, "develop")
 		application := newBranchCommandApplication(git, nil, nil, "human")
 		application.options.yes = true
 		command := newBranchCreateCommand(application)

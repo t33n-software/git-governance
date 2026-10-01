@@ -451,15 +451,15 @@ func (publisher *releaseWhiteboxPublisher) Publish(
 }
 
 func newReleaseWhiteboxService(git port.GitRepository, publisher port.PullRequestPublisher) *ReleaseService {
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 	sync := branchapp.NewSynchronizer(git, branches, nil)
 	tickets := NewTicketService(branches, sync, git, nil, publisher)
-	return NewReleaseService(branches, git, publisher).WithTicketService(tickets)
+	return NewReleaseService(branches, git, publisher).WithTicketService(tickets).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 }
 
 func newReleaseWhiteboxServiceWithoutTickets(git port.GitRepository) *ReleaseService {
-	branches := branchapp.NewService(git, &fakeKeyPolicy{})
-	return NewReleaseService(branches, git, nil)
+	branches := branchapp.NewService(git, &fakeKeyPolicy{}).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
+	return NewReleaseService(branches, git, nil).WithTicketAllocation(newTestAllocation(&fakeAllocationSurfaces{}))
 }
 
 func releaseHotfixRequest() StartHotfixRequest {

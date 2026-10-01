@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/application/workflow"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
@@ -41,6 +42,7 @@ func newTicketWorkflowCommand(application *application) *cobra.Command {
 	command.AddCommand(
 		newTicketStartCommand(application),
 		newTicketPublishCommand(application),
+		newTicketInventoryCommand(application),
 	)
 	return command
 }
@@ -149,6 +151,66 @@ func newTicketStartCommand(application *application) *cobra.Command {
 	command.Flags().BoolVar(&createScratch, "scratch", false, "create a private scratch branch")
 	registerSlugFlag(command, &scratchSlug, "scratch-slug", "for the private scratch branch (optional)")
 	return command
+}
+
+func newTicketInventoryCommand(application *application) *cobra.Command {
+	var keyRaw string
+	command := &cobra.Command{
+		Use:   "inventory",
+		Short: "Inventory allocated ticket numbers and the next free number of one ticket key",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			key, err := application.resolveKey(command.Context(), services, keyRaw)
+			if err != nil {
+				return err
+			}
+			inputs.add("ticket key", key.String())
+			if !application.options.dryRun {
+				if err := services.git.Fetch(command.Context(), repository); err != nil {
+					return err
+				}
+			}
+			allocation, err := services.allocation.Inventory(command.Context(), repository, key)
+			if err != nil {
+				return err
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.ticket.inventory",
+				Summary: application.withInteractiveFetchSummary(
+					"Ticket allocation inventory completed.",
+					repository.Remote,
+					!application.options.dryRun,
+				),
+				Fields: map[string]string{
+					"key":      allocation.Key,
+					"nextFree": allocation.NextFree,
+					"surfaces": surfacesSummary(allocation.Surfaces),
+				},
+				Data: allocation,
+			})
+		}),
+	}
+	// Flag help texts in this file render the value domains of their endpoint;
+	// every flag belongs to exactly one value class and carries its
+	// class-specific help duty. Canonical conventions:
+	// docs/conventions/cli/value-domain-model.md and
+	// docs/conventions/cli/help-contract.md.
+	registerTicketKeyFlag(command, &keyRaw)
+	return command
+}
+
+// surfacesSummary renders the per-surface allocation scan states in the
+// compact semicolon-separated report form.
+func surfacesSummary(surfaces []ticketalloc.SurfaceStatus) string {
+	parts := make([]string, 0, len(surfaces))
+	for _, surface := range surfaces {
+		parts = append(parts, surface.Surface+"="+surface.State)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func newTicketPublishCommand(application *application) *cobra.Command {

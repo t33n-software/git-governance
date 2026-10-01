@@ -427,6 +427,60 @@ func (repository *Repository) LocalBranches(ctx context.Context, identity port.R
 	return branches, nil
 }
 
+// RemoteBranches enumerates the fetched remote-tracking canonical branches of
+// the selected remote in deterministic order. Noncanonical names are outside
+// the product's governed namespace and are intentionally ignored.
+func (repository *Repository) RemoteBranches(ctx context.Context, identity port.RepositoryIdentity) ([]branch.BranchName, error) {
+	remotePrefix := "refs/remotes/" + identity.Remote + "/"
+	result := repository.invoke(ctx, identity.Root, nil, "for-each-ref", "--format=%(refname)", remotePrefix)
+	if result.err != nil {
+		return nil, repository.commandProblem(problem.CodeGitCommandFailed, identity, "list remote-tracking branches", result)
+	}
+
+	byName := make(map[string]branch.BranchName)
+	names := make([]string, 0)
+	for _, raw := range strings.Split(strings.TrimSpace(result.stdout), "\n") {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		candidate := strings.TrimPrefix(ref, remotePrefix)
+		if candidate == "HEAD" {
+			continue
+		}
+		name, err := branch.ParseName(candidate)
+		if err != nil {
+			continue
+		}
+		if _, found := byName[name.String()]; found {
+			continue
+		}
+		byName[name.String()] = name
+		names = append(names, name.String())
+	}
+	sort.Strings(names)
+
+	branches := make([]branch.BranchName, 0, len(names))
+	for _, name := range names {
+		branches = append(branches, byName[name])
+	}
+	return branches, nil
+}
+
+// CommitSubjects returns the complete subject history across every reachable
+// reference using explicit control separators. An unborn repository carries
+// no subject history.
+func (repository *Repository) CommitSubjects(ctx context.Context, identity port.RepositoryIdentity) ([]string, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "log", "--all", "--format=%x1e%s%x00")
+	if result.err != nil {
+		return nil, repository.commandProblem(problem.CodeGitCommandFailed, identity, "read the commit subject history", result)
+	}
+	return parseCommitMessages(result.stdout)
+}
+
+var _ port.RemoteBranchLister = (*Repository)(nil)
+var _ port.CommitSubjectLister = (*Repository)(nil)
+
 // Fetch updates remote-tracking references while pruning deleted remote refs.
 func (repository *Repository) Fetch(ctx context.Context, identity port.RepositoryIdentity) error {
 	result := repository.invoke(ctx, identity.Root, nil, "fetch", "--prune", identity.Remote)

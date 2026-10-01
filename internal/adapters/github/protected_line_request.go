@@ -63,6 +63,7 @@ type deploymentResponse struct {
 	Task        string          `json:"task"`
 	Environment string          `json:"environment"`
 	Payload     json.RawMessage `json:"payload"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 type deploymentStatusResponse struct {
@@ -621,6 +622,65 @@ func (publisher *Publisher) findProtectedLineRequest(
 		"archive or narrow stale request records before creating a new protected-line request",
 	)
 }
+
+// ListProtectedLineRequests enumerates every durable protected-line request
+// record of one repository together with its provider creation time. These
+// records consume ticket numbers without any pull request, so they are
+// allocation evidence no pull-request scan can see. Exceeding the bounded
+// pagination budget fails closed instead of silently truncating the surface.
+func (publisher *Publisher) ListProtectedLineRequests(
+	ctx context.Context,
+	query port.ProtectedLineRequestInventoryQuery,
+) ([]port.ProtectedLineRequestRecord, error) {
+	apiBase, repository, err := publisher.lifecycleTarget(query.RemoteURL)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]port.ProtectedLineRequestRecord, 0)
+	for page := 1; page <= protectedLineDeploymentMaxPages; page++ {
+		values := url.Values{
+			"environment": {protectedLineRequestEnvironment},
+			"task":        {protectedLineRequestTask},
+			"per_page":    {strconv.Itoa(protectedLineDeploymentPageSize)},
+			"page":        {strconv.Itoa(page)},
+		}
+		response, err := publisher.request(ctx, repository, http.MethodGet, repositoryEndpoint(apiBase, repository, "deployments", values), nil)
+		if err != nil {
+			return nil, err
+		}
+		if response.StatusCode != http.StatusOK {
+			_ = response.Body.Close()
+			return nil, lifecycleResponseProblem(response, "inspect protected-line request records")
+		}
+		var deployments []deploymentResponse
+		decodeErr := decodeResponse(response.Body, &deployments)
+		_ = response.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		for _, deployment := range deployments {
+			record, err := publisher.protectedLineRequestFromDeployment(ctx, apiBase, repository, deployment)
+			if err != nil {
+				return nil, err
+			}
+			records = append(records, port.ProtectedLineRequestRecord{
+				Request:   record,
+				CreatedAt: deployment.CreatedAt,
+			})
+		}
+		if len(deployments) < protectedLineDeploymentPageSize {
+			return records, nil
+		}
+	}
+	return nil, protectedLineProblem(
+		"protected-line request inventory",
+		"a bounded request-record history",
+		"archive or narrow stale request records before allocating a new ticket number",
+	)
+}
+
+var _ port.ProtectedLineRequestInventoryLister = (*Publisher)(nil)
 
 func (publisher *Publisher) protectedLineRequestFromDeployment(
 	ctx context.Context,

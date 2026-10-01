@@ -116,7 +116,7 @@ func TestDryRunCommandContractsCoverWorkflowSurfaces(t *testing.T) {
 	}{
 		{
 			name:    "branch create",
-			current: "feature/ABC-123-add-export",
+			current: "develop",
 			args:    []string{"branch", "create", "--family", "feature", "--key", "ABC", "--ticket", "123", "--slug", "new-export"},
 		},
 		{
@@ -131,7 +131,7 @@ func TestDryRunCommandContractsCoverWorkflowSurfaces(t *testing.T) {
 		},
 		{
 			name:    "ticket start",
-			current: "feature/ABC-123-add-export",
+			current: "develop",
 			args:    []string{"workflow", "ticket", "start", "--family", "feature", "--key", "ABC", "--ticket", "123", "--slug", "new-export", "--scratch"},
 		},
 		{
@@ -611,6 +611,8 @@ type commandGit struct {
 	stagedQueue      []bool
 	pushErr          error
 	pushed           []branch.BranchName
+	fetchErr         error
+	subjectsErr      error
 }
 
 func newCommandGit(t *testing.T, current string, messages []string) *commandGit {
@@ -700,12 +702,23 @@ func (*commandGit) OfficialBranchesForTicket(context.Context, port.RepositoryIde
 	return nil, nil
 }
 
-func (*commandGit) Fetch(context.Context, port.RepositoryIdentity) error {
-	return nil
+func (git *commandGit) Fetch(context.Context, port.RepositoryIdentity) error {
+	return git.fetchErr
 }
 
 func (git *commandGit) LocalBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
 	return []branch.BranchName{git.current}, nil
+}
+
+func (*commandGit) RemoteBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
+	return nil, nil
+}
+
+func (git *commandGit) CommitSubjects(context.Context, port.RepositoryIdentity) ([]string, error) {
+	if git.subjectsErr != nil {
+		return nil, git.subjectsErr
+	}
+	return git.messages, nil
 }
 
 func (*commandGit) TargetBaseExists(context.Context, port.RepositoryIdentity, branch.TargetBase) (bool, error) {

@@ -9,6 +9,7 @@ import (
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	commitapp "github.com/t33n-software/git-governance/internal/application/commit"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/genesis"
@@ -25,6 +26,7 @@ type BootstrapService struct {
 	git              port.GitRepository
 	keyPolicy        port.KeyPolicy
 	tools            port.ToolInspector
+	allocation       *ticketalloc.Service
 	signingReadiness func(port.SigningConfiguration) error
 	policySnapshot   func() string
 	now              func() time.Time
@@ -66,6 +68,15 @@ func (service *BootstrapService) WithPolicySnapshot(snapshot func() string) *Boo
 // record timestamp; production keeps the system clock.
 func (service *BootstrapService) WithClock(now func() time.Time) *BootstrapService {
 	service.now = now
+	return service
+}
+
+// WithTicketAllocation wires the fail-closed ticket-number allocation gate
+// into the governed repository birth: the genesis ticket is validated
+// against a fresh full-surface inventory immediately before the genesis
+// commit binds it. An unwired gate fails closed.
+func (service *BootstrapService) WithTicketAllocation(allocation *ticketalloc.Service) *BootstrapService {
+	service.allocation = allocation
 	return service
 }
 
@@ -131,6 +142,12 @@ func (service *BootstrapService) Bootstrap(ctx context.Context, request Bootstra
 			"repository bootstrap requires an explicit ticket",
 			"pass --key and --ticket of the repository setup or governance ticket",
 		)
+	}
+	if service.allocation == nil {
+		return BootstrapResult{}, ticketalloc.GateUnavailable()
+	}
+	if err := service.allocation.ValidateFree(ctx, repository, request.Ticket); err != nil {
+		return BootstrapResult{}, err
 	}
 	capabilities, err := resolveBootstrapCapabilities(service.git)
 	if err != nil {

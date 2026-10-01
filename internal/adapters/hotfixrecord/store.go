@@ -21,6 +21,7 @@ const (
 
 type filesystem interface {
 	ReadFile(string) ([]byte, error)
+	ReadDir(string) ([]os.DirEntry, error)
 	Stat(string) (os.FileInfo, error)
 }
 
@@ -28,6 +29,10 @@ type systemFilesystem struct{}
 
 func (systemFilesystem) ReadFile(path string) ([]byte, error) {
 	return os.ReadFile(path)
+}
+
+func (systemFilesystem) ReadDir(path string) ([]os.DirEntry, error) {
+	return os.ReadDir(path)
 }
 
 func (systemFilesystem) Stat(path string) (os.FileInfo, error) {
@@ -160,4 +165,67 @@ func invalidRecordLocation(expected, remediation string) error {
 	})
 }
 
+// ListHotfixReleaseRecords loads every reviewed release record below the
+// controlled repository record directory together with its repository-relative
+// location. A repository without the record directory carries no hotfix
+// records; a record that cannot be read or validated fails the listing
+// closed.
+func (store *Store) ListHotfixReleaseRecords(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+) ([]port.HotfixReleaseRecord, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if store == nil || store.filesystem == nil {
+		return nil, unavailableRecordProblem("hotfix release record store")
+	}
+	if strings.TrimSpace(repository.Root) == "" {
+		return nil, unavailableRecordProblem("repository root")
+	}
+	directory := filepath.Join(filepath.Clean(repository.Root), filepath.FromSlash(recordDirectory))
+	entries, err := store.filesystem.ReadDir(directory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, unavailableRecordProblem("hotfix release record directory")
+	}
+
+	records := make([]port.HotfixReleaseRecord, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		location := filepath.ToSlash(filepath.Join(recordDirectory, entry.Name()))
+		info, err := entry.Info()
+		if err != nil {
+			return nil, unavailableRecordProblem("reviewed hotfix release record")
+		}
+		if info.Size() > maxRecordBytes {
+			return nil, invalidRecordLocation(
+				"a JSON release record no larger than 65536 bytes",
+				"store one bounded JSON release record for the hotfix ticket",
+			)
+		}
+		contents, err := store.filesystem.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			return nil, unavailableRecordProblem("reviewed hotfix release record")
+		}
+		if len(contents) > maxRecordBytes {
+			return nil, invalidRecordLocation(
+				"a JSON release record no larger than 65536 bytes",
+				"reduce the record to its bounded governance fields",
+			)
+		}
+		record, err := hotfix.ParseRecord(contents)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, port.HotfixReleaseRecord{Record: record, Location: location})
+	}
+	return records, nil
+}
+
 var _ port.HotfixReleaseRecordStore = (*Store)(nil)
+var _ port.HotfixReleaseRecordLister = (*Store)(nil)

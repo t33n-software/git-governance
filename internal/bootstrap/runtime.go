@@ -23,6 +23,7 @@ import (
 	commitapp "github.com/t33n-software/git-governance/internal/application/commit"
 	"github.com/t33n-software/git-governance/internal/application/policy"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/application/workflow"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
@@ -79,6 +80,7 @@ type services struct {
 	tickets            *workflow.TicketService
 	releases           *workflow.ReleaseService
 	bootstrap          *workflow.BootstrapService
+	allocation         *ticketalloc.Service
 	lifecycle          port.ReleaseLifecycleProvider
 	preferences        *policy.PreferencesService
 	doctor             *policy.DoctorService
@@ -214,7 +216,27 @@ func (application *application) services() services {
 			Timeout:  application.options.timeout,
 		})
 	}
-	branches := branchapp.NewService(git, application.runtime.KeyPolicy)
+	// The allocation inventory is a derived read model over the resolved
+	// adapter capabilities: the Git-transport surfaces always, the platform
+	// surfaces exactly when a hosting provider is configured. A missing
+	// required capability fails the inventory closed with the named
+	// capability at scan time.
+	localBranches, _ := git.(port.LocalBranchLister)
+	remoteBranches, _ := git.(port.RemoteBranchLister)
+	commitSubjects, _ := git.(port.CommitSubjectLister)
+	hotfixRecords, _ := application.runtime.HotfixRecords.(port.HotfixReleaseRecordLister)
+	inventoryPullRequests, _ := publisher.(port.PullRequestInventoryLister)
+	inventoryProtectedLineRequests, _ := publisher.(port.ProtectedLineRequestInventoryLister)
+	allocation := ticketalloc.New(ticketalloc.Dependencies{
+		LocalBranches:         localBranches,
+		RemoteBranches:        remoteBranches,
+		CommitSubjects:        commitSubjects,
+		HotfixRecords:         hotfixRecords,
+		RemoteURL:             git.RemoteURL,
+		PullRequests:          inventoryPullRequests,
+		ProtectedLineRequests: inventoryProtectedLineRequests,
+	})
+	branches := branchapp.NewService(git, application.runtime.KeyPolicy).WithTicketAllocation(allocation)
 	finalQuality := branchapp.NewFinalQualityGate(git, qualityRunner)
 	sync := branchapp.NewSynchronizer(git, branches, qualityRunner)
 	scratch := branchapp.NewScratchMerger(git, branches)
@@ -239,6 +261,7 @@ func (application *application) services() services {
 		WithTicketService(tickets).
 		WithQualityRunner(qualityRunner).
 		WithHotfixReleaseRecordStore(application.runtime.HotfixRecords).
+		WithTicketAllocation(allocation).
 		WithHotfixManifestPublication(application.runtime.HotfixPropagationPublisherEnabled()).
 		WithIntegrationLineReturn(integrationLineReturn).
 		WithMainHotfixLifecycleProvider(hotfixLifecycle).
@@ -255,6 +278,7 @@ func (application *application) services() services {
 		tickets:            tickets,
 		releases:           releases,
 		bootstrap: workflow.NewBootstrapService(branches, git, application.runtime.KeyPolicy, application.runtime.Tools).
+			WithTicketAllocation(allocation).
 			WithSigningReadiness(policy.SigningConfigurationProblem).
 			WithPolicySnapshot(func() string {
 				description := policy.Describe()
@@ -263,6 +287,7 @@ func (application *application) services() services {
 					" commitSigning=" + description.CommitSigning
 			}),
 		lifecycle:   lifecycle,
+		allocation:  allocation,
 		preferences: policy.NewPreferencesService(store),
 		doctor:      policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
 		githubAuth:  githubAuth,
