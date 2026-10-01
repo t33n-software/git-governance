@@ -29,7 +29,7 @@ content governance.
 || INV-004 | CONSTRAINT | Task-pattern recognition and execution-level hierarchy | Yes | Active |
 || INV-005 | CONSTRAINT | Area-symbol registry | No | Active |
 || INV-006 | CONSTRAINT | Safe Scratch usage | No | Active |
-|| INV-007 | WORKFLOW | Proactive key and ticket discovery | No | Active |
+|| INV-007 | WORKFLOW | Proactive key and ticket discovery | Yes | Active |
 || INV-008 | WORKFLOW | Scoped one-time provider-session verification | No | Active |
 || INV-009 | CONSTRAINT | Current hotfix capability boundary | No | Active |
 || INV-010 | CONSTRAINT | Commit-message and pull-request-description content governance | Yes | Active |
@@ -289,18 +289,29 @@ project (for example via `--repo`) or the current working directory — and
 selects exactly one capability level in priority order:
 
 ```text
-P1  gh integration (available, authenticated, can read the project's PRs)
-P2  available context tools that actually cover listing open and closed PRs
-P3  anonymous GitHub API, only for proven-public repositories
-P4  discovery unavailable (no capable tool, or non-public repository
+P1  the governed allocation-inventory capability of the binary (help-first;
+    it measures the complete allocation-surface inventory of the bound
+    project)
+P2  available context tools that actually cover the complete surface
+    inventory
+P3  platform read paths of the binary's provider ports, only for
+    proven-public repositories
+P4  discovery unavailable (no capable level, or non-public repository
     without authenticated access) -> brief diagnostic status log, then the
     unchanged stop sequence
 ```
 
-Open and closed pull requests are analyzed for used and still-open keys and
-ticket numbers. A multi-decision matrix over task pattern, key distribution,
-highest used ticket number, open tickets, and execution level produces a
-proposal for the level-1 workflow or level-2 commands. The proposal binds
+The proposal basis is the governed inventory capability: the complete
+allocation-surface inventory across branch refs, commit-envelope history,
+hotfix release records, the genesis record, pull-request titles, and
+protected-line request records. A number is free only after a complete
+inventory, a surface that cannot be read completely fails the inventory
+closed, and projection-only bases are never valid allocation evidence. A
+multi-decision matrix over task pattern, key distribution across the
+inventoried surfaces, holder evidence per surface, the highest allocated
+number, and the execution level produces a proposal for the level-1 workflow
+or level-2 commands; collisions are additionally fail-closed by the binary's
+intake gates. The proposal binds
 nothing: only an explicit user confirmation or user-supplied replacement
 values set `ticket_binding` to `user_provided` or `confirmed_proposal`. If
 discovery fails or the proposal is declined without replacement values, the
@@ -501,7 +512,8 @@ branch at intake, before any continuation decision:
 
 ```text
 official working branch checked out
--> probe its pull-request state through the discovery capability chain
+-> probe its pull-request state through the platform read paths of the
+   discovery chain (P2/P3)
 -> bind current_branch_pr_state = none | open | merged | unknown
 ```
 

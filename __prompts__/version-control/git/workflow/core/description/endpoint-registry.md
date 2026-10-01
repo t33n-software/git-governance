@@ -41,6 +41,8 @@ workflow
 branch validation, synchronization, governed synchronization resume, and the
 on-demand shared-line refresh of local checkouts
 commit creation and validation
+read-only ticket-number allocation inventory (next-free number and holders
+before ticket intake)
 ticket start and publication
 hotfix start, record validation, delivery verification and propagation
 release request, cut, stabilization, alignment, promotion, backmerge and support
@@ -49,16 +51,16 @@ authentication, diagnostics, policy inspection and pre-push validation
 
 **Current State:**
 
-The registry coverage named branch validation and synchronization without
-binding the governed re-entry into a conflict-paused synchronization.
+The registry coverage binds branch validation, synchronization, the governed
+synchronization resume, and the on-demand shared-line refresh, but did not
+bind the read-only allocation inventory of ticket numbers.
 
 **Target State:**
 
-The registry coverage binds branch validation, synchronization, and the
-governed synchronization resume: the `branch sync-base` registry row covers
-both the deliberate isolated base synchronization and the governed re-entry
-into its conflict-paused rebase or merge operation, with quality re-verified
-after mutation and after resume.
+The registry coverage binds the read-only ticket-number allocation inventory:
+the `workflow ticket inventory` registry row covers the next-free-number and
+holder inventory over every governed allocation surface before ticket intake,
+with no mutation and fail-closed behavior on incompletely readable surfaces.
 
 **Affected Files:**
 

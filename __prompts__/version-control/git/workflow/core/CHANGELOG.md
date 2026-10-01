@@ -10,12 +10,12 @@
 ||-------|-------|
 || Scope Root | `__prompts__/version-control/git/workflow/core` |
 || Versioning Standard | `Semantic Versioning 2.0.0` |
-|| Current Version | `1.7.0` |
+|| Current Version | `1.8.0` |
 || Semver Class | `minor` |
 || Breaking Change | `no` |
 || Commit Scope | `workflow-core` |
-|| Ticket Scope | `GOV-116` |
-|| Current HEAD Commit Hash | pending (finalization with the GOV-116 commit) |
+|| Ticket Scope | `GOV-121` |
+|| Current HEAD Commit Hash | `44d82242c22576a30b8a9b1f738271d6c54064ee` |
 
 ---
 
@@ -24,7 +24,7 @@
 
 || Version Family | Path | Highest Version | Notes |
 ||----------------|------|-----------------|-------|
-|| `v1` | `changelog/v1.md` | `1.7.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
+|| `v1` | `changelog/v1.md` | `1.8.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
 
 ---
 
@@ -34,7 +34,8 @@
 || # | Path | Scope |
 ||---|------|-------|
 || 1 | `changelog/v1.md` | Major version family TOC |
-|| 2 | `changelog/v1/v1-7-0.md` | Concrete version leaf for `1.7.0` |
+|| 2 | `changelog/v1/v1-8-0.md` | Concrete version leaf for `1.8.0` |
+|| 3 | `changelog/v1/v1-7-0.md` | Concrete version leaf for `1.7.0` |
 || 3 | `changelog/v1/v1-6-0.md` | Concrete version leaf for `1.6.0` |
 || 3 | `changelog/v1/v1-5-0.md` | Concrete version leaf for `1.5.0` |
 || 4 | `changelog/v1/v1-4-0.md` | Concrete version leaf for `1.4.0` |
@@ -63,7 +64,8 @@ major  = incompatible workflow-state, authority or safety-contract change
 ||---|------|-----------|
 || 1 | `CHANGELOG.md` | Root TOC |
 || 2 | `changelog/v1.md` | Major-family TOC |
-|| 3 | `changelog/v1/v1-7-0.md` | Concrete version leaf |
+|| 3 | `changelog/v1/v1-8-0.md` | Concrete version leaf |
+|| 4 | `changelog/v1/v1-7-0.md` | Concrete version leaf |
 || 4 | `changelog/v1/v1-6-0.md` | Concrete version leaf |
 || 5 | `changelog/v1/v1-5-0.md` | Concrete version leaf |
 || 6 | `changelog/v1/v1-4-0.md` | Concrete version leaf |
