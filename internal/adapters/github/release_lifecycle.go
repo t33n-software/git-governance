@@ -574,6 +574,15 @@ func (publisher *Publisher) publishedReleaseURL(
 	return release.HTMLURL, nil
 }
 
+// hasEffectiveReleaseDelta compares the delivered release line with develop.
+//
+// GitHub's compare endpoint accepts branch names — including slashed names
+// such as release/<semver> — and %2F-encoded forms in the {basehead} path
+// segment; live verification on 2026-09-30 confirmed both forms return 200
+// for existing refs. A 404 therefore means the release ref is missing, not a
+// route defect: the delivered line must remain until its reconciliation
+// outcome is recorded (docs/usage/workflows/release-reconciliation.md,
+// REL-R008, REL-R012).
 func (publisher *Publisher) hasEffectiveReleaseDelta(
 	ctx context.Context,
 	apiBase *url.URL,
@@ -586,6 +595,10 @@ func (publisher *Publisher) hasEffectiveReleaseDelta(
 		return false, err
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		diagnostic := lifecycleErrorDiagnostic(response)
+		return false, releaseLineNotFoundProblem(release, diagnostic)
+	}
 	if response.StatusCode != http.StatusOK {
 		return false, lifecycleResponseProblem(response, "compare the released line with develop")
 	}
@@ -594,6 +607,24 @@ func (publisher *Publisher) hasEffectiveReleaseDelta(
 		return false, err
 	}
 	return comparison.AheadBy > 0 && len(comparison.Files) > 0, nil
+}
+
+// releaseLineNotFoundProblem is the typed audit record for a missing source
+// ref at the compare stage: repository access and the App session are
+// already proven by the preceding promotion, tag, and release stages, so a
+// 404 deterministically means the delivered release line is absent from the
+// remote — regardless of the concrete cause.
+func releaseLineNotFoundProblem(release, diagnostic string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeConfigurationInvalid,
+		Category:    problem.CategoryConfig,
+		Field:       "release line",
+		Actual:      "no " + release + " branch on the remote",
+		Diagnostic:  diagnostic,
+		Expected:    "the delivered release line to remain until its reconciliation outcome is recorded",
+		Rule:        "release lifecycle automation requires the delivered release line for reconciliation",
+		Remediation: "ensure shared-line deletion protection (the organizational ruleset floor) and rerun the backmerge before release-branch cleanup; restore a prematurely removed line through the governed recovery path before recording the reconciliation outcome",
+	})
 }
 
 func workflowEndpoint(
