@@ -1,0 +1,33 @@
+{
+  "name": "branch-governance: shared-line deletion floor",
+  "target": "branch",
+  "source": "t33n-software",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/main",
+        "refs/heads/develop",
+        "refs/heads/release/*",
+        "refs/heads/support/*"
+      ],
+      "exclude": []
+    },
+    "repository_name": {
+      "include": [
+        "~ALL"
+      ],
+      "exclude": [],
+      "protected": false
+    }
+  },
+  "rules": [
+    {
+      "type": "deletion"
+    },
+    {
+      "type": "non_fast_forward"
+    }
+  ]
+}

@@ -37,6 +37,20 @@ The classless rulesets apply to every governed repository:
   requires the Team plan on private repositories.
 - `01-ticket-working-branches.json` binds every repository (`~ALL`) and
   protects published working-branch history (append-only after first push).
+- `06-shared-line-floor.json` binds every repository (`~ALL`) from its
+  creation and protects the shared lines `main`, `develop`, `release/*`, and
+  `support/*` with exactly `deletion` and `non_fast_forward`: the shared-line
+  deletion protection no longer waits for the class flip. The floor
+  deliberately carries no `required_status_checks`, `pull_request`, or
+  `code_scanning` rules — required contexts bind only on repositories whose
+  workflows provably emit them on the exact target line, so unaligned
+  (`pending`) repositories must not be blocked. It closes the activation
+  window proven by the `release/1.1.1` incident on `repository-governance`:
+  with `delete_branch_on_merge` enabled, the merged promotion deleted the
+  release line before its reconciliation outcome was recorded, because a
+  class ruleset without an assigned property binds zero repositories. For
+  class-assigned repositories the floor is a strict subset of their
+  shared-line class rulesets, so the aggregate stays unchanged.
 
 The classless tag rulesets (target `tag`) bind every repository (`~ALL`),
 including public repositories — tag rulesets are not visibility-gated:
@@ -86,8 +100,10 @@ Classless rulesets carry no class suffix and apply to the whole fleet.
    ruleset whose selector property is missing or unassigned binds zero
    repositories — never activate the class rulesets before this step.
 2. Import `00-push-protections.json` first, then
-   `01-ticket-working-branches.json`, then the shared-line class variants in
-   numeric order, then `08-tag-namespace-floor.json`, and finally
+   `01-ticket-working-branches.json`, then `06-shared-line-floor.json` (the
+   classless deletion floor is precondition-free: it waits for neither the
+   class flip nor the signature governance), then the shared-line class
+   variants in numeric order, then `08-tag-namespace-floor.json`, and finally
    `07-release-version-tags.json` (initially `disabled`; see above).
 3. Start with **Evaluate** enforcement and review Rule Insights; switch to
    **Active** once the evaluation is clean. On the Team plan the `evaluate`

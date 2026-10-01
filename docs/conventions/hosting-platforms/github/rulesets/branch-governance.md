@@ -11,6 +11,7 @@ enforces and why. The importable JSON definitions reside under
 |---|---|---|
 | `push-protections: secret artifact boundary` | every push (no branch binding) | classless, private/internal repositories only |
 | `branch-governance: ticket working branches` | `feature/*`, `fix/*`, `docs/*`, `refactor/*`, `chore/*`, `test/*`, `perf/*`, `hotfix/*` | classless, `~ALL` |
+| `branch-governance: shared-line deletion floor` | `main`, `develop`, `release/*`, `support/*` | classless, `~ALL` |
 | `branch-governance: develop shared line (quality-gates=<class>)` | `develop` | full / linux-only |
 | `branch-governance: main shared line (quality-gates=<class>)` | `main` | full / linux-only |
 | `branch-governance: release shared lines (quality-gates=<class>)` | `release/*` | full / linux-only |
@@ -53,6 +54,31 @@ Merge methods per line:
 |---|---|---|
 | `develop` | merge, rebase, squash | Choice of context for regular tickets; the semantic commit series may be preserved or cleaned up |
 | `main`, `release/*`, `support/*` | merge only | Release, hotfix, and maintenance lineage remains visible as an explicit merge event |
+
+## The shared-line deletion floor
+
+The classless `06-shared-line-floor.json` binds every repository (`~ALL`)
+from its creation — including repositories whose `quality-gates` property is
+still `pending` and every repository born later — with exactly `deletion`
+and `non_fast_forward` on `main`, `develop`, `release/*`, and `support/*`.
+
+The floor exists because the class protection alone leaves a proven
+activation window: a class ruleset without an assigned property binds zero
+repositories, and with `delete_branch_on_merge` enabled the merged promotion
+on `repository-governance` deleted the release line `release/1.1.1` before its
+reconciliation outcome was recorded. Organization rulesets aggregate and can
+only become more restrictive; the floor is a strict subset of every
+shared-line class ruleset, so for class-assigned repositories the aggregate
+stays unchanged while `pending` repositories receive the missing deletion
+core from their creation.
+
+The floor deliberately carries no `required_status_checks`, `pull_request`,
+or `code_scanning` rules: required contexts may only bind on repositories
+whose workflows provably emit them on the exact target line, and the floor
+must never block an unaligned repository. Because it carries no checks,
+`do_not_enforce_on_create` is irrelevant — the governed protected-line
+workflow can still create a previously nonexistent line. Deletion stays a
+deliberate, audited governance act: the floor carries no bypass actors.
 
 ## The creation exception `do_not_enforce_on_create`
 

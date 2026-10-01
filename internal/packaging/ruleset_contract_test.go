@@ -29,6 +29,20 @@ var (
 	}
 )
 
+// sharedLineFloorFile is the classless shared-line deletion floor: it binds
+// every repository (~ALL) from its creation with exactly deletion and
+// non_fast_forward protection, so the shared-line deletion protection never
+// waits for the quality-gates class flip.
+const sharedLineFloorFile = "06-shared-line-floor.json"
+
+// sharedLineFloorRefs are the shared-line ref patterns the floor protects.
+var sharedLineFloorRefs = []string{
+	"refs/heads/main",
+	"refs/heads/develop",
+	"refs/heads/release/*",
+	"refs/heads/support/*",
+}
+
 func TestProtectedLineRulesetsAllowInitialCreation(t *testing.T) {
 	t.Parallel()
 
@@ -237,18 +251,115 @@ func TestRulesetIdentityTripleBindsTitleSelectorAndFile(t *testing.T) {
 		})
 	}
 
-	t.Run("01-ticket-working-branches.json", func(t *testing.T) {
-		t.Parallel()
+	for _, fileName := range []string{"01-ticket-working-branches.json", sharedLineFloorFile} {
+		fileName := fileName
+		t.Run(fileName, func(t *testing.T) {
+			t.Parallel()
 
-		ruleset := parseRuleset(t, "01-ticket-working-branches.json")
-		if strings.Contains(ruleset.Name, "quality-gates") {
-			t.Fatalf("classless ruleset name %q must not declare a quality-gates class", ruleset.Name)
+			ruleset := parseRuleset(t, fileName)
+			if strings.Contains(ruleset.Name, "quality-gates") {
+				t.Fatalf("classless ruleset name %q must not declare a quality-gates class", ruleset.Name)
+			}
+			includes := ruleset.Conditions.RepositoryName.Include
+			if len(includes) != 1 || includes[0] != "~ALL" {
+				t.Fatalf("classless ruleset must target ~ALL repositories, got %#v", includes)
+			}
+		})
+	}
+}
+
+func TestSharedLineFloorBindsEveryRepositoryFromBirth(t *testing.T) {
+	t.Parallel()
+
+	ruleset := parseRuleset(t, sharedLineFloorFile)
+	if ruleset.Name != "branch-governance: shared-line deletion floor" {
+		t.Fatalf("floor name = %q, want %q", ruleset.Name, "branch-governance: shared-line deletion floor")
+	}
+	if strings.Contains(ruleset.Name, "quality-gates") {
+		t.Fatal("the classless floor must not declare a quality-gates class")
+	}
+	if ruleset.Target != "branch" {
+		t.Fatalf("floor target = %q, want %q", ruleset.Target, "branch")
+	}
+	if got := ruleset.Conditions.RefName.Include; !equalStrings(got, sharedLineFloorRefs) {
+		t.Fatalf("floor ref patterns = %#v, want exactly the shared lines %#v", got, sharedLineFloorRefs)
+	}
+	includes := ruleset.Conditions.RepositoryName.Include
+	if len(includes) != 1 || includes[0] != "~ALL" {
+		t.Fatalf("the floor must target ~ALL repositories, got %#v", includes)
+	}
+}
+
+func TestSharedLineFloorCarriesOnlyDeletionAndNonFastForward(t *testing.T) {
+	t.Parallel()
+
+	floor := rulesetDocument(t, sharedLineFloorFile)
+	for _, required := range []string{
+		`"name": "branch-governance: shared-line deletion floor"`,
+		`"target": "branch"`,
+		`"source": "t33n-software"`,
+		`"enforcement": "active"`,
+		`"bypass_actors": []`,
+		`"type": "deletion"`,
+		`"type": "non_fast_forward"`,
+	} {
+		if !strings.Contains(floor, required) {
+			t.Fatalf("%s does not contain %q", sharedLineFloorFile, required)
 		}
-		includes := ruleset.Conditions.RepositoryName.Include
-		if len(includes) != 1 || includes[0] != "~ALL" {
-			t.Fatalf("classless ruleset must target ~ALL repositories, got %#v", includes)
+	}
+	for _, forbidden := range []string{
+		"required_status_checks",
+		"pull_request",
+		"code_scanning",
+		"repository_property",
+		"quality-gates",
+		"do_not_enforce_on_create",
+	} {
+		if strings.Contains(floor, forbidden) {
+			t.Fatalf("%s must never carry %q: required contexts bind only on repositories whose workflows provably emit them, and a classless floor never binds a property", sharedLineFloorFile, forbidden)
 		}
-	})
+	}
+
+	ruleset := parseRuleset(t, sharedLineFloorFile)
+	ruleTypes := make([]string, 0, len(ruleset.Rules))
+	for _, rule := range ruleset.Rules {
+		ruleTypes = append(ruleTypes, rule.Type)
+	}
+	if !equalStrings(ruleTypes, []string{"deletion", "non_fast_forward"}) {
+		t.Fatalf("floor rules = %#v, want exactly [deletion non_fast_forward]", ruleTypes)
+	}
+}
+
+func TestSharedLineFloorIsDocumented(t *testing.T) {
+	t.Parallel()
+
+	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("rulesets", "github", "README.md")))
+	for _, required := range []string{
+		"06-shared-line-floor.json",
+		"deletion",
+		"non_fast_forward",
+		"from its creation",
+		"class flip",
+		"release/1.1.1",
+	} {
+		if !strings.Contains(readme, required) {
+			t.Fatalf("Ruleset README does not document the shared-line floor token %q", required)
+		}
+	}
+
+	branchGovernance := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-platforms", "github", "rulesets", "branch-governance.md")))
+	for _, required := range []string{"shared-line deletion floor", "06-shared-line-floor.json", "~ALL"} {
+		if !strings.Contains(branchGovernance, required) {
+			t.Fatalf("branch-governance convention does not document the shared-line floor token %q", required)
+		}
+	}
+
+	importVerification := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-platforms", "github", "rulesets", "import-and-verification.md")))
+	for _, required := range []string{"06-shared-line-floor.json", "pending"} {
+		if !strings.Contains(importVerification, required) {
+			t.Fatalf("import-and-verification convention does not document the shared-line floor token %q", required)
+		}
+	}
 }
 
 func TestCodeOwnersContractBindsTheMaintainer(t *testing.T) {
@@ -339,7 +450,11 @@ func normalizeWhitespace(content string) string {
 
 type rulesetDefinition struct {
 	Name       string `json:"name"`
+	Target     string `json:"target"`
 	Conditions struct {
+		RefName struct {
+			Include []string `json:"include"`
+		} `json:"ref_name"`
 		RepositoryProperty struct {
 			Include []struct {
 				Name           string   `json:"name"`
