@@ -568,32 +568,45 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 		repository := repositoryRef{host: "github.com", owner: "acme", name: "governance"}
 		release, _ := branch.ParseName("release/2.8.0")
 		testCases := []struct {
-			name string
-			run  func(*Publisher, *url.URL) error
+			name   string
+			status int
+			run    func(*Publisher, *url.URL) error
 		}{
 			{
-				name: "promotion status",
+				name:   "promotion status",
+				status: http.StatusForbidden,
 				run: func(publisher *Publisher, base *url.URL) error {
 					_, err := publisher.mergedPromotion(context.Background(), base, repository, release.String())
 					return err
 				},
 			},
 			{
-				name: "tag status",
+				name:   "tag status",
+				status: http.StatusForbidden,
 				run: func(publisher *Publisher, base *url.URL) error {
 					_, err := publisher.tagCommit(context.Background(), base, repository, "v2.8.0")
 					return err
 				},
 			},
 			{
-				name: "release status",
+				name:   "release status",
+				status: http.StatusForbidden,
 				run: func(publisher *Publisher, base *url.URL) error {
 					_, err := publisher.publishedReleaseURL(context.Background(), base, repository, "v2.8.0")
 					return err
 				},
 			},
 			{
-				name: "compare status",
+				name:   "compare status",
+				status: http.StatusForbidden,
+				run: func(publisher *Publisher, base *url.URL) error {
+					_, err := publisher.hasEffectiveReleaseDelta(context.Background(), base, repository, release.String())
+					return err
+				},
+			},
+			{
+				name:   "compare server error status",
+				status: http.StatusInternalServerError,
 				run: func(publisher *Publisher, base *url.URL) error {
 					_, err := publisher.hasEffectiveReleaseDelta(context.Background(), base, repository, release.String())
 					return err
@@ -603,7 +616,7 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 		for _, testCase := range testCases {
 			t.Run(testCase.name, func(t *testing.T) {
 				server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-					writer.WriteHeader(http.StatusForbidden)
+					writer.WriteHeader(testCase.status)
 				}))
 				defer server.Close()
 				base, _ := url.Parse(server.URL)
@@ -637,6 +650,56 @@ func TestReleaseLifecycleHelpersAndFailures(t *testing.T) {
 			t.Fatal("malformed comparison was accepted")
 		}
 	})
+}
+
+func TestHasEffectiveReleaseDeltaClassifiesMissingReleaseLine(t *testing.T) {
+	repository := repositoryRef{host: "github.com", owner: "acme", name: "governance"}
+	release, _ := branch.ParseName("release/2.8.0")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		// The strict path check pins the working compare route grammar:
+		// GitHub accepts branch names — including slashed names such as
+		// release/<semver> — in the {basehead} path segment, and %2F-encoded
+		// forms decode to the same route, so a route "repair" that escapes
+		// the slashes must fail here.
+		if request.URL.Path != "/repos/acme/governance/compare/develop...release/2.8.0" {
+			t.Fatalf("unexpected path %q", request.URL.Path)
+		}
+		writer.WriteHeader(http.StatusNotFound)
+		_, _ = writer.Write([]byte(`{"message":"Not Found"}`))
+	}))
+	defer server.Close()
+	base, _ := url.Parse(server.URL)
+	publisher := New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
+
+	_, err := publisher.hasEffectiveReleaseDelta(context.Background(), base, repository, release.String())
+	typed, ok := problem.As(err)
+	if !ok {
+		t.Fatalf("hasEffectiveReleaseDelta returned an untyped error: %v", err)
+	}
+	if typed.Code != problem.CodeConfigurationInvalid {
+		t.Fatalf("missing release line code = %q, want %q", typed.Code, problem.CodeConfigurationInvalid)
+	}
+	if typed.Category != problem.CategoryConfig {
+		t.Fatalf("missing release line category = %q, want %q", typed.Category, problem.CategoryConfig)
+	}
+	if typed.Field != "release line" {
+		t.Fatalf("missing release line field = %q, want %q", typed.Field, "release line")
+	}
+	if typed.Actual != "no release/2.8.0 branch on the remote" {
+		t.Fatalf("missing release line actual = %q, want %q", typed.Actual, "no release/2.8.0 branch on the remote")
+	}
+	if typed.Diagnostic != "Not Found" {
+		t.Fatalf("missing release line diagnostic = %q, want the provider message %q", typed.Diagnostic, "Not Found")
+	}
+	if typed.Expected != "the delivered release line to remain until its reconciliation outcome is recorded" {
+		t.Fatalf("missing release line expected = %q, want %q", typed.Expected, "the delivered release line to remain until its reconciliation outcome is recorded")
+	}
+	if typed.Rule != "release lifecycle automation requires the delivered release line for reconciliation" {
+		t.Fatalf("missing release line rule = %q, want %q", typed.Rule, "release lifecycle automation requires the delivered release line for reconciliation")
+	}
+	if typed.Remediation != "ensure shared-line deletion protection (the organizational ruleset floor) and rerun the backmerge before release-branch cleanup; restore a prematurely removed line through the governed recovery path before recording the reconciliation outcome" {
+		t.Fatalf("missing release line remediation = %q, want the lifecycle-ordered remediation", typed.Remediation)
+	}
 }
 
 func TestLifecycleErrorDiagnostic(t *testing.T) {
