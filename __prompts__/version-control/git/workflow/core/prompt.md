@@ -391,8 +391,8 @@ Vor jeder Mutation:
 4. Prüfe bei bekannter Ticket-ID gleichnamige lokale und Remote-Branches.
 5. Befindet sich die Entwicklungsumgebung auf einer `official_working`-Branch,
    prüfe proaktiv den Pull-Request-Zustand genau dieser Branch über die
-   Fähigkeitskette aus [4.5.2]: ob für sie bereits ein offener oder gemergter
-   Pull Request existiert. Das Ergebnis bindet `current_branch_pr_state`;
+   Plattform-Lesewege aus [4.5.2] (P2/P3): ob für sie bereits ein offener oder
+   gemergter Pull Request existiert. Das Ergebnis bindet `current_branch_pr_state`;
    ist keine Erkennung möglich, gilt `unknown`. Der Nachweis
    `current_branch_pr_state_checked` ist Voraussetzung für jede
    Fortsetzungsentscheidung auf einer `official_working`-Branch.
@@ -738,7 +738,7 @@ Der Vorschlag bindet nichts. Der Agent fragt den Benutzer ausdrücklich:
 
 ```text
 Vorgeschlagen: key=<Wert>, ticket=<Wert>
-Grundlage: <Ebene P1|P2|P3, ausgewertete PR-Evidenz, Aufgabenmuster>
+Grundlage: <Ebene P1|P2|P3, ausgewertete Flächeninventur-Evidenz, Aufgabenmuster>
 Verwendung: <Ebene-1-Workflow oder Ebene-2-Kommandos>
 Übernehmen, eigene Werte übergeben oder abbrechen?
 ```
@@ -1245,7 +1245,7 @@ Bereich:
 🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|unborn|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL>
 🧭 Guard | embargo=<active|released|not_required> | release_channel=<workflow_start|confirmed_continuation|none> | reverify=<PASS|FAIL>
 🎯 Task | pattern=<ticket|hotfix|release|support|exploration|diagnostic|bootstrap> | ticket=<value>
-🎯 Discovery | level=<inventory> | surfaces_scanned=<count> | release_records_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
+🎯 Discovery | level=<inventory|unavailable> | surfaces_scanned=<count> | release_records_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
 🎯 Execution level | level=<workflow|command|raw_git> | endpoint=<value> | coverage=<covered|gap-named>
 🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
