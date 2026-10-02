@@ -55,7 +55,7 @@ func TestListPullRequests(t *testing.T) {
 			!summaries[0].CreatedAt.Equal(time.Date(2026, 9, 30, 20, 2, 32, 0, time.UTC)) {
 			t.Fatalf("first summary = %#v", summaries[0])
 		}
-		if strings.Join(paths, "|") != "/repos/acme/governance/pulls?state=all&per_page=100&page=1" {
+		if strings.Join(paths, "|") != "/repos/acme/governance/pulls?state=all&per_page=10&page=1" {
 			t.Fatalf("pagination paths = %v", paths)
 		}
 	})

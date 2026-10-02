@@ -16,22 +16,28 @@ import (
 )
 
 // fakeSurfaces is the configurable allocation-surface fake: every surface is
-// settable independently, so each inventory branch has a direct fixture.
+// settable independently, so each inventory branch has a direct fixture. The
+// permission fake carries the provider app class; an unset permission map
+// defaults to the full-carry class so the scanned-surface fixtures stay
+// focused on their own arrangement.
 type fakeSurfaces struct {
-	localBranchNames  []string
-	remoteBranchNames []string
-	subjects          []string
-	recordDocuments   []string
-	recordLocations   []string
-	pullRequests      []port.PullRequestSummary
-	requestRecords    []port.ProtectedLineRequestRecord
-	remoteURLErr      error
-	localErr          error
-	remoteErr         error
-	subjectsErr       error
-	recordsErr        error
-	pullRequestsErr   error
-	requestRecordsErr error
+	localBranchNames      []string
+	remoteBranchNames     []string
+	subjects              []string
+	recordDocuments       []string
+	recordLocations       []string
+	pullRequests          []port.PullRequestSummary
+	requestRecords        []port.ProtectedLineRequestRecord
+	permissions           map[string]string
+	remoteURLErr          error
+	localErr              error
+	remoteErr             error
+	subjectsErr           error
+	recordsErr            error
+	pullRequestsErr       error
+	requestRecordsErr     error
+	permissionsErr        error
+	permissionInspections int
 }
 
 func (fake *fakeSurfaces) LocalBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
@@ -93,6 +99,20 @@ func (fake *fakeSurfaces) ListProtectedLineRequests(context.Context, port.Protec
 		return nil, fake.requestRecordsErr
 	}
 	return fake.requestRecords, nil
+}
+
+func (fake *fakeSurfaces) InspectAppPermissions(context.Context, port.AppPermissionQuery) (port.AppPermissionSnapshot, error) {
+	fake.permissionInspections++
+	if fake.permissionsErr != nil {
+		return port.AppPermissionSnapshot{}, fake.permissionsErr
+	}
+	if fake.permissions == nil {
+		return port.AppPermissionSnapshot{
+			Slug:        "fixture-app",
+			Permissions: map[string]string{"pull_requests": "write", "deployments": "write"},
+		}, nil
+	}
+	return port.AppPermissionSnapshot{Slug: "fixture-app", Permissions: fake.permissions}, nil
 }
 
 func parseNames(raw []string) []branch.BranchName {
@@ -179,6 +199,7 @@ func TestInventoryDerivesAllocationFromEverySurface(t *testing.T) {
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,
+		AppPermissions:        surfaces,
 	})
 
 	allocation, err := service.Inventory(context.Background(), testRepository(), mustKey("ABC"))
@@ -523,6 +544,7 @@ func TestInventoryReportsMixedPlatformCapabilities(t *testing.T) {
 		HotfixRecords:  pullRequestOnly,
 		RemoteURL:      pullRequestOnly.RemoteURL,
 		PullRequests:   pullRequestOnly,
+		AppPermissions: pullRequestOnly,
 	})
 	allocation, err := pullService.Inventory(context.Background(), testRepository(), mustKey("ABC"))
 	if err != nil {
@@ -546,6 +568,7 @@ func TestInventoryReportsMixedPlatformCapabilities(t *testing.T) {
 		HotfixRecords:         requestOnly,
 		RemoteURL:             requestOnly.RemoteURL,
 		ProtectedLineRequests: requestOnly,
+		AppPermissions:        requestOnly,
 	})
 	allocation, err = requestService.Inventory(context.Background(), testRepository(), mustKey("ABC"))
 	if err != nil {
@@ -566,6 +589,178 @@ func TestInventoryReportsMixedPlatformCapabilities(t *testing.T) {
 	}
 }
 
+// TestInventoryClassifiesPlatformSurfacesByAppPermissionClass proves the
+// capability matrix: a carried read or write permission scans the surface, a
+// missing or unknown permission names the surface absent with the capability
+// reason, and an absent surface never contributes holders.
+func TestInventoryClassifiesPlatformSurfacesByAppPermissionClass(t *testing.T) {
+	t.Parallel()
+
+	pullRequests := []port.PullRequestSummary{
+		{Number: "55", Title: "ABC-37: allow-git-lfs", Author: "CyberT33N", CreatedAt: time.Date(2026, 9, 30, 20, 2, 32, 0, time.UTC)},
+	}
+	requestRecords := []port.ProtectedLineRequestRecord{requestRecord("ABC-35")}
+
+	testCases := []struct {
+		name                    string
+		permissions             map[string]string
+		wantPullRequestState    string
+		wantRequestRecordState  string
+		wantPullRequestReason   bool
+		wantRequestRecordReason bool
+	}{
+		{
+			name:                   "carried write permissions scan both surfaces",
+			permissions:            map[string]string{"pull_requests": "write", "deployments": "write"},
+			wantPullRequestState:   SurfaceScanned,
+			wantRequestRecordState: SurfaceScanned,
+		},
+		{
+			name:                   "carried read permissions scan both surfaces",
+			permissions:            map[string]string{"pull_requests": "read", "deployments": "read"},
+			wantPullRequestState:   SurfaceScanned,
+			wantRequestRecordState: SurfaceScanned,
+		},
+		{
+			name:                    "a missing deployments permission names the record surface absent",
+			permissions:             map[string]string{"pull_requests": "write", "metadata": "read"},
+			wantPullRequestState:    SurfaceScanned,
+			wantRequestRecordState:  SurfaceAbsent,
+			wantRequestRecordReason: true,
+		},
+		{
+			name:                   "a missing pull requests permission names the title surface absent",
+			permissions:            map[string]string{"deployments": "write"},
+			wantPullRequestState:   SurfaceAbsent,
+			wantPullRequestReason:  true,
+			wantRequestRecordState: SurfaceScanned,
+		},
+		{
+			name:                    "an app class without either permission names both surfaces absent",
+			permissions:             map[string]string{"contents": "write", "metadata": "read"},
+			wantPullRequestState:    SurfaceAbsent,
+			wantPullRequestReason:   true,
+			wantRequestRecordState:  SurfaceAbsent,
+			wantRequestRecordReason: true,
+		},
+		{
+			name:                    "unknown permission levels do not carry the surfaces",
+			permissions:             map[string]string{"pull_requests": "admin", "deployments": "none"},
+			wantPullRequestState:    SurfaceAbsent,
+			wantPullRequestReason:   true,
+			wantRequestRecordState:  SurfaceAbsent,
+			wantRequestRecordReason: true,
+		},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			surfaces := &fakeSurfaces{
+				permissions:    testCase.permissions,
+				pullRequests:   pullRequests,
+				requestRecords: requestRecords,
+			}
+			allocation, err := fullService(surfaces).Inventory(context.Background(), testRepository(), mustKey("ABC"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			states := map[string]SurfaceStatus{}
+			for _, status := range allocation.Surfaces {
+				states[status.Surface] = status
+			}
+			pullStatus := states[SurfacePullRequestTitles]
+			recordStatus := states[SurfaceProtectedLineRequests]
+			if pullStatus.State != testCase.wantPullRequestState || recordStatus.State != testCase.wantRequestRecordState {
+				t.Fatalf("surface states = %#v", allocation.Surfaces)
+			}
+			if (pullStatus.Reason != "") != testCase.wantPullRequestReason ||
+				(recordStatus.Reason != "") != testCase.wantRequestRecordReason {
+				t.Fatalf("absent reasons = %q / %q", pullStatus.Reason, recordStatus.Reason)
+			}
+			if testCase.wantRequestRecordState == SurfaceAbsent && len(allocation.Holders["35"]) != 0 {
+				t.Fatalf("an absent surface must not contribute holders: %#v", allocation.Holders)
+			}
+			if testCase.wantPullRequestState == SurfaceScanned && len(allocation.Holders["37"]) != 1 {
+				t.Fatalf("the scanned pull-request surface must carry its holder: %#v", allocation.Holders)
+			}
+		})
+	}
+}
+
+// TestInventoryMeasuresAppPermissionsOncePerInvocation proves the cache-free
+// measurement duty: one fresh inspection per inventory invocation even when
+// both platform surfaces consume its classification.
+func TestInventoryMeasuresAppPermissionsOncePerInvocation(t *testing.T) {
+	t.Parallel()
+
+	surfaces := &fakeSurfaces{
+		permissions:    map[string]string{"pull_requests": "read", "deployments": "read"},
+		pullRequests:   []port.PullRequestSummary{{Number: "1", Title: "ABC-1: first", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
+		requestRecords: []port.ProtectedLineRequestRecord{requestRecord("ABC-35")},
+	}
+	if _, err := fullService(surfaces).Inventory(context.Background(), testRepository(), mustKey("ABC")); err != nil {
+		t.Fatal(err)
+	}
+	if surfaces.permissionInspections != 1 {
+		t.Fatalf("permission inspections = %d; want exactly one fresh measurement per invocation", surfaces.permissionInspections)
+	}
+}
+
+// TestInventoryProviderNoneSkipsPermissionDiscovery proves the provider-less
+// path never measures the app registration: the named provider-less absence
+// needs no capability evidence.
+func TestInventoryProviderNoneSkipsPermissionDiscovery(t *testing.T) {
+	t.Parallel()
+
+	surfaces := &fakeSurfaces{localBranchNames: []string{"feature/ABC-2-foundation"}}
+	service := New(Dependencies{
+		LocalBranches:  surfaces,
+		RemoteBranches: surfaces,
+		CommitSubjects: surfaces,
+		HotfixRecords:  surfaces,
+		AppPermissions: surfaces,
+	})
+	if _, err := service.Inventory(context.Background(), testRepository(), mustKey("ABC")); err != nil {
+		t.Fatal(err)
+	}
+	if surfaces.permissionInspections != 0 {
+		t.Fatalf("permission inspections = %d; the provider-less inventory must not measure the app registration", surfaces.permissionInspections)
+	}
+}
+
+func TestInventoryFailsClosedOnPermissionDiscoveryFailure(t *testing.T) {
+	t.Parallel()
+
+	failure := errors.New("app registration unavailable")
+	surfaces := &fakeSurfaces{permissionsErr: failure}
+	_, err := fullService(surfaces).Inventory(context.Background(), testRepository(), mustKey("ABC"))
+	if !errors.Is(err, failure) {
+		t.Fatalf("Inventory() error = %v; want the propagated permission discovery failure", err)
+	}
+}
+
+func TestInventoryFailsClosedOnMissingPermissionDiscoveryCapability(t *testing.T) {
+	t.Parallel()
+
+	surfaces := &fakeSurfaces{}
+	dependencies := Dependencies{
+		LocalBranches:         surfaces,
+		RemoteBranches:        surfaces,
+		CommitSubjects:        surfaces,
+		HotfixRecords:         surfaces,
+		RemoteURL:             surfaces.RemoteURL,
+		PullRequests:          surfaces,
+		ProtectedLineRequests: surfaces,
+	}
+	_, err := New(dependencies).Inventory(context.Background(), testRepository(), mustKey("ABC"))
+	assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+	typed, ok := problem.As(err)
+	if !ok || typed.Actual != "provider app permission discovery" {
+		t.Fatalf("failure must name the missing discovery capability: %#v", typed)
+	}
+}
+
 func fullService(surfaces *fakeSurfaces) *Service {
 	return New(Dependencies{
 		LocalBranches:         surfaces,
@@ -575,6 +770,7 @@ func fullService(surfaces *fakeSurfaces) *Service {
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,
+		AppPermissions:        surfaces,
 	})
 }
 

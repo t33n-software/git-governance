@@ -208,7 +208,11 @@ func newTicketInventoryCommand(application *application) *cobra.Command {
 func surfacesSummary(surfaces []ticketalloc.SurfaceStatus) string {
 	parts := make([]string, 0, len(surfaces))
 	for _, surface := range surfaces {
-		parts = append(parts, surface.Surface+"="+surface.State)
+		entry := surface.Surface + "=" + surface.State
+		if surface.Reason != "" {
+			entry += " (" + surface.Reason + ")"
+		}
+		parts = append(parts, entry)
 	}
 	return strings.Join(parts, "; ")
 }
