@@ -4,6 +4,7 @@ package port
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/t33n-software/git-governance/internal/domain/branch"
@@ -723,11 +724,55 @@ type ProtectedLineRequestInventoryLister interface {
 	) ([]ProtectedLineRequestRecord, error)
 }
 
+// CredentialCapability names a closed set of provider permission classes the
+// CLI distinguishes when selecting a credential. The names match the public
+// app registration permission keys; the allocation inventory owns the
+// classification of a capability-scoped absence.
+type CredentialCapability string
+
+const (
+	// CapabilityPullRequests selects a session whose app class carries the
+	// pull requests permission at read or write level.
+	CapabilityPullRequests CredentialCapability = "pull_requests"
+	// CapabilityDeployments selects a session whose app class carries the
+	// deployments permission at read or write level.
+	CapabilityDeployments CredentialCapability = "deployments"
+)
+
+// Valid reports whether the capability is one of the governed permission
+// classes.
+func (capability CredentialCapability) Valid() bool {
+	switch capability {
+	case CapabilityPullRequests, CapabilityDeployments:
+		return true
+	default:
+		return false
+	}
+}
+
+// ErrCapabilitySessionMissing marks the named verdict that no stored session
+// covering the target repository carries the requested permission class.
+// Resolvers wrap it into a reported problem; callers distinguish it through
+// errors.Is from genuine infrastructure failures. It is the classification
+// basis of a capability-scoped absent surface, never a silent skip.
+var ErrCapabilitySessionMissing = errors.New("no configured GitHub App session carries the requested permission class")
+
+// AppPermissionCarries reports whether a permission snapshot carries one
+// permission class at read or write level. A missing or unknown key means the
+// app class does not carry the capability.
+func AppPermissionCarries(permissions map[string]string, name string) bool {
+	level, carried := permissions[name]
+	return carried && (level == "read" || level == "write")
+}
+
 // AppPermissionQuery identifies the repository context whose configured
-// provider identity is inspected for its permission class.
+// provider identity is inspected for its permission class. Capability names
+// the permission class whose serving session is measured; an empty or unknown
+// capability is rejected before any request.
 type AppPermissionQuery struct {
 	Repository RepositoryIdentity
 	RemoteURL  string
+	Capability CredentialCapability
 }
 
 // AppPermissionSnapshot carries the cache-free permission facts of the

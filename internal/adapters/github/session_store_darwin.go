@@ -53,22 +53,41 @@ func (store *macOSKeychainStore) LoadActiveForHost(ctx context.Context, host str
 	return store.loadScoped(ctx, nativeSessionScope(host, strings.TrimSpace(string(clientID))), host, strings.TrimSpace(string(clientID)))
 }
 
-// LoadActiveForRepository resolves the session bound to the canonical
-// repository identity through its binding record. A missing binding or a
-// binding whose session was removed fails closed with errSessionNotFound so
-// discovery can rebind.
-func (store *macOSKeychainStore) LoadActiveForRepository(
+// ListForRepository returns every session bound to the canonical repository
+// identity through its binding record in deterministic client-ID order.
+// Bindings whose session was removed are skipped so a partially maintained
+// binding cannot lock out capability-scoped selection; a missing binding
+// returns an empty result that sends the caller to discovery.
+func (store *macOSKeychainStore) ListForRepository(
 	ctx context.Context,
 	host, owner, repository string,
-) (Session, error) {
+) ([]Session, error) {
 	if err := sessionStoreContextError(ctx); err != nil {
-		return Session{}, err
+		return nil, err
 	}
-	clientID, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository))
+	raw, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository))
+	if errors.Is(err, errSessionNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		return Session{}, err
+		return nil, err
 	}
-	return store.loadScoped(ctx, nativeSessionScope(host, strings.TrimSpace(string(clientID))), host, strings.TrimSpace(string(clientID)))
+	clientIDs, err := parseRepositoryBinding(raw)
+	if err != nil {
+		return nil, err
+	}
+	sessions := make([]Session, 0, len(clientIDs))
+	for _, clientID := range clientIDs {
+		session, err := store.loadScoped(ctx, nativeSessionScope(host, clientID), host, clientID)
+		if errors.Is(err, errSessionNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
 }
 
 // ListForHost returns every active session scope stored for the host in
@@ -103,8 +122,11 @@ func (store *macOSKeychainStore) ListForHost(ctx context.Context, host string) (
 	return sessions, nil
 }
 
-// BindRepository binds the canonical repository identity to the session scope
-// of the given client ID. Binding an unknown scope fails closed.
+// BindRepository upserts the binding of the canonical repository identity to
+// the session scope of the given client ID. Several sessions may be bound to
+// one repository — one per GitHub App class — so a login with a different app
+// adds a binding instead of moving the existing one. Binding an unknown scope
+// fails closed.
 func (store *macOSKeychainStore) BindRepository(
 	ctx context.Context,
 	host, owner, repository, clientID string,
@@ -119,7 +141,23 @@ func (store *macOSKeychainStore) BindRepository(
 	if _, err := store.lookup(ctx, nativeSessionScope(host, clientID), macOSKeychainActiveAccount); err != nil {
 		return err
 	}
-	return store.store(ctx, host, repositoryBindingAccount(host, owner, repository), []byte(clientID))
+	raw, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository))
+	if errors.Is(err, errSessionNotFound) {
+		return store.store(ctx, host, repositoryBindingAccount(host, owner, repository), encodeRepositoryBinding([]string{clientID}))
+	}
+	if err != nil {
+		return err
+	}
+	bound, err := parseRepositoryBinding(raw)
+	if err != nil {
+		return err
+	}
+	for _, existing := range bound {
+		if existing == clientID {
+			return nil
+		}
+	}
+	return store.store(ctx, host, repositoryBindingAccount(host, owner, repository), encodeRepositoryBinding(append(bound, clientID)))
 }
 
 func (store *macOSKeychainStore) SaveActive(ctx context.Context, session Session) error {

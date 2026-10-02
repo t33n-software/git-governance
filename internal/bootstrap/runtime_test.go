@@ -812,6 +812,9 @@ type runtimeTestPrompt struct {
 	confirmErr      error
 	confirmRequests []port.ConfirmRequest
 	confirmContexts []context.Context
+	selectValue     string
+	selectErr       error
+	selectRequests  []port.SelectRequest
 }
 
 func (prompt *runtimeTestPrompt) Input(ctx context.Context, request port.InputRequest) (string, error) {
@@ -820,8 +823,15 @@ func (prompt *runtimeTestPrompt) Input(ctx context.Context, request port.InputRe
 	return prompt.inputValue, prompt.inputErr
 }
 
-func (*runtimeTestPrompt) Select(context.Context, port.SelectRequest) (string, error) {
-	return "", errors.New("unexpected select prompt")
+func (prompt *runtimeTestPrompt) Select(ctx context.Context, request port.SelectRequest) (string, error) {
+	prompt.selectRequests = append(prompt.selectRequests, request)
+	if prompt.selectErr != nil {
+		return "", prompt.selectErr
+	}
+	if prompt.selectValue == "" {
+		return "", errors.New("unexpected select prompt")
+	}
+	return prompt.selectValue, nil
 }
 
 func (prompt *runtimeTestPrompt) Confirm(ctx context.Context, request port.ConfirmRequest) (bool, error) {

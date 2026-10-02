@@ -68,3 +68,28 @@ func parseScopeIndex(raw []byte) ([]string, error) {
 	sort.Strings(clientIDs)
 	return clientIDs, nil
 }
+
+// parseRepositoryBinding decodes a stored repository binding record. The
+// record stores the JSON-encoded client-ID list of every bound GitHub App
+// class. A record of the prior single-client-ID form is rejected fail-closed
+// instead of silently transformed: delete the stored session entries and run
+// auth login github again after upgrading.
+func parseRepositoryBinding(raw []byte) ([]string, error) {
+	var clientIDs []string
+	if err := json.Unmarshal(raw, &clientIDs); err != nil {
+		return nil, errors.New("native GitHub App repository binding has an unsupported format")
+	}
+	if len(clientIDs) == 0 {
+		return nil, errors.New("native GitHub App repository binding is empty")
+	}
+	sort.Strings(clientIDs)
+	return clientIDs, nil
+}
+
+// encodeRepositoryBinding encodes the bound client-ID list of one repository
+// binding record.
+func encodeRepositoryBinding(clientIDs []string) []byte {
+	sort.Strings(clientIDs)
+	encoded, _ := json.Marshal(clientIDs)
+	return encoded
+}

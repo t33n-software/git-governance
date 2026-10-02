@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -101,15 +102,15 @@ func newGitHubStatusCommand(application *application) *cobra.Command {
 				return githubAuthenticationUnavailable()
 			}
 			target, _ := application.repositoryCredentialTarget(command.Context(), services.git)
-			result, err := services.githubAuth.Status(command.Context(), target)
+			statuses, err := services.githubAuth.Status(command.Context(), target)
 			if err != nil {
 				return err
 			}
 			return application.report(command, port.Report{
 				Operation: "auth.status.github",
 				Summary:   "GitHub App session status:",
-				Fields:    githubSessionFields(result),
-				Data:      result,
+				Fields:    githubSessionListFields(statuses),
+				Data:      statuses,
 			})
 		},
 	}
@@ -118,14 +119,20 @@ func newGitHubStatusCommand(application *application) *cobra.Command {
 func newGitHubLogoutCommand(application *application) *cobra.Command {
 	return &cobra.Command{
 		Use:   "github",
-		Short: "Remove the local GitHub App refresh session",
+		Short: "Remove a local GitHub App refresh session",
 		RunE: func(command *cobra.Command, _ []string) error {
 			services := application.services()
 			if services.githubAuth == nil {
 				return githubAuthenticationUnavailable()
 			}
 			target, _ := application.repositoryCredentialTarget(command.Context(), services.git)
-			result, err := services.githubAuth.Logout(command.Context(), target)
+			request := github.LogoutRequest{Repository: target}
+			if application.promptAvailable() {
+				request.OnSessionSelection = func(candidates []github.SessionStatus) (github.SessionStatus, error) {
+					return selectGitHubSession(command.Context(), application, candidates)
+				}
+			}
+			result, err := services.githubAuth.Logout(command.Context(), request)
 			if err != nil {
 				return err
 			}
@@ -139,6 +146,42 @@ func newGitHubLogoutCommand(application *application) *cobra.Command {
 			})
 		},
 	}
+}
+
+// selectGitHubSession resolves the logout ambiguity interactively over the
+// bound sessions of the repository. The offered candidates carry stored
+// identity metadata only; no token is resolved and no measurement runs.
+func selectGitHubSession(ctx context.Context, application *application, candidates []github.SessionStatus) (github.SessionStatus, error) {
+	options := make([]port.SelectOption, 0, len(candidates))
+	for _, candidate := range candidates {
+		options = append(options, port.SelectOption{
+			Value:       candidate.ClientID,
+			Label:       candidate.Account + " (" + candidate.ClientID + ")",
+			Description: "bound to " + candidate.Repository + "; refresh state " + candidate.RefreshState,
+		})
+	}
+	selected, err := application.prompt().Select(ctx, port.SelectRequest{
+		Label:       "Several GitHub App sessions are bound to this repository",
+		Description: "Select the session to remove. The remaining sessions keep their bindings.",
+		Options:     options,
+	})
+	if err != nil {
+		return github.SessionStatus{}, err
+	}
+	for _, candidate := range candidates {
+		if candidate.ClientID == selected {
+			return candidate, nil
+		}
+	}
+	return github.SessionStatus{}, problem.New(problem.Details{
+		Code:        problem.CodeInvalidInput,
+		Category:    problem.CategoryUsage,
+		Field:       "GitHub App session selection",
+		Actual:      selected,
+		Expected:    "one of the offered bound sessions",
+		Rule:        "logout removes exactly the session the selection returned",
+		Remediation: "select one of the offered bound sessions",
+	})
 }
 
 // repositoryCredentialTarget derives the canonical repository identity of the
@@ -198,6 +241,29 @@ func githubSessionFields(status github.SessionStatus) map[string]string {
 	}
 	if status.Repository != "" {
 		fields["repository"] = status.Repository
+	}
+	if status.AppSlug != "" {
+		fields["appSlug"] = status.AppSlug
+	}
+	if len(status.Capabilities) > 0 {
+		fields["capabilities"] = strings.Join(status.Capabilities, ", ")
+	}
+	return fields
+}
+
+// githubSessionListFields renders one field block per bound session. A
+// single-entry list renders unprefixed; several entries carry indexed keys so
+// every bound GitHub App class stays individually visible.
+func githubSessionListFields(statuses []github.SessionStatus) map[string]string {
+	fields := make(map[string]string, len(statuses)*7)
+	for index, status := range statuses {
+		prefix := ""
+		if len(statuses) > 1 {
+			prefix = fmt.Sprintf("session[%d].", index+1)
+		}
+		for key, value := range githubSessionFields(status) {
+			fields[prefix+key] = value
+		}
 	}
 	return fields
 }
