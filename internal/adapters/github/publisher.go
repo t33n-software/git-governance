@@ -596,7 +596,13 @@ func configurationProblem(field, expected, remediation string) error {
 }
 
 const (
-	pullRequestInventoryPageSize = 100
+	// pullRequestInventoryPageSize bounds one pull-request inventory page so
+	// the decoded page of full pull-request objects stays far below the
+	// bounded decode budget: full pull-request objects carry large
+	// URL-grids and bodies, so a page of one hundred objects exceeds the
+	// budget and fails the inventory closed. Small pages keep every page
+	// decodable while the page budget preserves the bounded surface total.
+	pullRequestInventoryPageSize = 10
 	pullRequestInventoryMaxPages = 100
 )
 
