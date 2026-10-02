@@ -416,8 +416,8 @@ func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
 
 	t.Run("round trips repository bindings and self-heals dangling pointers", func(t *testing.T) {
 		store, runner := newFakeMacOSStore()
-		if _, err := store.LoadActiveForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
-			t.Fatalf("unbound LoadActiveForRepository() error = %v", err)
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("unbound ListForRepository() = (%#v, %v)", bound, err)
 		}
 		if err := store.SaveActive(context.Background(), session); err != nil {
 			t.Fatal(err)
@@ -425,19 +425,41 @@ func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
 		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); err != nil {
 			t.Fatalf("BindRepository() error = %v", err)
 		}
-		loaded, err := store.LoadActiveForRepository(context.Background(), "GitHub.COM", "ACME", "Governance")
-		if err != nil || loaded != session {
-			t.Fatalf("LoadActiveForRepository() = (%#v, %v)", loaded, err)
+		bound, err := store.ListForRepository(context.Background(), "GitHub.COM", "ACME", "Governance")
+		if err != nil || len(bound) != 1 || bound[0] != session {
+			t.Fatalf("bound ListForRepository() = (%#v, %v)", bound, err)
 		}
 		bindingKey := runner.key("github.com", repositoryBindingAccount("github.com", "acme", "governance"))
-		if got := string(runner.values[bindingKey]); got != session.ClientID {
-			t.Fatalf("binding record = %q, want %q", got, session.ClientID)
+		if got := string(runner.values[bindingKey]); got != string(encodeRepositoryBinding([]string{session.ClientID})) {
+			t.Fatalf("binding record = %q, want the client-ID list form", got)
 		}
 		if err := store.DeleteActive(context.Background(), session.Host, session.ClientID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.LoadActiveForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
-			t.Fatalf("dangling binding LoadActiveForRepository() error = %v", err)
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("dangling binding ListForRepository() = (%#v, %v)", bound, err)
+		}
+	})
+
+	t.Run("replaces a prior single-client-ID record without interpretation", func(t *testing.T) {
+		store, runner := newFakeMacOSStore()
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		legacyKey := runner.key("github.com", repositoryBindingAccount("github.com", "acme", "governance"))
+		runner.values[legacyKey] = []byte(session.ClientID)
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("legacy record ListForRepository() = (%#v, %v)", bound, err)
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatalf("legacy record BindRepository() error = %v", err)
+		}
+		if got := string(runner.values[legacyKey]); got != string(encodeRepositoryBinding([]string{session.ClientID})) {
+			t.Fatalf("replaced binding record = %q", got)
+		}
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil ||
+			len(bound) != 1 || bound[0] != session {
+			t.Fatalf("rebound ListForRepository() = (%#v, %v)", bound, err)
 		}
 	})
 
@@ -530,7 +552,7 @@ func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
 		store, _ := newFakeMacOSStore()
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, context.Canceled) {
+		if _, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled LoadActiveForRepository() error = %v", err)
 		}
 		if _, err := store.ListForHost(ctx, "github.com"); !errors.Is(err, context.Canceled) {

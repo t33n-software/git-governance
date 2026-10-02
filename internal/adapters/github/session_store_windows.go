@@ -300,11 +300,30 @@ func (store *dpapiSessionStore) load() (sessionDocument, error) {
 		return sessionDocument{}, fmt.Errorf("decrypt protected GitHub App session: %w", err)
 	}
 	var document sessionDocument
-	if err := json.Unmarshal(plain, &document); err != nil {
+	versionProbe := struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}{}
+	if err := json.Unmarshal(plain, &versionProbe); err != nil || versionProbe.SchemaVersion <= 0 {
 		return sessionDocument{}, errors.New("protected GitHub App session has an invalid format")
 	}
-	if document.SchemaVersion != sessionStoreSchemaVersion {
+	if versionProbe.SchemaVersion < sessionStoreSchemaVersion {
+		// The document was written by an older binary with an incompatible
+		// store format. Its sessions are unusable by this binary and the
+		// documented remediation is one fresh login per bound app: discard
+		// the unreadable document without interpreting it and start empty,
+		// so the remediation path never requires manual file surgery. A
+		// document from a newer binary is never discarded and keeps failing
+		// closed.
+		if err := removeSessionFile(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return sessionDocument{}, fmt.Errorf("discard unreadable session store: %w", err)
+		}
+		return emptySessionDocument(), nil
+	}
+	if versionProbe.SchemaVersion > sessionStoreSchemaVersion {
 		return sessionDocument{}, errors.New("protected GitHub App session has an unsupported schema version")
+	}
+	if err := json.Unmarshal(plain, &document); err != nil {
+		return sessionDocument{}, errors.New("protected GitHub App session has an invalid format")
 	}
 	if document.ActiveByScope == nil {
 		if len(document.Sessions) != 0 {

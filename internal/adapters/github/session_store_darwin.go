@@ -74,7 +74,11 @@ func (store *macOSKeychainStore) ListForRepository(
 	}
 	clientIDs, err := parseRepositoryBinding(raw)
 	if err != nil {
-		return nil, err
+		// A record written by an older binary carries the prior
+		// single-client-ID form. The record is discarded without
+		// interpretation and discovery re-derives the binding at the next
+		// resolution; sessions are never touched.
+		return nil, nil
 	}
 	sessions := make([]Session, 0, len(clientIDs))
 	for _, clientID := range clientIDs {
@@ -141,15 +145,15 @@ func (store *macOSKeychainStore) BindRepository(
 	if _, err := store.lookup(ctx, nativeSessionScope(host, clientID), macOSKeychainActiveAccount); err != nil {
 		return err
 	}
-	raw, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository))
-	if errors.Is(err, errSessionNotFound) {
-		return store.store(ctx, host, repositoryBindingAccount(host, owner, repository), encodeRepositoryBinding([]string{clientID}))
-	}
-	if err != nil {
-		return err
-	}
-	bound, err := parseRepositoryBinding(raw)
-	if err != nil {
+	bound := []string(nil)
+	if raw, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository)); err == nil {
+		if parsed, parseErr := parseRepositoryBinding(raw); parseErr == nil {
+			bound = parsed
+		}
+		// A prior-format or unreadable record is replaced by the fresh
+		// multi-class binding without interpretation; discovery re-derives
+		// any dropped binding.
+	} else if !errors.Is(err, errSessionNotFound) {
 		return err
 	}
 	for _, existing := range bound {

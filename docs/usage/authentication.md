@@ -179,11 +179,15 @@ simply have no binding; the first publication discovers and binds the
 covering session, and one fresh `auth login github` per repository context
 writes the binding immediately.
 
-The repository binding document that predates multi-app-class bindings is the
-same class of breaking local-store change: the prior single-binding schema is
-rejected fail-closed with the schema-version gate, and the documented
-remediation is to run `auth login github` once per bound GitHub App. The
-stored data is never transformed.
+The repository binding store that predates multi-app-class bindings is the
+same class of breaking local-store change. The upgraded binary discards an
+unreadable prior-format document without interpreting it, so the documented
+remediation works without manual file surgery: run `auth login github` once
+per bound GitHub App. A store document from a newer binary is never discarded
+and keeps failing closed; the stored data is never transformed or re-assigned.
+On the native-tool platforms an unreadable repository-binding record is
+replaced at the next login, and discovery re-derives any dropped binding at
+the next resolution.
 
 The local operating-system secret store must also be available:
 

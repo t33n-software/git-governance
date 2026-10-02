@@ -68,7 +68,7 @@ func TestDPAPISessionStoreRoundTripsAndRemovesEncryptedSessions(t *testing.T) {
 	}
 }
 
-func TestDPAPISessionStoreIsolatesClientIDsAndRejectsLegacySchema(t *testing.T) {
+func TestDPAPISessionStoreIsolatesClientIDsAndDiscardsLegacySchema(t *testing.T) {
 	ctx := context.Background()
 	tenantA := testStoredSession("github.com", "octocat")
 	tenantA.ClientID = "tenant-a-client-id"
@@ -96,11 +96,17 @@ func TestDPAPISessionStoreIsolatesClientIDsAndRejectsLegacySchema(t *testing.T) 
 		t.Fatal(err)
 	}
 	legacyStore := newDPAPISessionStore(legacyPath)
-	if _, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err == nil {
-		t.Fatal("LoadActive accepted a legacy schema")
+	// The legacy host-account document is discarded without interpretation:
+	// its sessions are never selected, and the documented remediation is one
+	// fresh login per bound app.
+	if _, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); !errors.Is(err, errSessionNotFound) {
+		t.Fatalf("legacy document LoadActive() error = %v, want the discarded empty store", err)
 	}
-	if err := legacyStore.SaveActive(ctx, tenantA); err == nil {
-		t.Fatal("SaveActive accepted a legacy schema")
+	if err := legacyStore.SaveActive(ctx, tenantA); err != nil {
+		t.Fatalf("recovered SaveActive() error = %v", err)
+	}
+	if loaded, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err != nil || loaded != tenantA {
+		t.Fatalf("recovered LoadActive() = (%#v, %v)", loaded, err)
 	}
 
 	store := newDPAPISessionStore(filepath.Join(t.TempDir(), "github-app-sessions.dpapi"))
@@ -296,7 +302,7 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects a prior single-binding schema fail-closed", func(t *testing.T) {
+	t.Run("discards a prior single-binding schema and recovers on login", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "sessions.dpapi")
 		legacyDocument := struct {
 			SchemaVersion     int                `json:"schemaVersion"`
@@ -320,8 +326,87 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 			t.Fatal(err)
 		}
 		store := newDPAPISessionStore(path)
-		if _, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err == nil {
-			t.Fatalf("the prior single-binding schema was not rejected fail-closed")
+		// The unreadable prior-format document is discarded without
+		// interpretation, so the documented re-login remediation works
+		// without manual file surgery.
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("prior-schema ListForRepository() = (%#v, %v)", bound, err)
+		}
+		recovered := testStoredSession("github.com", "octocat")
+		if err := store.SaveActive(ctx, recovered); err != nil {
+			t.Fatalf("post-discard SaveActive() error = %v", err)
+		}
+		if loaded, err := store.LoadActive(ctx, "GitHub.COM", recovered.ClientID); err != nil || loaded != recovered {
+			t.Fatalf("recovered LoadActive() = (%#v, %v)", loaded, err)
+		}
+	})
+
+	t.Run("fails closed when the unreadable document cannot be discarded", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		legacyDocument := struct {
+			SchemaVersion int `json:"schemaVersion"`
+		}{SchemaVersion: 1}
+		encrypted, err := protectDPAPI(mustJSON(t, legacyDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		preserveWindowsStoreHooks(t)
+		removeErr := errors.New("removal denied")
+		removeSessionFile = func(string) error {
+			return removeErr
+		}
+		_, err = newDPAPISessionStore(path).LoadActive(ctx, "github.com", "public-client-id")
+		if !errors.Is(err, removeErr) {
+			t.Fatalf("failed discard error = %v, want %v", err, removeErr)
+		}
+	})
+
+	t.Run("rejects a current-schema document with an incompatible binding shape", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		corruptDocument := struct {
+			SchemaVersion     int               `json:"schemaVersion"`
+			ScopeByRepository map[string]string `json:"scopeByRepository"`
+		}{
+			SchemaVersion:     sessionStoreSchemaVersion,
+			ScopeByRepository: map[string]string{"github.com\x00acme\x00governance": "public-client-id"},
+		}
+		encrypted, err := protectDPAPI(mustJSON(t, corruptDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newDPAPISessionStore(path).ListForRepository(ctx, "github.com", "acme", "governance"); err == nil ||
+			!strings.Contains(err.Error(), "invalid format") {
+			t.Fatalf("corrupt current-schema document rejection = %v", err)
+		}
+	})
+
+	t.Run("rejects a document from a newer binary fail-closed", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		newerDocument := struct {
+			SchemaVersion int                `json:"schemaVersion"`
+			Sessions      map[string]Session `json:"sessions"`
+		}{
+			SchemaVersion: sessionStoreSchemaVersion + 1,
+			Sessions: map[string]Session{
+				sessionKey("github.com", "octocat", "public-client-id"): testStoredSession("github.com", "octocat"),
+			},
+		}
+		encrypted, err := protectDPAPI(mustJSON(t, newerDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newDPAPISessionStore(path).LoadActive(ctx, "github.com", "public-client-id"); err == nil ||
+			!strings.Contains(err.Error(), "unsupported schema version") {
+			t.Fatalf("newer-schema rejection = %v", err)
 		}
 	})
 
