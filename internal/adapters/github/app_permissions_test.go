@@ -11,9 +11,14 @@ import (
 )
 
 func testAppPermissionQuery(server *httptest.Server) port.AppPermissionQuery {
+	return testAppPermissionQueryFor(port.CapabilityPullRequests, server)
+}
+
+func testAppPermissionQueryFor(capability port.CredentialCapability, server *httptest.Server) port.AppPermissionQuery {
 	return port.AppPermissionQuery{
 		Repository: port.RepositoryIdentity{Root: "C:/repo", Remote: "origin"},
 		RemoteURL:  server.URL + "/acme/governance.git",
+		Capability: capability,
 	}
 }
 
@@ -218,12 +223,28 @@ func TestInspectAppPermissions(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects an unknown capability before any request", func(t *testing.T) {
+		publisher := New(Options{Resolver: testCredentialResolver()})
+		query := port.AppPermissionQuery{
+			Repository: port.RepositoryIdentity{Root: "C:/repo", Remote: "origin"},
+			RemoteURL:  "file:///acme/governance.git",
+			Capability: port.CredentialCapability("actions"),
+		}
+		_, err := publisher.InspectAppPermissions(context.Background(), query)
+		assertProblem(t, err, problem.CodeInvalidInput)
+		typed, ok := problem.As(err)
+		if !ok || typed.Field != "credential capability" {
+			t.Fatalf("failure must name the capability field: %#v", typed)
+		}
+	})
+
 	t.Run("a non-HTTPS remote is rejected before any request", func(t *testing.T) {
 		t.Parallel()
 		publisher := New(Options{Resolver: testCredentialResolver()})
 		query := port.AppPermissionQuery{
 			Repository: port.RepositoryIdentity{Root: "C:/repo", Remote: "origin"},
 			RemoteURL:  "file:///acme/governance.git",
+			Capability: port.CapabilityPullRequests,
 		}
 		_, err := publisher.InspectAppPermissions(context.Background(), query)
 		assertProblem(t, err, problem.CodeConfigurationInvalid)

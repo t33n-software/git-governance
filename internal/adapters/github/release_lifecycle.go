@@ -163,7 +163,7 @@ func (publisher *Publisher) DispatchSharedLine(
 		Inputs: inputs,
 	})
 	endpoint := workflowEndpoint(apiBase, repository, request.Workflow, "/dispatches", nil)
-	response, err := publisher.request(ctx, repository, http.MethodPost, endpoint, bytes.NewReader(body))
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return port.SharedLineDispatchResult{}, err
 	}
@@ -292,7 +292,7 @@ func (publisher *Publisher) waitForWorkflowRun(
 			"event":    {"workflow_dispatch"},
 			"per_page": {"100"},
 		})
-		response, err := publisher.request(waitContext, repository, http.MethodGet, endpoint, nil)
+		response, err := publisher.request(waitContext, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return "", err
 		}
@@ -349,7 +349,7 @@ func (publisher *Publisher) mergedPromotion(
 			"state":    {"closed"},
 		}
 		endpoint := repositoryEndpoint(apiBase, repository, "pulls", query)
-		response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+		response, err := publisher.request(ctx, repository, port.CapabilityPullRequests, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return releasePullRequestResponse{}, err
 		}
@@ -436,6 +436,7 @@ func (publisher *Publisher) promotionMergeCommit(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityPullRequests,
 		http.MethodPost,
 		graphQLPromotionEndpoint(apiBase),
 		bytes.NewReader(body),
@@ -506,7 +507,7 @@ func (publisher *Publisher) tagCommit(
 	tag string,
 ) (string, error) {
 	endpoint := repositoryEndpoint(apiBase, repository, "git/ref/tags/"+tag, nil)
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", err
 	}
@@ -521,7 +522,7 @@ func (publisher *Publisher) tagCommit(
 	object := reference.Object
 	if object.Type == "tag" {
 		tagEndpoint := repositoryEndpoint(apiBase, repository, "git/tags/"+object.SHA, nil)
-		tagResponse, err := publisher.request(ctx, repository, http.MethodGet, tagEndpoint, nil)
+		tagResponse, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, tagEndpoint, nil)
 		if err != nil {
 			return "", err
 		}
@@ -552,7 +553,7 @@ func (publisher *Publisher) publishedReleaseURL(
 	tag string,
 ) (string, error) {
 	endpoint := repositoryEndpoint(apiBase, repository, "releases/tags/"+tag, nil)
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", err
 	}
@@ -590,7 +591,7 @@ func (publisher *Publisher) hasEffectiveReleaseDelta(
 	release string,
 ) (bool, error) {
 	endpoint := repositoryEndpoint(apiBase, repository, "compare/develop..."+release, nil)
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return false, err
 	}

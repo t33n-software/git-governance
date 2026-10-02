@@ -210,7 +210,7 @@ func (publisher *Publisher) mergedMainHotfix(
 			"state":    {"closed"},
 		}
 		endpoint := repositoryEndpoint(apiBase, repository, "pulls", query)
-		response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+		response, err := publisher.request(ctx, repository, port.CapabilityPullRequests, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return hotfixPullRequestResponse{}, err
 		}
@@ -294,6 +294,7 @@ func (publisher *Publisher) mainHotfixMergeCommit(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityPullRequests,
 		http.MethodPost,
 		hotfixGraphQLEndpoint(apiBase),
 		bytes.NewReader(body),
@@ -360,7 +361,7 @@ func (publisher *Publisher) verifyHotfixManifest(
 				"per_page": {strconv.Itoa(releasePromotionPageSize)},
 			},
 		)
-		response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+		response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return err
 		}
@@ -400,7 +401,7 @@ func (publisher *Publisher) tagExists(
 	tag string,
 ) (bool, error) {
 	endpoint := repositoryEndpoint(apiBase, repository, "git/ref/tags/"+tag, nil)
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return false, err
 	}
@@ -422,7 +423,7 @@ func (publisher *Publisher) publishedHotfixReleaseURL(
 	tag string,
 ) (string, error) {
 	endpoint := repositoryEndpoint(apiBase, repository, "releases/tags/"+tag, nil)
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", err
 	}
@@ -484,7 +485,7 @@ func (publisher *Publisher) waitForHotfixArtifactWorkflow(
 			"event":    {"workflow_dispatch"},
 			"per_page": {"100"},
 		})
-		response, err := publisher.request(waitContext, repository, http.MethodGet, endpoint, nil)
+		response, err := publisher.request(waitContext, repository, port.CapabilityDeployments, http.MethodGet, endpoint, nil)
 		if err != nil {
 			return "", err
 		}

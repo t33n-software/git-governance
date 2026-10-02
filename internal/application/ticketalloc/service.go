@@ -7,6 +7,7 @@ package ticketalloc
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"strings"
 	"time"
@@ -192,17 +193,17 @@ func (service *Service) Inventory(ctx context.Context, repository port.Repositor
 	if err != nil {
 		return Allocation{}, err
 	}
-	permissions, err := service.appPermissions(ctx, repository, remoteURL)
-	if err != nil {
-		return Allocation{}, err
-	}
 
 	if service.dependencies.PullRequests != nil {
+		permissions, err := service.appPermissions(ctx, repository, remoteURL, port.CapabilityPullRequests)
+		if err != nil && !errors.Is(err, port.ErrCapabilitySessionMissing) {
+			return Allocation{}, err
+		}
 		if !appPermissionCarries(permissions, appPermissionPullRequests) {
 			allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
 				Surface: SurfacePullRequestTitles,
 				State:   SurfaceAbsent,
-				Reason:  absentCapabilityReason(appPermissionPullRequests),
+				Reason:  absentReason(err, appPermissionPullRequests),
 			})
 		} else {
 			pullRequests, err := service.dependencies.PullRequests.ListPullRequests(ctx, port.PullRequestInventoryQuery{
@@ -237,11 +238,15 @@ func (service *Service) Inventory(ctx context.Context, repository port.Repositor
 	}
 
 	if service.dependencies.ProtectedLineRequests != nil {
+		permissions, err := service.appPermissions(ctx, repository, remoteURL, port.CapabilityDeployments)
+		if err != nil && !errors.Is(err, port.ErrCapabilitySessionMissing) {
+			return Allocation{}, err
+		}
 		if !appPermissionCarries(permissions, appPermissionDeployments) {
 			allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
 				Surface: SurfaceProtectedLineRequests,
 				State:   SurfaceAbsent,
-				Reason:  absentCapabilityReason(appPermissionDeployments),
+				Reason:  absentReason(err, appPermissionDeployments),
 			})
 		} else {
 			requestRecords, err := service.dependencies.ProtectedLineRequests.ListProtectedLineRequests(ctx, port.ProtectedLineRequestInventoryQuery{
@@ -442,35 +447,62 @@ func (service *Service) remoteURL(ctx context.Context, repository port.Repositor
 	return service.dependencies.RemoteURL(ctx, repository)
 }
 
-// appPermissions measures the permission class of the configured provider
-// app identity fresh per inventory invocation. The measurement is never
-// cached: every gate invocation re-reads the public app registration, so the
-// capability classification stays a measurement and never becomes a stored
-// claim state.
-func (service *Service) appPermissions(ctx context.Context, repository port.RepositoryIdentity, remoteURL string) (port.AppPermissionSnapshot, error) {
+// appPermissions measures the permission card of the session that would
+// serve one capability class, fresh per inventory invocation. The measurement
+// is never cached: every gate invocation re-reads the public app registration
+// of the serving session, so the capability classification stays a
+// measurement and never becomes a stored claim state. The named
+// capability-missing verdict of the class propagates as the classification
+// basis of a capability-scoped absent surface.
+func (service *Service) appPermissions(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	remoteURL string,
+	capability port.CredentialCapability,
+) (port.AppPermissionSnapshot, error) {
 	if service.dependencies.AppPermissions == nil {
 		return port.AppPermissionSnapshot{}, unavailableCapabilityProblem("provider app permission discovery")
 	}
 	return service.dependencies.AppPermissions.InspectAppPermissions(ctx, port.AppPermissionQuery{
 		Repository: repository,
 		RemoteURL:  remoteURL,
+		Capability: capability,
 	})
 }
 
 // appPermissionCarries reports whether the provider app's permission map
-// carries the read class of one platform surface. A permission is carried
-// exactly when the registration names it with the read or write level; a
-// missing or unknown key means the app class does not carry the capability.
+// carries the read class of one platform surface through the shared port
+// invariant. A missing or unknown key means the app class does not carry the
+// capability.
 func appPermissionCarries(permissions port.AppPermissionSnapshot, name string) bool {
-	level, carried := permissions.Permissions[name]
-	return carried && (level == "read" || level == "write")
+	return port.AppPermissionCarries(permissions.Permissions, name)
+}
+
+// absentReason names the degradation form of a capability-scoped absent
+// surface: a capability-missing verdict of the serving session class names
+// the unbound session class, a measured card without the permission names the
+// app-class fact.
+func absentReason(err error, permission string) string {
+	if errors.Is(err, port.ErrCapabilitySessionMissing) {
+		return absentSessionCapabilityReason(permission)
+	}
+	return absentCapabilityReason(permission)
 }
 
 // absentCapabilityReason is the named degradation form of a capability-scoped
-// absent surface: the configured provider identity's app class structurally
-// does not carry the surface's read permission.
+// absent surface whose serving session was measured: the configured provider
+// identity's app class structurally does not carry the surface's read
+// permission.
 func absentCapabilityReason(permission string) string {
 	return "provider app class does not carry the " + permission + " read permission"
+}
+
+// absentSessionCapabilityReason is the named degradation form of a
+// capability-scoped absent surface whose session class is not bound: no
+// configured provider session of the repository carries the surface's read
+// permission.
+func absentSessionCapabilityReason(permission string) string {
+	return "no configured provider session carries the " + permission + " read permission"
 }
 
 func unavailableCapabilityProblem(capability string) error {

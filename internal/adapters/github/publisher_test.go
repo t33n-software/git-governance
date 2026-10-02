@@ -335,6 +335,7 @@ func TestPublisherCredentialResolutionFailures(t *testing.T) {
 	if _, err := publisher.request(
 		context.Background(),
 		repositoryRef{host: "github.com", owner: "acme", name: "governance"},
+		port.CapabilityPullRequests,
 		http.MethodGet,
 		base,
 		nil,
@@ -342,8 +343,37 @@ func TestPublisherCredentialResolutionFailures(t *testing.T) {
 		t.Fatalf("request() error = %v, want %v", err, resolverErr)
 	}
 	var nilPublisher *Publisher
-	if _, err := nilPublisher.resolveCredential(context.Background(), repositoryRef{}); err == nil {
+	if _, err := nilPublisher.resolveCredential(context.Background(), repositoryRef{}, port.CapabilityPullRequests); err == nil {
 		t.Fatal("nil publisher resolved a credential")
+	}
+}
+
+type capabilityRecordingResolver struct {
+	CredentialResolver
+	capability port.CredentialCapability
+}
+
+func (resolver *capabilityRecordingResolver) ResolveCapability(_ context.Context, _ CredentialTarget, capability port.CredentialCapability) (string, error) {
+	resolver.capability = capability
+	return "ghu-capability-routed", nil
+}
+
+func TestPublisherRoutesCapabilityAwareResolvers(t *testing.T) {
+	resolver := &capabilityRecordingResolver{}
+	publisher := New(Options{Resolver: resolver})
+	target := repositoryRef{host: "github.com", owner: "acme", name: "governance"}
+	token, err := publisher.resolveCredential(context.Background(), target, port.CapabilityDeployments)
+	if err != nil || token != "ghu-capability-routed" {
+		t.Fatalf("capability-routed resolveCredential() = (%q, %v)", token, err)
+	}
+	if resolver.capability != port.CapabilityDeployments {
+		t.Fatalf("routed capability = %q", resolver.capability)
+	}
+	// A base resolver without the capability contract keeps serving every
+	// class from its single brokered identity.
+	base := New(Options{Resolver: testCredentialResolver()})
+	if _, err := base.resolveCredential(context.Background(), target, port.CapabilityDeployments); err != nil {
+		t.Fatalf("base resolver capability request = %v", err)
 	}
 }
 
@@ -455,7 +485,7 @@ func TestPublisherHelpersAndBoundaries(t *testing.T) {
 		}, testPublication("https://github.com", false).PullRequest)
 		assertProblem(t, err, problem.CodeExternalCommandFailed)
 
-		_, err = publisher.request(context.Background(), repositoryRef{}, "\n", base, nil)
+		_, err = publisher.request(context.Background(), repositoryRef{}, port.CapabilityPullRequests, "\n", base, nil)
 		assertProblem(t, err, problem.CodeConfigurationInvalid)
 	})
 }

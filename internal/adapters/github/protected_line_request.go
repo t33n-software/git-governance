@@ -489,7 +489,7 @@ func (publisher *Publisher) createProtectedLineDeployment(
 		TransientEnvironment:  false,
 		ProductionEnvironment: false,
 	})
-	response, err := publisher.request(ctx, repository, http.MethodPost, repositoryEndpoint(apiBase, repository, "deployments", nil), bytes.NewReader(body))
+	response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodPost, repositoryEndpoint(apiBase, repository, "deployments", nil), bytes.NewReader(body))
 	if err != nil {
 		return deploymentResponse{}, err
 	}
@@ -526,6 +526,7 @@ func (publisher *Publisher) dispatchProtectedLineExecutor(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityDeployments,
 		http.MethodPost,
 		workflowEndpoint(apiBase, repository, record.ExpectedExecutor(), "/dispatches", nil),
 		bytes.NewReader(body),
@@ -560,6 +561,7 @@ func (publisher *Publisher) storeProtectedLineState(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityDeployments,
 		http.MethodPost,
 		repositoryEndpoint(apiBase, repository, "deployments/"+strconv.FormatInt(record.DeploymentID(), 10)+"/statuses", nil),
 		bytes.NewReader(body),
@@ -588,7 +590,7 @@ func (publisher *Publisher) findProtectedLineRequest(
 			"per_page":    {strconv.Itoa(protectedLineDeploymentPageSize)},
 			"page":        {strconv.Itoa(page)},
 		}
-		response, err := publisher.request(ctx, repository, http.MethodGet, repositoryEndpoint(apiBase, repository, "deployments", query), nil)
+		response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, repositoryEndpoint(apiBase, repository, "deployments", query), nil)
 		if err != nil {
 			return releaserequest.Request{}, false, err
 		}
@@ -645,7 +647,7 @@ func (publisher *Publisher) ListProtectedLineRequests(
 			"per_page":    {strconv.Itoa(protectedLineDeploymentPageSize)},
 			"page":        {strconv.Itoa(page)},
 		}
-		response, err := publisher.request(ctx, repository, http.MethodGet, repositoryEndpoint(apiBase, repository, "deployments", values), nil)
+		response, err := publisher.request(ctx, repository, port.CapabilityDeployments, http.MethodGet, repositoryEndpoint(apiBase, repository, "deployments", values), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -716,6 +718,7 @@ func (publisher *Publisher) protectedLineDeploymentState(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityDeployments,
 		http.MethodGet,
 		repositoryEndpoint(apiBase, repository, "deployments/"+strconv.FormatInt(deploymentID, 10)+"/statuses", query),
 		nil,
@@ -786,6 +789,7 @@ func (publisher *Publisher) protectedLineRefIfPresent(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityDeployments,
 		http.MethodGet,
 		repositoryEndpoint(apiBase, repository, "git/ref/heads/"+ref, nil),
 		nil,
@@ -830,6 +834,7 @@ func (publisher *Publisher) protectedLineExecutorSucceeded(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityDeployments,
 		http.MethodGet,
 		repositoryEndpoint(apiBase, repository, "actions/runs/"+runID+"/jobs", nil),
 		nil,
@@ -886,6 +891,7 @@ func (publisher *Publisher) validateProtectedLineWorkflowRun(
 	response, err := publisher.request(
 		ctx,
 		repository,
+		port.CapabilityDeployments,
 		http.MethodGet,
 		repositoryEndpoint(apiBase, repository, "actions/runs/"+runID, nil),
 		nil,

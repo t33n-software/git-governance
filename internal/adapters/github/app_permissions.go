@@ -31,25 +31,39 @@ type userInstallationsResponse struct {
 	} `json:"installations"`
 }
 
-// InspectAppPermissions resolves the app identity of the bound session and
-// reads its public registration fresh per invocation. The snapshot classifies
-// which platform surface read classes the configured provider app carries:
-// the slug resolution follows the session identity through the user
-// installation surface, and the permission map comes from the public
-// registration — no credential extension and no cached capability state.
+// InspectAppPermissions resolves the app identity of the session that would
+// serve the queried capability and reads its public registration fresh per
+// invocation. The snapshot classifies which platform surface read classes the
+// configured provider app carries: the slug resolution follows the serving
+// session identity through the user installation surface, and the permission
+// map comes from the public registration — no credential extension and no
+// cached capability state. A repository whose sessions carry the queried
+// capability nowhere reports the named capability-missing verdict instead of
+// a genuine infrastructure failure.
 func (publisher *Publisher) InspectAppPermissions(
 	ctx context.Context,
 	query port.AppPermissionQuery,
 ) (port.AppPermissionSnapshot, error) {
+	if !query.Capability.Valid() {
+		return port.AppPermissionSnapshot{}, problem.New(problem.Details{
+			Code:        problem.CodeInvalidInput,
+			Category:    problem.CategoryUsage,
+			Field:       "credential capability",
+			Actual:      string(query.Capability),
+			Expected:    "one of the governed provider permission classes",
+			Rule:        "the permission inspection measures the serving session of one governed capability",
+			Remediation: "inspect one of the governed credential capabilities",
+		})
+	}
 	apiBase, repository, err := publisher.lifecycleTarget(query.RemoteURL)
 	if err != nil {
 		return port.AppPermissionSnapshot{}, err
 	}
-	slug, err := publisher.sessionAppSlug(ctx, apiBase, repository)
+	slug, err := publisher.sessionAppSlug(ctx, apiBase, repository, query.Capability)
 	if err != nil {
 		return port.AppPermissionSnapshot{}, err
 	}
-	registration, err := publisher.appRegistration(ctx, apiBase, repository, slug)
+	registration, err := publisher.appRegistration(ctx, apiBase, repository, slug, query.Capability)
 	if err != nil {
 		return port.AppPermissionSnapshot{}, err
 	}
@@ -60,16 +74,17 @@ func (publisher *Publisher) InspectAppPermissions(
 	return port.AppPermissionSnapshot{Slug: registration.Slug, Permissions: permissions}, nil
 }
 
-// sessionAppSlug resolves the URL-friendly app slug of the bound session's
-// app through the user installation surface the session token already
-// authorizes.
+// sessionAppSlug resolves the URL-friendly app slug of the session that
+// serves the queried capability through the user installation surface that
+// session's token authorizes.
 func (publisher *Publisher) sessionAppSlug(
 	ctx context.Context,
 	apiBase *url.URL,
 	repository repositoryRef,
+	capability port.CredentialCapability,
 ) (string, error) {
 	endpoint := appEndpoint(apiBase, "/user/installations", url.Values{"per_page": {strconv.Itoa(appInstallationPageSize)}})
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, capability, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", err
 	}
@@ -108,9 +123,10 @@ func (publisher *Publisher) appRegistration(
 	apiBase *url.URL,
 	repository repositoryRef,
 	slug string,
+	capability port.CredentialCapability,
 ) (appRegistrationResponse, error) {
 	endpoint := appEndpoint(apiBase, "/apps/"+url.PathEscape(slug), nil)
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, capability, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return appRegistrationResponse{}, err
 	}
