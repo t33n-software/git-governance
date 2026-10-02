@@ -45,6 +45,13 @@ func (surfaces *allocationSurfaces) ListProtectedLineRequests(context.Context, p
 	return nil, nil
 }
 
+func (surfaces *allocationSurfaces) InspectAppPermissions(context.Context, port.AppPermissionQuery) (port.AppPermissionSnapshot, error) {
+	return port.AppPermissionSnapshot{
+		Slug:        "gate-app",
+		Permissions: map[string]string{"pull_requests": "write", "deployments": "write"},
+	}, nil
+}
+
 func parseAllocationBranches(raw []string) []domainbranch.BranchName {
 	names := make([]domainbranch.BranchName, 0, len(raw))
 	for _, value := range raw {
@@ -63,6 +70,7 @@ func newTestAllocation(surfaces *allocationSurfaces) *ticketalloc.Service {
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,
+		AppPermissions:        surfaces,
 	})
 }
 

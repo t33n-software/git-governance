@@ -227,6 +227,7 @@ func (application *application) services() services {
 	hotfixRecords, _ := application.runtime.HotfixRecords.(port.HotfixReleaseRecordLister)
 	inventoryPullRequests, _ := publisher.(port.PullRequestInventoryLister)
 	inventoryProtectedLineRequests, _ := publisher.(port.ProtectedLineRequestInventoryLister)
+	appPermissions, _ := publisher.(port.AppPermissionInspector)
 	allocation := ticketalloc.New(ticketalloc.Dependencies{
 		LocalBranches:         localBranches,
 		RemoteBranches:        remoteBranches,
@@ -235,6 +236,7 @@ func (application *application) services() services {
 		RemoteURL:             git.RemoteURL,
 		PullRequests:          inventoryPullRequests,
 		ProtectedLineRequests: inventoryProtectedLineRequests,
+		AppPermissions:        appPermissions,
 	})
 	branches := branchapp.NewService(git, application.runtime.KeyPolicy).WithTicketAllocation(allocation)
 	finalQuality := branchapp.NewFinalQualityGate(git, qualityRunner)

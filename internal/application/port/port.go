@@ -723,6 +723,31 @@ type ProtectedLineRequestInventoryLister interface {
 	) ([]ProtectedLineRequestRecord, error)
 }
 
+// AppPermissionQuery identifies the repository context whose configured
+// provider identity is inspected for its permission class.
+type AppPermissionQuery struct {
+	Repository RepositoryIdentity
+	RemoteURL  string
+}
+
+// AppPermissionSnapshot carries the cache-free permission facts of the
+// configured provider app identity. Permissions maps the public registration
+// permission names to their read or write level; a missing key means the app
+// class does not carry the capability.
+type AppPermissionSnapshot struct {
+	Slug        string
+	Permissions map[string]string
+}
+
+// AppPermissionInspector is an optional capability for hosting adapters that
+// can read the public app registration of the configured provider identity.
+// The inspection is a fresh measurement per call and is never cached: every
+// inventory invocation re-reads the registration, so the capability
+// classification stays a measurement and never becomes a stored claim state.
+type AppPermissionInspector interface {
+	InspectAppPermissions(ctx context.Context, query AppPermissionQuery) (AppPermissionSnapshot, error)
+}
+
 // MainHotfixDeliveryRequest binds a reviewed record to its repository before a
 // production hotfix controller can create or verify a patch delivery.
 type MainHotfixDeliveryRequest struct {

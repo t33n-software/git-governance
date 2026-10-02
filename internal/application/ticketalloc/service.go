@@ -34,6 +34,13 @@ const (
 	SurfaceAbsent  = "absent"
 )
 
+// Provider app permission names of the platform surface read classes. The
+// permission discovery maps the public app registration onto these names.
+const (
+	appPermissionPullRequests = "pull_requests"
+	appPermissionDeployments  = "deployments"
+)
+
 // Dependencies binds the read-only adapter capabilities the inventory derives
 // its measurement from. The Git-transport surfaces are required; the platform
 // surfaces are present exactly when a hosting provider is configured. A
@@ -49,6 +56,12 @@ type Dependencies struct {
 	// ProtectedLineRequests lists the durable request records that consume
 	// ticket numbers without any pull request.
 	ProtectedLineRequests port.ProtectedLineRequestInventoryLister
+	// AppPermissions measures the permission class of the configured
+	// provider app identity fresh per inventory invocation. It is required
+	// whenever a platform surface port is wired, because the classification
+	// of a configured platform surface is decided from the app class and
+	// never from a read failure.
+	AppPermissions port.AppPermissionInspector
 }
 
 // Service owns the derived allocation inventory and the fail-closed ticket
@@ -73,11 +86,14 @@ type Holder struct {
 	Timestamp string `json:"timestamp,omitempty"`
 }
 
-// SurfaceStatus names one inventory surface and whether it was scanned or is
-// absent by configuration.
+// SurfaceStatus names one inventory surface, whether it was scanned or is
+// absent by configuration, and the named reason of an absence. A
+// capability-scoped absence carries the permission-class reason of the
+// provider app; a provider-less absence stays unnamed.
 type SurfaceStatus struct {
 	Surface string `json:"surface"`
 	State   string `json:"state"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // Allocation is the derived allocation inventory of one ticket-key
@@ -176,30 +192,43 @@ func (service *Service) Inventory(ctx context.Context, repository port.Repositor
 	if err != nil {
 		return Allocation{}, err
 	}
+	permissions, err := service.appPermissions(ctx, repository, remoteURL)
+	if err != nil {
+		return Allocation{}, err
+	}
+
 	if service.dependencies.PullRequests != nil {
-		pullRequests, err := service.dependencies.PullRequests.ListPullRequests(ctx, port.PullRequestInventoryQuery{
-			Repository: repository,
-			RemoteURL:  remoteURL,
-		})
-		if err != nil {
-			return Allocation{}, err
-		}
-		for _, summary := range pullRequests {
-			id, found := ticketFromTitle(summary.Title)
-			if !found || id.Key().String() != key.String() {
-				continue
+		if !appPermissionCarries(permissions, appPermissionPullRequests) {
+			allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
+				Surface: SurfacePullRequestTitles,
+				State:   SurfaceAbsent,
+				Reason:  absentCapabilityReason(appPermissionPullRequests),
+			})
+		} else {
+			pullRequests, err := service.dependencies.PullRequests.ListPullRequests(ctx, port.PullRequestInventoryQuery{
+				Repository: repository,
+				RemoteURL:  remoteURL,
+			})
+			if err != nil {
+				return Allocation{}, err
 			}
-			addHolder(allocation.Holders, id.Number().String(), Holder{
-				Surface:   SurfacePullRequestTitles,
-				Locator:   "pull request #" + summary.Number,
-				Actor:     summary.Author,
-				Timestamp: formatTimestamp(summary.CreatedAt),
+			for _, summary := range pullRequests {
+				id, found := ticketFromTitle(summary.Title)
+				if !found || id.Key().String() != key.String() {
+					continue
+				}
+				addHolder(allocation.Holders, id.Number().String(), Holder{
+					Surface:   SurfacePullRequestTitles,
+					Locator:   "pull request #" + summary.Number,
+					Actor:     summary.Author,
+					Timestamp: formatTimestamp(summary.CreatedAt),
+				})
+			}
+			allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
+				Surface: SurfacePullRequestTitles,
+				State:   SurfaceScanned,
 			})
 		}
-		allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
-			Surface: SurfacePullRequestTitles,
-			State:   SurfaceScanned,
-		})
 	} else {
 		allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
 			Surface: SurfacePullRequestTitles,
@@ -208,29 +237,37 @@ func (service *Service) Inventory(ctx context.Context, repository port.Repositor
 	}
 
 	if service.dependencies.ProtectedLineRequests != nil {
-		requestRecords, err := service.dependencies.ProtectedLineRequests.ListProtectedLineRequests(ctx, port.ProtectedLineRequestInventoryQuery{
-			Repository: repository,
-			RemoteURL:  remoteURL,
-		})
-		if err != nil {
-			return Allocation{}, err
-		}
-		for _, record := range requestRecords {
-			id := record.Request.Ticket()
-			if id.Key().String() != key.String() {
-				continue
+		if !appPermissionCarries(permissions, appPermissionDeployments) {
+			allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
+				Surface: SurfaceProtectedLineRequests,
+				State:   SurfaceAbsent,
+				Reason:  absentCapabilityReason(appPermissionDeployments),
+			})
+		} else {
+			requestRecords, err := service.dependencies.ProtectedLineRequests.ListProtectedLineRequests(ctx, port.ProtectedLineRequestInventoryQuery{
+				Repository: repository,
+				RemoteURL:  remoteURL,
+			})
+			if err != nil {
+				return Allocation{}, err
 			}
-			addHolder(allocation.Holders, id.Number().String(), Holder{
-				Surface:   SurfaceProtectedLineRequests,
-				Locator:   "request " + record.Request.ID(),
-				Actor:     record.Request.Requester(),
-				Timestamp: formatTimestamp(record.CreatedAt),
+			for _, record := range requestRecords {
+				id := record.Request.Ticket()
+				if id.Key().String() != key.String() {
+					continue
+				}
+				addHolder(allocation.Holders, id.Number().String(), Holder{
+					Surface:   SurfaceProtectedLineRequests,
+					Locator:   "request " + record.Request.ID(),
+					Actor:     record.Request.Requester(),
+					Timestamp: formatTimestamp(record.CreatedAt),
+				})
+			}
+			allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
+				Surface: SurfaceProtectedLineRequests,
+				State:   SurfaceScanned,
 			})
 		}
-		allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
-			Surface: SurfaceProtectedLineRequests,
-			State:   SurfaceScanned,
-		})
 	} else {
 		allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
 			Surface: SurfaceProtectedLineRequests,
@@ -403,6 +440,37 @@ func (service *Service) remoteURL(ctx context.Context, repository port.Repositor
 		return "", unavailableCapabilityProblem("remote URL resolution")
 	}
 	return service.dependencies.RemoteURL(ctx, repository)
+}
+
+// appPermissions measures the permission class of the configured provider
+// app identity fresh per inventory invocation. The measurement is never
+// cached: every gate invocation re-reads the public app registration, so the
+// capability classification stays a measurement and never becomes a stored
+// claim state.
+func (service *Service) appPermissions(ctx context.Context, repository port.RepositoryIdentity, remoteURL string) (port.AppPermissionSnapshot, error) {
+	if service.dependencies.AppPermissions == nil {
+		return port.AppPermissionSnapshot{}, unavailableCapabilityProblem("provider app permission discovery")
+	}
+	return service.dependencies.AppPermissions.InspectAppPermissions(ctx, port.AppPermissionQuery{
+		Repository: repository,
+		RemoteURL:  remoteURL,
+	})
+}
+
+// appPermissionCarries reports whether the provider app's permission map
+// carries the read class of one platform surface. A permission is carried
+// exactly when the registration names it with the read or write level; a
+// missing or unknown key means the app class does not carry the capability.
+func appPermissionCarries(permissions port.AppPermissionSnapshot, name string) bool {
+	level, carried := permissions.Permissions[name]
+	return carried && (level == "read" || level == "write")
+}
+
+// absentCapabilityReason is the named degradation form of a capability-scoped
+// absent surface: the configured provider identity's app class structurally
+// does not carry the surface's read permission.
+func absentCapabilityReason(permission string) string {
+	return "provider app class does not carry the " + permission + " read permission"
 }
 
 func unavailableCapabilityProblem(capability string) error {
