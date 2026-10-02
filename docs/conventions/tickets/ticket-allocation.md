@@ -63,6 +63,15 @@ platform-only surfaces; a degraded scan never reports a platform-bound
 number as "free". Future hosting platforms (GitLab, Bitbucket) are adopted
 by implementing the same ports, never by adding a second core path.
 
+The capability dimension extends the degraded mode to the configured
+provider: a provider identity whose app class does not carry a surface's
+read permission — measured fresh per inventory invocation from the public
+app registration, never cached — runs that surface as named-absent with the
+permission-class reason, and such a degraded scan never reports a
+platform-bound number as "free". A genuine read failure while the
+permission is carried stays fail-closed: only the permission-class fact
+names an absence, never a failing read.
+
 ### TAL-R006: Canonical discovery
 Next-free-number proposals are derived only from the governed inventory
 capability (help-first re-anchored). PR-title heuristics, fixed page
