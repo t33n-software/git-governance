@@ -441,6 +441,62 @@ func TestLinuxSecretServiceStoreRepositoryBindings(t *testing.T) {
 		}
 	})
 
+	t.Run("propagates lookup failures and discards empty legacy records", func(t *testing.T) {
+		store, runner := newFakeLinuxStore()
+		session := testStoredSession("github.com", "octocat")
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		// An unavailable native store propagates through the repository
+		// binding read instead of reporting a missing binding.
+		runner.err = errSessionStoreUnavailable
+		if _, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("unavailable ListForRepository() error = %v", err)
+		}
+		runner.err = nil
+		// A binding record of the prior form that carries no client IDs is
+		// discarded without interpretation; the next login replaces it and
+		// discovery re-derives the binding.
+		bindingKey := runner.key("github.com", repositoryBindingAccount("github.com", "acme", "governance"))
+		runner.values[bindingKey] = []byte("[]")
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("empty record ListForRepository() = (%#v, %v)", bound, err)
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatalf("BindRepository() error = %v", err)
+		}
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil ||
+			len(bound) != 1 || bound[0] != session {
+			t.Fatalf("rebound ListForRepository() = (%#v, %v)", bound, err)
+		}
+		// Re-binding the same app class is an idempotent upsert.
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatalf("idempotent BindRepository() error = %v", err)
+		}
+		if bound, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err != nil ||
+			len(bound) != 1 || bound[0] != session {
+			t.Fatalf("post-idempotent ListForRepository() = (%#v, %v)", bound, err)
+		}
+	})
+
+	t.Run("propagates a native-store failure on the binding record", func(t *testing.T) {
+		store, runner := newFakeLinuxStore()
+		session := testStoredSession("github.com", "octocat")
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		recordErr := errSessionStoreUnavailable
+		runner.fail = func(command, host, account string, call int) error {
+			if command == "lookup" && call == 2 {
+				return recordErr
+			}
+			return nil
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); !errors.Is(err, recordErr) {
+			t.Fatalf("record lookup failure error = %v, want %v", err, recordErr)
+		}
+	})
+
 	t.Run("rejects incomplete bindings and unknown scopes", func(t *testing.T) {
 		store, _ := newFakeLinuxStore()
 		if err := store.SaveActive(context.Background(), session); err != nil {
