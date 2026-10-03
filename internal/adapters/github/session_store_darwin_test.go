@@ -519,6 +519,21 @@ func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
 		}
 	})
 
+	t.Run("fails closed when a bound session record is malformed", func(t *testing.T) {
+		store, runner := newFakeMacOSStore()
+		if err := store.SaveActive(context.Background(), session); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(context.Background(), "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		scope := nativeSessionScope("github.com", session.ClientID)
+		runner.values[runner.key(scope, session.Account)] = []byte("{")
+		if _, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); err == nil {
+			t.Fatal("ListForRepository accepted a malformed bound session record")
+		}
+	})
+
 	t.Run("rejects incomplete bindings and unknown scopes", func(t *testing.T) {
 		store, _ := newFakeMacOSStore()
 		if err := store.SaveActive(context.Background(), session); err != nil {
