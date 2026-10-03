@@ -462,8 +462,9 @@ Erlaubt bleiben unter aktivem Embargo ausschließlich:
 - read-only Orientierung (Status, Historie, Diffs, Hilfetexte);
 - nicht mutierende governete Endpunkte (Diagnose, Validierung, Policy,
   Help-Reanchor);
-- der Dispatch eines Ebene-1-Workflows, der die Shared Line verlässt und die
-  offizielle Working-Branch governet erzeugt.
+- der Dispatch eines Ebene-1-Workflows, der die Shared Line verlässt — die
+  governete Worktree-Akquisition (`workflow worktree start`) und der
+  Workflow, der die offizielle Working-Branch governet erzeugt.
 ```
 
 Das Embargo endet erst, wenn nach dem Workflow-Dispatch der Branch-Kontext
@@ -583,7 +584,7 @@ Jede Git-Wirkung wird über genau eine von drei Ebenen ausgeführt. Die Auswahl
 ist verbindlich und wird vor der ersten Invocation nachgewiesen:
 
 ```text
-Ebene 1 — Workflows (`workflow ticket|hotfix|release|cleanup`)
+Ebene 1 — Workflows (`workflow ticket|hotfix|release|cleanup|worktree`)
   Pflicht, immer wenn das Aufgabenmuster von einem Workflow abgedeckt ist.
   Workflows kapseln Reihenfolge, Validierung und Gates inhärent.
 
@@ -624,7 +625,7 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 
 | Branch-Kontext | Aufgabenmuster | Verbindlicher Einstieg |
 |---|---|---|
-| `shared_line` | `ticket` | Embargo aktiv; Intake; dann `workflow ticket start`; erst danach Implementierung |
+| `shared_line` | `ticket` | Embargo aktiv; Intake; dann `workflow worktree start` gemäß der Worktree-Konvention aus [3.1]; im Worktree `workflow ticket start`; erst danach Implementierung |
 | `shared_line` | `hotfix` | Embargo aktiv; betroffene Linie fachlich binden; dann `workflow hotfix start` |
 | `shared_line` | `release` / `support` | Embargo aktiv; dann der passende `workflow release`-Pfad |
 | `shared_line` | `exploration` | Embargo aktiv; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
