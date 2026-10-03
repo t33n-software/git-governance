@@ -17,9 +17,13 @@ optionally pushing the official branch:
 git governance workflow ticket publish `
   --type feat `
   --subject "add export button" `
-  --commit-body "## Motivation`n`nDocuments the discarded experiment paths." `
+  --commit-body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
   --push
 ```
+
+The commit body crosses the CLI boundary through a message file: an absolute
+path to an existing plain UTF-8 text file of at most 1 MiB (relative paths are
+rejected); the content is carried verbatim.
 
 The workflow validates the commit series, checks base freshness, and
 conditionally rebases only an unpublished branch. It then runs the configured
@@ -55,7 +59,7 @@ git governance --interactive never --output json --yes workflow ticket publish `
 git governance --interactive never --output json --yes workflow ticket publish `
   --type feat `
   --subject "add export button" `
-  --commit-body "## Motivation`n`nDocuments the discarded experiment paths." `
+  --commit-body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
   --push
 ```
 

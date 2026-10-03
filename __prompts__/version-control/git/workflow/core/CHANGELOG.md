@@ -10,12 +10,12 @@
 ||-------|-------|
 || Scope Root | `__prompts__/version-control/git/workflow/core` |
 || Versioning Standard | `Semantic Versioning 2.0.0` |
-|| Current Version | `1.8.0` |
-|| Semver Class | `minor` |
-|| Breaking Change | `no` |
+|| Current Version | `2.0.0` |
+|| Semver Class | `major` |
+|| Breaking Change | `yes` |
 || Commit Scope | `workflow-core` |
-|| Ticket Scope | `GOV-121` |
-|| Current HEAD Commit Hash | `44d82242c22576a30b8a9b1f738271d6c54064ee` |
+|| Ticket Scope | `GOV-124` |
+|| Current HEAD Commit Hash | `1e413e906e94dcfaed7da7dbcc899ccd01fed02a` |
 
 ---
 
@@ -24,6 +24,7 @@
 
 || Version Family | Path | Highest Version | Notes |
 ||----------------|------|-----------------|-------|
+|| `v2` | `changelog/v2.md` | `2.0.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
 || `v1` | `changelog/v1.md` | `1.8.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
 
 ---
@@ -33,16 +34,18 @@
 
 || # | Path | Scope |
 ||---|------|-------|
-|| 1 | `changelog/v1.md` | Major version family TOC |
-|| 2 | `changelog/v1/v1-8-0.md` | Concrete version leaf for `1.8.0` |
-|| 3 | `changelog/v1/v1-7-0.md` | Concrete version leaf for `1.7.0` |
-|| 3 | `changelog/v1/v1-6-0.md` | Concrete version leaf for `1.6.0` |
-|| 3 | `changelog/v1/v1-5-0.md` | Concrete version leaf for `1.5.0` |
-|| 4 | `changelog/v1/v1-4-0.md` | Concrete version leaf for `1.4.0` |
-|| 5 | `changelog/v1/v1-3-0.md` | Concrete version leaf for `1.3.0` |
-|| 6 | `changelog/v1/v1-2-0.md` | Concrete version leaf for `1.2.0` |
-|| 7 | `changelog/v1/v1-1-0.md` | Concrete version leaf for `1.1.0` |
-|| 8 | `changelog/v1/v1-0-0.md` | Concrete version leaf for `1.0.0` |
+|| 1 | `changelog/v2.md` | Major version family TOC |
+|| 2 | `changelog/v2/v2-0-0.md` | Concrete version leaf for `2.0.0` |
+|| 3 | `changelog/v1.md` | Major version family TOC |
+|| 4 | `changelog/v1/v1-8-0.md` | Concrete version leaf for `1.8.0` |
+|| 4 | `changelog/v1/v1-7-0.md` | Concrete version leaf for `1.7.0` |
+|| 4 | `changelog/v1/v1-6-0.md` | Concrete version leaf for `1.6.0` |
+|| 4 | `changelog/v1/v1-5-0.md` | Concrete version leaf for `1.5.0` |
+|| 5 | `changelog/v1/v1-4-0.md` | Concrete version leaf for `1.4.0` |
+|| 6 | `changelog/v1/v1-3-0.md` | Concrete version leaf for `1.3.0` |
+|| 7 | `changelog/v1/v1-2-0.md` | Concrete version leaf for `1.2.0` |
+|| 8 | `changelog/v1/v1-1-0.md` | Concrete version leaf for `1.1.0` |
+|| 9 | `changelog/v1/v1-0-0.md` | Concrete version leaf for `1.0.0` |
 
 ---
 
@@ -63,16 +66,18 @@ major  = incompatible workflow-state, authority or safety-contract change
 || # | Path | Relevance |
 ||---|------|-----------|
 || 1 | `CHANGELOG.md` | Root TOC |
-|| 2 | `changelog/v1.md` | Major-family TOC |
-|| 3 | `changelog/v1/v1-8-0.md` | Concrete version leaf |
-|| 4 | `changelog/v1/v1-7-0.md` | Concrete version leaf |
-|| 4 | `changelog/v1/v1-6-0.md` | Concrete version leaf |
-|| 5 | `changelog/v1/v1-5-0.md` | Concrete version leaf |
-|| 6 | `changelog/v1/v1-4-0.md` | Concrete version leaf |
-|| 7 | `changelog/v1/v1-3-0.md` | Concrete version leaf |
-|| 8 | `changelog/v1/v1-2-0.md` | Concrete version leaf |
-|| 9 | `changelog/v1/v1-1-0.md` | Concrete version leaf |
-|| 10 | `changelog/v1/v1-0-0.md` | Concrete version leaf |
-|| 11 | `prompt.md` | Portable core workflow |
-|| 12 | `DESCRIPTION.md` | Root description TOC |
-|| 13 | `CONVENTIONS.md` | Authoring and runtime constraints |
+|| 2 | `changelog/v2.md` | Major-family TOC |
+|| 3 | `changelog/v2/v2-0-0.md` | Concrete version leaf |
+|| 4 | `changelog/v1.md` | Major-family TOC |
+|| 5 | `changelog/v1/v1-8-0.md` | Concrete version leaf |
+|| 6 | `changelog/v1/v1-7-0.md` | Concrete version leaf |
+|| 6 | `changelog/v1/v1-6-0.md` | Concrete version leaf |
+|| 7 | `changelog/v1/v1-5-0.md` | Concrete version leaf |
+|| 8 | `changelog/v1/v1-4-0.md` | Concrete version leaf |
+|| 9 | `changelog/v1/v1-3-0.md` | Concrete version leaf |
+|| 10 | `changelog/v1/v1-2-0.md` | Concrete version leaf |
+|| 11 | `changelog/v1/v1-1-0.md` | Concrete version leaf |
+|| 12 | `changelog/v1/v1-0-0.md` | Concrete version leaf |
+|| 13 | `prompt.md` | Portable core workflow |
+|| 14 | `DESCRIPTION.md` | Root description TOC |
+|| 15 | `CONVENTIONS.md` | Authoring and runtime constraints |

@@ -37,8 +37,12 @@ git governance branch merge-scratch `
   --target feature/ABC-123-add-export-button `
   --type feat `
   --subject "add export button" `
-  --body "## Motivation`n`nDocuments the discarded experiment paths."
+  --body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt"
 ```
+
+The body crosses the CLI boundary through a message file: an absolute path to
+an existing plain UTF-8 text file of at most 1 MiB (relative paths are
+rejected); the content is carried verbatim.
 
 The standard human flow first displays the fixed target branch, ticket key, and
 ticket ID. It then presents every supported commit family and asks for the
@@ -53,7 +57,7 @@ separate `--silent` flag:
 git governance --interactive never --yes branch merge-scratch `
   --type feat `
   --subject "add export button" `
-  --body "## Motivation`n`nDocuments the discarded experiment paths."
+  --body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt"
 ```
 
 The command switches to the official branch, applies `git merge --squash`, and

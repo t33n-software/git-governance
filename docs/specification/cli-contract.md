@@ -335,7 +335,7 @@ Switch working branch: yes
 git governance branch merge-scratch \
   [--branch scratch/<ticket>-<slug>] \
   [--target <official-ticket-branch>] \
-  --type <commit-family> --subject <description> --body <text> \
+  --type <commit-family> --subject <description> --body-file <path> \
   [--footer <TOKEN=VALUE>]... [--breaking [--breaking-description <text>]]
 ```
 
@@ -372,8 +372,12 @@ For automation, the existing global options are authoritative:
 git governance --interactive never --yes branch merge-scratch \
   --type feat \
   --subject "add export button" \
-  --body "## Motivation\n\nDocuments the discarded experiment paths."
+  --body-file <absolute-path>
 ```
+
+The body crosses the CLI boundary through a message file: an absolute path to
+an existing plain UTF-8 text file of at most 1 MiB (relative paths are
+rejected); the content is carried verbatim.
 
 The execution switches to the target, runs `git merge --squash`, and creates
 the resulting ticket-consistent Conventional Commit. It never runs `git add .`,
@@ -421,7 +425,7 @@ git governance branch sync-base --resume
 For `--strategy merge`, the interactive surface produces the same structured
 commit flow with the fixed branch ticket. Non-interactive calls use
 `--merge-type <family>` and `--merge-subject <description>`; optionally
-`--merge-body`, `--merge-footer`, `--merge-breaking`, and
+`--merge-body-file`, `--merge-footer`, `--merge-breaking`, and
 `--merge-breaking-description` complement the merge commit.
 
 `--resume` resumes a rebase or merge paused by this command after all conflict
@@ -584,7 +588,6 @@ routine. Force push is offered by no command.
 
 ```text
 git governance commit validate --message-file <path>
-git governance commit validate --message <text>
 ```
 
 Checks:
@@ -703,13 +706,13 @@ description, the mandatory commit body, and the existing mutation approval:
 git governance --interactive never --yes workflow ticket publish \
   --type feat \
   --subject "add export button" \
-  --commit-body "## Motivation\n\nDocuments the discarded experiment paths." \
+  --commit-body-file <absolute-path> \
   --push
 ```
 
 `--target <official-ticket-branch>` is only permissible on `scratch/*` and
 resolves manual ambiguity. On an official branch, `--target` and the scratch
-transfer inputs `--type`, `--subject`, `--commit-body`, `--commit-footer`,
+transfer inputs `--type`, `--subject`, `--commit-body-file`, `--commit-footer`,
 `--commit-breaking`, and `--commit-breaking-description` remain invalid.
 
 Without a provider adapter, no hosting API call is invented. The JSON output
@@ -733,7 +736,7 @@ git governance --interactive never --yes workflow ticket publish \
   --resume --push
 ```
 
-On `scratch/*`, the original `--type`/`--subject` and `--commit-body` inputs
+On `scratch/*`, the original `--type`/`--subject` and `--commit-body-file` inputs
 remain required; with ambiguity, `--target` remains mandatory.
 
 ## 15. `workflow hotfix start`
