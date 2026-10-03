@@ -38,6 +38,9 @@ type fakeSurfaces struct {
 	requestRecordsErr     error
 	permissionsErr        error
 	permissionInspections int
+	inspectedCapabilities []port.CredentialCapability
+	permissionMissing     port.CredentialCapability
+	deploymentsErr        error
 }
 
 func (fake *fakeSurfaces) LocalBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
@@ -101,10 +104,25 @@ func (fake *fakeSurfaces) ListProtectedLineRequests(context.Context, port.Protec
 	return fake.requestRecords, nil
 }
 
-func (fake *fakeSurfaces) InspectAppPermissions(context.Context, port.AppPermissionQuery) (port.AppPermissionSnapshot, error) {
+func (fake *fakeSurfaces) InspectAppPermissions(_ context.Context, query port.AppPermissionQuery) (port.AppPermissionSnapshot, error) {
 	fake.permissionInspections++
+	fake.inspectedCapabilities = append(fake.inspectedCapabilities, query.Capability)
 	if fake.permissionsErr != nil {
 		return port.AppPermissionSnapshot{}, fake.permissionsErr
+	}
+	if query.Capability != "" && query.Capability == fake.permissionMissing {
+		return port.AppPermissionSnapshot{}, problem.Wrap(problem.Details{
+			Code:        problem.CodeConfigurationUnavailable,
+			Category:    problem.CategoryConfig,
+			Field:       "GitHub App session capability",
+			Actual:      string(query.Capability),
+			Expected:    "a GitHub App session whose app class carries the " + string(query.Capability) + " permission",
+			Rule:        "capability-scoped session selection binds only an app class that carries the requested permission",
+			Remediation: "run auth login github with the GitHub App whose class carries the requested permission",
+		}, port.ErrCapabilitySessionMissing)
+	}
+	if query.Capability == port.CapabilityDeployments && fake.deploymentsErr != nil {
+		return port.AppPermissionSnapshot{}, fake.deploymentsErr
 	}
 	if fake.permissions == nil {
 		return port.AppPermissionSnapshot{
@@ -691,7 +709,7 @@ func TestInventoryClassifiesPlatformSurfacesByAppPermissionClass(t *testing.T) {
 // TestInventoryMeasuresAppPermissionsOncePerInvocation proves the cache-free
 // measurement duty: one fresh inspection per inventory invocation even when
 // both platform surfaces consume its classification.
-func TestInventoryMeasuresAppPermissionsOncePerInvocation(t *testing.T) {
+func TestInventoryMeasuresEachSurfaceCapabilityFreshPerInvocation(t *testing.T) {
 	t.Parallel()
 
 	surfaces := &fakeSurfaces{
@@ -702,8 +720,75 @@ func TestInventoryMeasuresAppPermissionsOncePerInvocation(t *testing.T) {
 	if _, err := fullService(surfaces).Inventory(context.Background(), testRepository(), mustKey("ABC")); err != nil {
 		t.Fatal(err)
 	}
-	if surfaces.permissionInspections != 1 {
-		t.Fatalf("permission inspections = %d; want exactly one fresh measurement per invocation", surfaces.permissionInspections)
+	if surfaces.permissionInspections != 2 ||
+		surfaces.inspectedCapabilities[0] != port.CapabilityPullRequests ||
+		surfaces.inspectedCapabilities[1] != port.CapabilityDeployments {
+		t.Fatalf("permission inspections = %d (%v); want one fresh measurement per wired platform surface capability",
+			surfaces.permissionInspections, surfaces.inspectedCapabilities)
+	}
+	// A second invocation re-measures both capability cards: the
+	// classification is a measurement, never a stored claim state.
+	if _, err := fullService(surfaces).Inventory(context.Background(), testRepository(), mustKey("ABC")); err != nil {
+		t.Fatal(err)
+	}
+	if surfaces.permissionInspections != 4 {
+		t.Fatalf("permission inspections after the second invocation = %d; want a fresh re-measurement", surfaces.permissionInspections)
+	}
+}
+
+// TestInventoryClassifiesUnboundSessionClassAsNamedAbsent proves the
+// capability-missing verdict of the serving session class is the named
+// degradation basis: the surface is absent with the session-class reason, the
+// carried capability still scans, and a genuine read failure keeps failing
+// closed.
+func TestInventoryClassifiesUnboundSessionClassAsNamedAbsent(t *testing.T) {
+	t.Parallel()
+
+	surfaces := &fakeSurfaces{
+		permissions:       map[string]string{"pull_requests": "write"},
+		permissionMissing: port.CapabilityDeployments,
+		pullRequests:      []port.PullRequestSummary{{Number: "1", Title: "ABC-1: first", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
+		requestRecords:    []port.ProtectedLineRequestRecord{requestRecord("ABC-35")},
+	}
+	allocation, err := fullService(surfaces).Inventory(context.Background(), testRepository(), mustKey("ABC"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[string]SurfaceStatus{}
+	for _, status := range allocation.Surfaces {
+		states[status.Surface] = status
+	}
+	if states[SurfacePullRequestTitles].State != SurfaceScanned {
+		t.Fatalf("pull-request surface = %#v", states[SurfacePullRequestTitles])
+	}
+	if states[SurfaceProtectedLineRequests].State != SurfaceAbsent ||
+		states[SurfaceProtectedLineRequests].Reason != "no configured provider session carries the deployments read permission" {
+		t.Fatalf("protected-line surface = %#v", states[SurfaceProtectedLineRequests])
+	}
+	// The degraded scan never reports the platform-bound record number as a
+	// scanned holder; the named absence stays the visible evidence.
+	if holders := allocation.Holders["35"]; len(holders) != 0 {
+		t.Fatalf("degraded surface holders = %#v", holders)
+	}
+
+	failing := &fakeSurfaces{
+		permissions:       map[string]string{"pull_requests": "write"},
+		permissionMissing: port.CapabilityDeployments,
+		permissionsErr:    errors.New("registration unreachable"),
+	}
+	if _, err := fullService(failing).Inventory(context.Background(), testRepository(), mustKey("ABC")); err == nil {
+		t.Fatal("a genuine discovery failure was classified as a named absence")
+	}
+
+	// A genuine failure of the deployments-serving measurement fails the
+	// inventory closed even when the carried capability scans.
+	failingDeployments := &fakeSurfaces{
+		permissions:    map[string]string{"pull_requests": "write"},
+		deploymentsErr: errors.New("registration unreachable"),
+		pullRequests:   []port.PullRequestSummary{{Number: "1", Title: "ABC-1: first", CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}},
+	}
+	if _, err := fullService(failingDeployments).Inventory(context.Background(), testRepository(), mustKey("ABC")); err == nil {
+		t.Fatal("a genuine deployments measurement failure was swallowed")
 	}
 }
 

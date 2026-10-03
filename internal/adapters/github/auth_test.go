@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
@@ -489,11 +490,11 @@ func TestAuthStatusLogoutAndUtilityContracts(t *testing.T) {
 		Store: store,
 		Now:   func() time.Time { return now },
 	})
-	status, err := service.Status(context.Background(), CredentialTarget{})
-	if err != nil || status.RefreshState != "active" || status.Account != "octocat" {
-		t.Fatalf("Status() = (%#v, %v)", status, err)
+	statuses, err := service.Status(context.Background(), CredentialTarget{})
+	if err != nil || len(statuses) != 1 || statuses[0].RefreshState != "active" || statuses[0].Account != "octocat" {
+		t.Fatalf("Status() = (%#v, %v)", statuses, err)
 	}
-	removed, err := service.Logout(context.Background(), CredentialTarget{})
+	removed, err := service.Logout(context.Background(), LogoutRequest{})
 	if err != nil || removed.Account != "octocat" || store.deleteCalls != 1 {
 		t.Fatalf("Logout() = (%#v, %v), deletes=%d", removed, err, store.deleteCalls)
 	}
@@ -552,50 +553,689 @@ func TestAuthServiceSelectsRepositoryBoundSessions(t *testing.T) {
 	if err := store.BindRepository(context.Background(), targetA.Host, targetA.Owner, targetA.Repository, tenantA.ClientID); err != nil {
 		t.Fatalf("BindRepository(tenant A) error = %v", err)
 	}
-	if err := store.BindRepository(context.Background(), targetB.Host, targetB.Owner, targetB.Repository, platform.ClientID); err != nil {
+	// Both app classes are bound to the working repository: the publication
+	// class and the lifecycle read class.
+	if err := store.BindRepository(context.Background(), targetA.Host, targetA.Owner, targetA.Repository, platform.ClientID); err != nil {
 		t.Fatalf("BindRepository(platform) error = %v", err)
 	}
+	if err := store.BindRepository(context.Background(), targetB.Host, targetB.Owner, targetB.Repository, platform.ClientID); err != nil {
+		t.Fatalf("BindRepository(platform, license-hub) error = %v", err)
+	}
+
+	var measurementTargets []string
+	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		measurementTargets = append(measurementTargets, request.URL.Path)
+		switch request.URL.Path {
+		case "/login/oauth/access_token":
+			if err := request.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			access := map[string]string{
+				"ghr-tenant-a-refresh": "ghu-tenant-a",
+				"ghr-platform-refresh": "ghu-platform",
+			}[request.Form.Get("refresh_token")]
+			if access == "" {
+				t.Fatalf("unexpected refresh token %q", request.Form.Get("refresh_token"))
+			}
+			writeJSON(t, writer, tokenResponse{
+				AccessToken:           access,
+				ExpiresIn:             3600,
+				RefreshToken:          "ghr-rotated-" + access,
+				RefreshTokenExpiresIn: 7200,
+				TokenType:             "bearer",
+			})
+		case "/user/installations":
+			if request.Header.Get("Authorization") == "Bearer ghu-tenant-a" {
+				writeJSON(t, writer, installationsResponse{Installations: []installationResponse{{ID: 1, AppSlug: "acme-publisher"}}})
+				return
+			}
+			writeJSON(t, writer, installationsResponse{Installations: []installationResponse{{ID: 2, AppSlug: "acme-verify"}}})
+		case "/apps/acme-publisher":
+			writeJSON(t, writer, appRegistrationResponse{Slug: "acme-publisher", Permissions: map[string]string{"contents": "write", "metadata": "read", "pull_requests": "write"}})
+		case "/apps/acme-verify":
+			writeJSON(t, writer, appRegistrationResponse{Slug: "acme-verify", Permissions: map[string]string{"contents": "read", "deployments": "read", "metadata": "read"}})
+		default:
+			t.Fatalf("unexpected request %s", request.URL.String())
+		}
+	}))
+	defer server.Close()
 
 	service := newTestAuthService(t, AuthOptions{
-		Store: store,
-		Now:   func() time.Time { return now },
+		Store:        store,
+		OAuthBaseURL: server.URL,
+		APIBaseURL:   server.URL,
+		HTTPClient:   server.Client(),
+		Now:          func() time.Time { return now },
 	})
 
-	// Repository-bound status selects the session of the bound tenant, not
-	// the most recently used host session.
-	status, err := service.Status(context.Background(), targetA)
-	if err != nil || status.Repository != "acme/governance" {
-		t.Fatalf("repository-bound Status() = (%#v, %v)", status, err)
+	// Repository-bound status reports every bound session class with its
+	// freshly measured app registration, in deterministic client-ID order.
+	statuses, err := service.Status(context.Background(), targetA)
+	if err != nil || len(statuses) != 2 {
+		t.Fatalf("repository-bound Status() = (%#v, %v)", statuses, err)
 	}
-	if status.Account != tenantA.Account {
-		t.Fatalf("repository-bound Status() account = %q, want %q", status.Account, tenantA.Account)
+	if statuses[0].Repository != "acme/governance" || statuses[0].ClientID != platform.ClientID ||
+		statuses[0].AppSlug != "acme-verify" ||
+		strings.Join(statuses[0].Capabilities, ",") != "contents,deployments,metadata" {
+		t.Fatalf("first bound status = %#v", statuses[0])
 	}
-	boundSession, err := store.LoadActiveForRepository(context.Background(), targetA.Host, targetA.Owner, targetA.Repository)
-	if err != nil || boundSession.ClientID != tenantA.ClientID {
-		t.Fatalf("bound session = (%#v, %v)", boundSession, err)
-	}
-
-	// The zero target keeps the host-level recency semantics for diagnostics.
-	status, err = service.Status(context.Background(), CredentialTarget{})
-	if err != nil || status.Account != platform.Account || status.Repository != "" {
-		t.Fatalf("host-recency Status() = (%#v, %v)", status, err)
+	if statuses[1].ClientID != tenantA.ClientID || statuses[1].AppSlug != "acme-publisher" ||
+		strings.Join(statuses[1].Capabilities, ",") != "contents,metadata,pull_requests" {
+		t.Fatalf("second bound status = %#v", statuses[1])
 	}
 
-	// Logout with a repository target removes the bound session and its
-	// binding; the other tenant binding stays untouched.
-	removed, err := service.Logout(context.Background(), targetA)
-	if err != nil || removed.Repository != "acme/governance" {
+	// The zero target keeps the host-level recency semantics without any
+	// measurement.
+	before := len(measurementTargets)
+	statuses, err = service.Status(context.Background(), CredentialTarget{})
+	if err != nil || len(statuses) != 1 || statuses[0].Repository != "" || statuses[0].AppSlug != "" {
+		t.Fatalf("host-recency Status() = (%#v, %v)", statuses, err)
+	}
+	if len(measurementTargets) != before {
+		t.Fatal("host-recency status measured a capability card")
+	}
+
+	// Logout with a repository target removes exactly the selected session
+	// binding; the other class binding stays untouched.
+	removed, err := service.Logout(context.Background(), LogoutRequest{
+		Repository: targetA,
+		OnSessionSelection: func(candidates []SessionStatus) (SessionStatus, error) {
+			if len(candidates) != 2 {
+				t.Fatalf("logout candidates = %#v", candidates)
+			}
+			return candidates[0], nil
+		},
+	})
+	if err != nil || removed.ClientID != platform.ClientID || removed.Repository != "acme/governance" {
 		t.Fatalf("repository-bound Logout() = (%#v, %v)", removed, err)
 	}
-	if _, err := store.LoadActiveForRepository(context.Background(), targetA.Host, targetA.Owner, targetA.Repository); !errors.Is(err, errSessionNotFound) {
-		t.Fatalf("binding survived its session logout: %v", err)
+	if bound := store.scopeByRepository[repositoryScopeKey(targetA.Host, targetA.Owner, targetA.Repository)]; len(bound) != 1 || bound[0] != tenantA.ClientID {
+		t.Fatalf("remaining target-A bindings = %#v", bound)
 	}
-	_, err = service.Status(context.Background(), targetA)
-	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
-	boundSession, err = store.LoadActiveForRepository(context.Background(), targetB.Host, targetB.Owner, targetB.Repository)
-	if err != nil || boundSession.ClientID != platform.ClientID {
-		t.Fatalf("other tenant binding = (%#v, %v)", boundSession, err)
+	if remaining, err := store.ListForRepository(context.Background(), targetA.Host, targetA.Owner, targetA.Repository); err != nil ||
+		len(remaining) != 1 || remaining[0].ClientID != tenantA.ClientID {
+		t.Fatalf("remaining bound sessions = (%#v, %v)", remaining, err)
 	}
+	// The removed session scope disappeared from every binding set, including
+	// its own target-B binding.
+	if bound := store.scopeByRepository[repositoryScopeKey(targetB.Host, targetB.Owner, targetB.Repository)]; len(bound) != 0 {
+		t.Fatalf("removed session binding survived: %#v", bound)
+	}
+}
+
+// capabilityCardServer issues per-session access tokens keyed by refresh
+// token and serves the public app registration of each session's app class.
+// verifyCovers lists the repositories the verify installation covers, and
+// failingRegistration turns the registration read of the verify app into an
+// infrastructure failure.
+func capabilityCardServer(t *testing.T, verifyCovers []string, failingRegistration *bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/login/oauth/access_token":
+			if err := request.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			access := map[string]string{
+				"ghr-pub-refresh":    "ghu-pub",
+				"ghr-verify-refresh": "ghu-verify",
+			}[request.Form.Get("refresh_token")]
+			if access == "" {
+				t.Fatalf("unexpected refresh token %q", request.Form.Get("refresh_token"))
+			}
+			writeJSON(t, writer, tokenResponse{
+				AccessToken:           access,
+				ExpiresIn:             3600,
+				RefreshToken:          "ghr-rotated-" + access,
+				RefreshTokenExpiresIn: 7200,
+				TokenType:             "bearer",
+			})
+		case request.URL.Path == "/user/installations":
+			if request.Header.Get("Authorization") == "Bearer ghu-pub" {
+				writeJSON(t, writer, installationsResponse{Installations: []installationResponse{{ID: 1, AppSlug: "acme-publisher"}}})
+				return
+			}
+			writeJSON(t, writer, installationsResponse{Installations: []installationResponse{{ID: 2, AppSlug: "acme-verify"}}})
+		case request.URL.Path == "/apps/acme-publisher":
+			writeJSON(t, writer, appRegistrationResponse{
+				Slug:        "acme-publisher",
+				Permissions: map[string]string{"contents": "write", "metadata": "read", "pull_requests": "write"},
+			})
+		case request.URL.Path == "/apps/acme-verify":
+			if failingRegistration != nil && *failingRegistration {
+				writer.WriteHeader(http.StatusBadGateway)
+				return
+			}
+			writeJSON(t, writer, appRegistrationResponse{
+				Slug:        "acme-verify",
+				Permissions: map[string]string{"contents": "read", "deployments": "read", "metadata": "read"},
+			})
+		case request.URL.Path == "/user/installations/1/repositories":
+			writeJSON(t, writer, installationRepositoriesResponse{
+				TotalCount:   1,
+				Repositories: []repositoryResponse{{FullName: "acme/governance"}},
+			})
+		case request.URL.Path == "/user/installations/2/repositories":
+			repositories := make([]repositoryResponse, 0, len(verifyCovers))
+			for _, repository := range verifyCovers {
+				repositories = append(repositories, repositoryResponse{FullName: repository})
+			}
+			writeJSON(t, writer, installationRepositoriesResponse{
+				TotalCount:   len(repositories),
+				Repositories: repositories,
+			})
+		default:
+			t.Fatalf("unexpected request %s", request.URL.String())
+		}
+	}))
+}
+
+func capabilityTestStore(t *testing.T) *memorySessionStore {
+	t.Helper()
+	publisher := testStoredSession("github.com", "octocat")
+	publisher.ClientID = "publisher-client-id"
+	publisher.RefreshToken = "ghr-pub-refresh"
+	verify := testStoredSession("github.com", "octocat")
+	verify.ClientID = "verify-client-id"
+	verify.RefreshToken = "ghr-verify-refresh"
+	store := &memorySessionStore{}
+	if err := store.SaveActive(context.Background(), publisher); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveActive(context.Background(), verify); err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestAuthServiceResolveCapabilitySelectsTheCarryingSession(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+
+	newCapabilityService := func(t *testing.T, verifyCovers []string, failingRegistration *bool) (*AuthService, *memorySessionStore) {
+		t.Helper()
+		server := capabilityCardServer(t, verifyCovers, failingRegistration)
+		t.Cleanup(server.Close)
+		store := capabilityTestStore(t)
+		return newTestAuthService(t, AuthOptions{
+			Store:        store,
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		}), store
+	}
+
+	t.Run("a bound carrier serves the capability directly", func(t *testing.T) {
+		service, store := newCapabilityService(t, []string{"acme/governance"}, nil)
+		target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		token, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		if err != nil || token != "ghu-verify" {
+			t.Fatalf("ResolveCapability(deployments) = (%q, %v)", token, err)
+		}
+		// A second resolution reuses the memoized card of the same token
+		// cycle without any further measurement.
+		again, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		if err != nil || again != token {
+			t.Fatalf("memoized ResolveCapability() = (%q, %v)", again, err)
+		}
+		// The publication capability selects the other class through additive
+		// discovery binding: the publisher session is bound next to the
+		// verify session for later capability-scoped resolutions.
+		publication, err := service.ResolveCapability(context.Background(), target, port.CapabilityPullRequests)
+		if err != nil || publication != "ghu-pub" {
+			t.Fatalf("ResolveCapability(pull_requests) = (%q, %v)", publication, err)
+		}
+		bound, err := store.ListForRepository(context.Background(), target.Host, target.Owner, target.Repository)
+		if err != nil || len(bound) != 2 || bound[0].ClientID != "publisher-client-id" || bound[1].ClientID != "verify-client-id" {
+			t.Fatalf("capability bindings = (%#v, %v)", bound, err)
+		}
+	})
+
+	t.Run("a non-carrier class fact fails closed with the named verdict", func(t *testing.T) {
+		service, store := newCapabilityService(t, []string{"acme/evidence"}, nil)
+		target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "publisher-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		setupBinds := store.bindCalls
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		if !errors.Is(err, port.ErrCapabilitySessionMissing) {
+			t.Fatalf("capability-missing verdict = %v, want the named sentinel", err)
+		}
+		if store.bindCalls != setupBinds {
+			t.Fatalf("a non-carrier fact bound a session: calls=%d", store.bindCalls)
+		}
+	})
+
+	t.Run("host-wide discovery binds a covering carrier additively", func(t *testing.T) {
+		service, store := newCapabilityService(t, []string{"acme/evidence"}, nil)
+		target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "evidence"}
+		token, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		if err != nil || token != "ghu-verify" {
+			t.Fatalf("discovering ResolveCapability() = (%q, %v)", token, err)
+		}
+		bound := store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)]
+		if store.bindCalls != 1 || len(bound) != 1 || bound[0] != "verify-client-id" {
+			t.Fatalf("discovery binding = calls %d, bindings %#v", store.bindCalls, store.scopeByRepository)
+		}
+	})
+
+	t.Run("a genuine registration failure keeps failing closed", func(t *testing.T) {
+		failingRegistration := true
+		service, _ := newCapabilityService(t, []string{"acme/governance"}, &failingRegistration)
+		target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		if err == nil || errors.Is(err, port.ErrCapabilitySessionMissing) {
+			t.Fatalf("infrastructure failure = %v, want a genuine error without the capability sentinel", err)
+		}
+	})
+
+	t.Run("rejects an unknown capability before any request", func(t *testing.T) {
+		service, _ := newCapabilityService(t, nil, nil)
+		_, err := service.ResolveCapability(context.Background(), CredentialTarget{
+			Host: "github.com", Owner: "acme", Repository: "governance",
+		}, port.CredentialCapability("actions"))
+		assertAuthProblem(t, err, problem.CodeInvalidInput)
+	})
+}
+
+func TestAuthServiceLogoutDisambiguatesSeveralBoundClasses(t *testing.T) {
+	store := capabilityTestStore(t)
+	target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+	if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "publisher-client-id"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+		t.Fatal(err)
+	}
+	service := newTestAuthService(t, AuthOptions{
+		Store: store,
+		Now:   func() time.Time { return time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC) },
+	})
+
+	// Several bound classes without a selection callback fail closed instead
+	// of silently picking one.
+	_, err := service.Logout(context.Background(), LogoutRequest{Repository: target})
+	assertAuthProblem(t, err, problem.CodeInvalidInput)
+
+	// A callback verdict outside the candidate set fails closed.
+	_, err = service.Logout(context.Background(), LogoutRequest{
+		Repository: target,
+		OnSessionSelection: func(candidates []SessionStatus) (SessionStatus, error) {
+			return SessionStatus{ClientID: "unknown-client-id", Account: "octocat"}, nil
+		},
+	})
+	assertAuthProblem(t, err, problem.CodeInvalidInput)
+
+	// A callback selecting one candidate removes exactly that class; the
+	// other binding stays.
+	removed, err := service.Logout(context.Background(), LogoutRequest{
+		Repository: target,
+		OnSessionSelection: func(candidates []SessionStatus) (SessionStatus, error) {
+			if len(candidates) != 2 || candidates[0].ClientID != "publisher-client-id" ||
+				candidates[1].ClientID != "verify-client-id" {
+				t.Fatalf("logout candidates = %#v", candidates)
+			}
+			return candidates[1], nil
+		},
+	})
+	if err != nil || removed.ClientID != "verify-client-id" || removed.Repository != "acme/governance" {
+		t.Fatalf("selected Logout() = (%#v, %v)", removed, err)
+	}
+	if bound := store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)]; len(bound) != 1 || bound[0] != "publisher-client-id" {
+		t.Fatalf("remaining bindings = %#v", bound)
+	}
+}
+
+func TestAuthServiceStatusMeasurementFailurePaths(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+
+	t.Run("a store failure and a missing binding fail closed", func(t *testing.T) {
+		service := newTestAuthService(t, AuthOptions{
+			Store: &memorySessionStore{loadErr: errors.New("store broken")},
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.Status(context.Background(), target)
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+
+		service = newTestAuthService(t, AuthOptions{
+			Store: capabilityTestStore(t),
+			Now:   func() time.Time { return now },
+		})
+		_, err = service.Status(context.Background(), CredentialTarget{Host: "github.com", Owner: "acme", Repository: "unbound"})
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("an expired bound session fails closed with the re-login remediation", func(t *testing.T) {
+		expired := testStoredSession("github.com", "octocat")
+		expired.RefreshTokenExpiresAt = now.Add(-time.Second)
+		store := capabilityTestStore(t)
+		if err := store.SaveActive(context.Background(), expired); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, expired.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		service := newTestAuthService(t, AuthOptions{
+			Store: store,
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.Status(context.Background(), target)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+
+	t.Run("an unreadable capability card fails the whole status closed", func(t *testing.T) {
+		failingRegistration := true
+		server := capabilityCardServer(t, []string{"acme/governance"}, &failingRegistration)
+		defer server.Close()
+		store := capabilityTestStore(t)
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		service := newTestAuthService(t, AuthOptions{
+			Store:        store,
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.Status(context.Background(), target)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+}
+
+func TestAuthServiceLogoutStoreFailurePaths(t *testing.T) {
+	target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+
+	t.Run("a store failure and a missing binding fail closed", func(t *testing.T) {
+		service := newTestAuthService(t, AuthOptions{
+			Store: &memorySessionStore{loadErr: errors.New("store broken")},
+			Now:   func() time.Time { return time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC) },
+		})
+		_, err := service.Logout(context.Background(), LogoutRequest{Repository: target})
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+
+		service = newTestAuthService(t, AuthOptions{
+			Store: capabilityTestStore(t),
+			Now:   func() time.Time { return time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC) },
+		})
+		_, err = service.Logout(context.Background(), LogoutRequest{Repository: CredentialTarget{
+			Host: "github.com", Owner: "acme", Repository: "unbound",
+		}})
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("a deletion failure fails closed after the selection", func(t *testing.T) {
+		store := capabilityTestStore(t)
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		store.deleteErr = errors.New("vault locked")
+		service := newTestAuthService(t, AuthOptions{
+			Store: store,
+			Now:   func() time.Time { return time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC) },
+		})
+		_, err := service.Logout(context.Background(), LogoutRequest{Repository: target})
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+}
+
+func TestAuthServiceResolveCapabilityRejectsInvalidContexts(t *testing.T) {
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	service := newTestAuthService(t, AuthOptions{Store: capabilityTestStore(t)})
+	_, err := service.ResolveCapability(cancelled, CredentialTarget{
+		Host: "github.com", Owner: "acme", Repository: "governance",
+	}, port.CapabilityDeployments)
+	assertAuthProblem(t, err, problem.CodeOperationCancelled)
+
+	_, err = newTestAuthService(t, AuthOptions{Store: capabilityTestStore(t)}).ResolveCapability(
+		context.Background(),
+		CredentialTarget{Host: "github.example", Owner: "acme", Repository: "governance"},
+		port.CapabilityDeployments,
+	)
+	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+}
+
+func TestAuthServiceResolveCapabilityFailureVerdicts(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+
+	t.Run("a host listing failure fails closed at the store boundary", func(t *testing.T) {
+		store := capabilityTestStore(t)
+		store.hostListErr = errors.New("host index broken")
+		service := newTestAuthService(t, AuthOptions{
+			Store: store,
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("a session-free store fails closed with the re-login remediation", func(t *testing.T) {
+		service := newTestAuthService(t, AuthOptions{
+			Store: &memorySessionStore{},
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("a discovery binding failure fails closed", func(t *testing.T) {
+		server := capabilityCardServer(t, []string{"acme/evidence"}, nil)
+		defer server.Close()
+		store := capabilityTestStore(t)
+		store.bindErr = errors.New("bind unavailable")
+		service := newTestAuthService(t, AuthOptions{
+			Store:        store,
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), CredentialTarget{
+			Host: "github.com", Owner: "acme", Repository: "evidence",
+		}, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("expired sessions report the re-login remediation", func(t *testing.T) {
+		store := capabilityTestStore(t)
+		store.mutex.Lock()
+		for key, session := range store.sessions {
+			session.RefreshTokenExpiresAt = now.Add(-time.Second)
+			store.sessions[key] = session
+		}
+		store.mutex.Unlock()
+		service := newTestAuthService(t, AuthOptions{
+			Store: store,
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+		if errors.Is(err, port.ErrCapabilitySessionMissing) {
+			t.Fatal("a refresh failure was classified as a capability fact")
+		}
+	})
+
+	t.Run("sessions without coverage report the authorization verdict", func(t *testing.T) {
+		server := capabilityCardServer(t, nil, nil)
+		defer server.Close()
+		service := newTestAuthService(t, AuthOptions{
+			Store:        capabilityTestStore(t),
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), CredentialTarget{
+			Host: "github.com", Owner: "acme", Repository: "uncovered",
+		}, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+		if errors.Is(err, port.ErrCapabilitySessionMissing) {
+			t.Fatal("a coverage failure was classified as a capability fact")
+		}
+	})
+
+	t.Run("a transport failure during the probe is an infrastructure error", func(t *testing.T) {
+		service := newTestAuthService(t, AuthOptions{
+			Store: capabilityTestStore(t),
+			HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return nil, errors.New("network unreachable")
+			})},
+			Now: func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeExternalCommandFailed)
+		if errors.Is(err, port.ErrCapabilitySessionMissing) {
+			t.Fatal("a transport failure was classified as a capability fact")
+		}
+	})
+
+	t.Run("a store failure fails closed at the resolution boundary", func(t *testing.T) {
+		service := newTestAuthService(t, AuthOptions{
+			Store: &memorySessionStore{loadErr: errors.New("store broken")},
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("a coverage authorization failure is an infrastructure error", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/login/oauth/access_token" {
+				writeJSON(t, writer, validTokenResponse())
+				return
+			}
+			writer.WriteHeader(http.StatusBadGateway)
+		}))
+		defer server.Close()
+		service := newTestAuthService(t, AuthOptions{
+			Store:        capabilityTestStore(t),
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.ResolveCapability(context.Background(), target, port.CapabilityDeployments)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+		if errors.Is(err, port.ErrCapabilitySessionMissing) {
+			t.Fatal("an authorization failure was classified as a capability fact")
+		}
+	})
+}
+
+func TestAuthServiceCapabilityCardMeasurementFailurePaths(t *testing.T) {
+	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
+
+	t.Run("an installation listing failure fails the card closed", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			if request.URL.Path == "/login/oauth/access_token" {
+				writeJSON(t, writer, validTokenResponse())
+				return
+			}
+			writer.WriteHeader(http.StatusBadGateway)
+		}))
+		defer server.Close()
+		store := capabilityTestStore(t)
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		service := newTestAuthService(t, AuthOptions{
+			Store:        store,
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.Status(context.Background(), target)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+
+	t.Run("installations without an app slug fail the card closed", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			switch request.URL.Path {
+			case "/login/oauth/access_token":
+				writeJSON(t, writer, validTokenResponse())
+			case "/user/installations":
+				writeJSON(t, writer, installationsResponse{Installations: []installationResponse{{ID: 3}}})
+			default:
+				t.Fatalf("unexpected request %s", request.URL.String())
+			}
+		}))
+		defer server.Close()
+		store := capabilityTestStore(t)
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		service := newTestAuthService(t, AuthOptions{
+			Store:        store,
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.Status(context.Background(), target)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+
+	t.Run("a registration without a slug fails the card closed", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			switch request.URL.Path {
+			case "/login/oauth/access_token":
+				writeJSON(t, writer, validTokenResponse())
+			case "/user/installations":
+				writeJSON(t, writer, installationsResponse{Installations: []installationResponse{{ID: 3, AppSlug: "acme-verify"}}})
+			case "/apps/acme-verify":
+				_, _ = writer.Write([]byte(`{"slug":"","permissions":{"deployments":"read"}}`))
+			default:
+				t.Fatalf("unexpected request %s", request.URL.String())
+			}
+		}))
+		defer server.Close()
+		store := capabilityTestStore(t)
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		service := newTestAuthService(t, AuthOptions{
+			Store:        store,
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
+		})
+		_, err := service.Status(context.Background(), target)
+		assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
+	})
+
+	t.Run("a selection callback error propagates", func(t *testing.T) {
+		store := capabilityTestStore(t)
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "publisher-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(context.Background(), target.Host, target.Owner, target.Repository, "verify-client-id"); err != nil {
+			t.Fatal(err)
+		}
+		selectionErr := errors.New("selection unavailable")
+		service := newTestAuthService(t, AuthOptions{
+			Store: store,
+			Now:   func() time.Time { return now },
+		})
+		_, err := service.Logout(context.Background(), LogoutRequest{
+			Repository: target,
+			OnSessionSelection: func([]SessionStatus) (SessionStatus, error) {
+				return SessionStatus{}, selectionErr
+			},
+		})
+		if !errors.Is(err, selectionErr) {
+			t.Fatalf("selection error = %v, want %v", err, selectionErr)
+		}
+	})
 }
 
 // discoveryTenantServer issues per-tenant access tokens keyed by client ID
@@ -692,8 +1332,8 @@ func TestAuthServiceResolveDiscoversAndBindsCoveringSession(t *testing.T) {
 	if strings.Join(refreshOrder, ",") != "platform-client-id,tenant-a-client-id" {
 		t.Fatalf("discovery probe order = %#v", refreshOrder)
 	}
-	if store.bindCalls != 1 ||
-		store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)] != "tenant-a-client-id" {
+	bound := store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)]
+	if store.bindCalls != 1 || len(bound) != 1 || bound[0] != "tenant-a-client-id" {
 		t.Fatalf("discovery binding = calls %d, bindings %#v", store.bindCalls, store.scopeByRepository)
 	}
 	callsAfterDiscovery := apiCalls
@@ -734,8 +1374,8 @@ func TestAuthServiceResolveStaleBindingRediscovers(t *testing.T) {
 	if err != nil || token != "ghu-tenant-a" {
 		t.Fatalf("rediscovering Resolve() = (%q, %v)", token, err)
 	}
-	if got := store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)]; got != "tenant-a-client-id" {
-		t.Fatalf("rebound repository scope = %q", got)
+	if got := store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)]; len(got) != 2 || got[1] != "tenant-a-client-id" {
+		t.Fatalf("rebound repository scope = %#v", got)
 	}
 }
 
@@ -927,8 +1567,8 @@ func TestAuthServiceLoginBindsRepositoryContext(t *testing.T) {
 		if status.Repository != "acme/governance" {
 			t.Fatalf("login status repository = %q", status.Repository)
 		}
-		if store.bindCalls != 1 ||
-			store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)] != "public-client-id" {
+		bound := store.scopeByRepository[repositoryScopeKey(target.Host, target.Owner, target.Repository)]
+		if store.bindCalls != 1 || len(bound) != 1 || bound[0] != "public-client-id" {
 			t.Fatalf("login binding = calls %d, bindings %#v", store.bindCalls, store.scopeByRepository)
 		}
 	})
@@ -990,7 +1630,7 @@ func TestAuthServiceRejectsPartialRepositorySelection(t *testing.T) {
 	})
 	_, err := service.Status(context.Background(), CredentialTarget{Owner: "acme"})
 	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
-	_, err = service.Logout(context.Background(), CredentialTarget{Repository: "governance"})
+	_, err = service.Logout(context.Background(), LogoutRequest{Repository: CredentialTarget{Repository: "governance"}})
 	assertAuthProblem(t, err, problem.CodeConfigurationInvalid)
 }
 
@@ -1031,7 +1671,7 @@ func TestAuthServiceFailsClosedWithoutActiveSession(t *testing.T) {
 	})
 	_, err := service.Status(context.Background(), CredentialTarget{})
 	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
-	_, err = service.Logout(context.Background(), CredentialTarget{})
+	_, err = service.Logout(context.Background(), LogoutRequest{})
 	assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 	_, err = service.Resolve(context.Background(), CredentialTarget{
 		Host:       "github.com",
@@ -1048,7 +1688,7 @@ func TestAuthServiceFailsClosedWithoutActiveSession(t *testing.T) {
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = service.Logout(cancelled, CredentialTarget{})
+	_, err = service.Logout(cancelled, LogoutRequest{})
 	assertAuthProblem(t, err, problem.CodeOperationCancelled)
 
 	if first, second := nativeSessionScope("github.com", "tenant-a-client-id"), nativeSessionScope("github.com", "platform-client-id"); first == second ||
@@ -1285,12 +1925,12 @@ func TestAuthServiceWhiteboxFailurePaths(t *testing.T) {
 			deleteErr: errors.New("delete unavailable"),
 		}
 		service := newTestAuthService(t, AuthOptions{Store: deleteStore, Now: func() time.Time { return now }})
-		_, err := service.Logout(context.Background(), CredentialTarget{})
+		_, err := service.Logout(context.Background(), LogoutRequest{})
 		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 		_, err = newTestAuthService(t, AuthOptions{
 			Store: &memorySessionStore{loadErr: errors.New("load unavailable")},
 			Now:   func() time.Time { return now },
-		}).Logout(context.Background(), CredentialTarget{})
+		}).Logout(context.Background(), LogoutRequest{})
 		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 	})
 
@@ -1623,9 +2263,10 @@ type memorySessionStore struct {
 	sessions          map[string]Session
 	activeByScope     map[string]string
 	activeScopeByHost map[string]string
-	scopeByRepository map[string]string
+	scopeByRepository map[string][]string
 	initialized       bool
 	loadErr           error
+	hostListErr       error
 	saveErr           error
 	deleteErr         error
 	bindErr           error
@@ -1684,37 +2325,42 @@ func (store *memorySessionStore) LoadActiveForHost(_ context.Context, host strin
 	return session, nil
 }
 
-func (store *memorySessionStore) LoadActiveForRepository(
+func (store *memorySessionStore) ListForRepository(
 	_ context.Context,
 	host, owner, repository string,
-) (Session, error) {
+) ([]Session, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	if store.loadErr != nil {
-		return Session{}, store.loadErr
+		return nil, store.loadErr
 	}
 	store.initialize()
-	clientID, found := store.scopeByRepository[repositoryScopeKey(host, owner, repository)]
-	if !found {
-		return Session{}, errSessionNotFound
+	bound := append([]string(nil), store.scopeByRepository[repositoryScopeKey(host, owner, repository)]...)
+	sort.Strings(bound)
+	sessions := make([]Session, 0, len(bound))
+	for _, clientID := range bound {
+		account, found := store.activeByScope[sessionScopeKey(host, clientID)]
+		if !found {
+			continue
+		}
+		session, found := store.sessions[sessionKey(host, account, clientID)]
+		if !found {
+			continue
+		}
+		if err := validateStoredSession(session); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
 	}
-	account, found := store.activeByScope[sessionScopeKey(host, clientID)]
-	if !found {
-		return Session{}, errSessionNotFound
-	}
-	session, found := store.sessions[sessionKey(host, account, clientID)]
-	if !found {
-		return Session{}, errSessionNotFound
-	}
-	if err := validateStoredSession(session); err != nil {
-		return Session{}, err
-	}
-	return session, nil
+	return sessions, nil
 }
 
 func (store *memorySessionStore) ListForHost(_ context.Context, host string) ([]Session, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
+	if store.hostListErr != nil {
+		return nil, store.hostListErr
+	}
 	if store.loadErr != nil {
 		return nil, store.loadErr
 	}
@@ -1753,7 +2399,13 @@ func (store *memorySessionStore) BindRepository(_ context.Context, host, owner, 
 	if _, found := store.activeByScope[sessionScopeKey(host, clientID)]; !found {
 		return errors.New("memory repository binding references an unknown session scope")
 	}
-	store.scopeByRepository[repositoryScopeKey(host, owner, repository)] = strings.TrimSpace(clientID)
+	key := repositoryScopeKey(host, owner, repository)
+	for _, bound := range store.scopeByRepository[key] {
+		if bound == strings.TrimSpace(clientID) {
+			return nil
+		}
+	}
+	store.scopeByRepository[key] = append(store.scopeByRepository[key], strings.TrimSpace(clientID))
 	store.bindCalls++
 	return nil
 }
@@ -1797,10 +2449,22 @@ func (store *memorySessionStore) DeleteActive(_ context.Context, host, clientID 
 		delete(store.activeScopeByHost, normalizeHost(host))
 	}
 	bindingPrefix := normalizeHost(host) + "\x00"
-	for repositoryKey, boundClientID := range store.scopeByRepository {
-		if strings.HasPrefix(repositoryKey, bindingPrefix) && boundClientID == strings.TrimSpace(clientID) {
-			delete(store.scopeByRepository, repositoryKey)
+	trimmed := strings.TrimSpace(clientID)
+	for repositoryKey, bound := range store.scopeByRepository {
+		if !strings.HasPrefix(repositoryKey, bindingPrefix) {
+			continue
 		}
+		remaining := make([]string, 0, len(bound))
+		for _, entry := range bound {
+			if entry != trimmed {
+				remaining = append(remaining, entry)
+			}
+		}
+		if len(remaining) == 0 {
+			delete(store.scopeByRepository, repositoryKey)
+			continue
+		}
+		store.scopeByRepository[repositoryKey] = remaining
 	}
 	if store.session == deleted {
 		store.session = Session{}
@@ -1816,7 +2480,7 @@ func (store *memorySessionStore) initialize() {
 	store.sessions = make(map[string]Session)
 	store.activeByScope = make(map[string]string)
 	store.activeScopeByHost = make(map[string]string)
-	store.scopeByRepository = make(map[string]string)
+	store.scopeByRepository = make(map[string][]string)
 	if strings.TrimSpace(store.session.Account) != "" {
 		store.sessions[sessionKey(store.session.Host, store.session.Account, store.session.ClientID)] = store.session
 		scope := sessionScopeKey(store.session.Host, store.session.ClientID)

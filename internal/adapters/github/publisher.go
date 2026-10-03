@@ -100,7 +100,7 @@ func (publisher *Publisher) validate(ctx context.Context, publication port.PullR
 	if err != nil {
 		return err
 	}
-	_, err = publisher.resolveCredential(ctx, repository)
+	_, err = publisher.resolveCredential(ctx, repository, port.CapabilityPullRequests)
 	return err
 }
 
@@ -202,7 +202,7 @@ func (publisher *Publisher) findOpenPullRequest(
 	query.Set("base", request.Target.String())
 	endpoint := repositoryEndpoint(apiBase, repository, "pulls", query)
 
-	response, err := publisher.request(ctx, repository, http.MethodGet, endpoint, nil)
+	response, err := publisher.request(ctx, repository, port.CapabilityPullRequests, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", false, err
 	}
@@ -238,7 +238,7 @@ func (publisher *Publisher) createPullRequest(
 		Draft: request.Draft,
 	})
 	endpoint := repositoryEndpoint(apiBase, repository, "pulls", nil)
-	response, err := publisher.request(ctx, repository, http.MethodPost, endpoint, bytes.NewReader(body))
+	response, err := publisher.request(ctx, repository, port.CapabilityPullRequests, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return port.PublishedPullRequest{}, err
 	}
@@ -260,11 +260,12 @@ func (publisher *Publisher) createPullRequest(
 func (publisher *Publisher) request(
 	ctx context.Context,
 	repository repositoryRef,
+	capability port.CredentialCapability,
 	method string,
 	endpoint *url.URL,
 	body io.Reader,
 ) (*http.Response, error) {
-	token, err := publisher.resolveCredential(ctx, repository)
+	token, err := publisher.resolveCredential(ctx, repository, capability)
 	if err != nil {
 		return nil, err
 	}
@@ -300,7 +301,15 @@ func (publisher *Publisher) request(
 	return response, nil
 }
 
-func (publisher *Publisher) resolveCredential(ctx context.Context, repository repositoryRef) (string, error) {
+// resolveCredential obtains the short-lived API token for exactly one
+// repository through the resolver. A capability-aware resolver selects the
+// session per required permission class; a base resolver serves every class
+// from its single brokered identity, whose class is a broker contract.
+func (publisher *Publisher) resolveCredential(
+	ctx context.Context,
+	repository repositoryRef,
+	capability port.CredentialCapability,
+) (string, error) {
 	if publisher == nil || publisher.resolver == nil {
 		return "", configurationProblem(
 			"GitHub App session",
@@ -308,12 +317,27 @@ func (publisher *Publisher) resolveCredential(ctx context.Context, repository re
 			"run auth login github in an interactive terminal before requesting pull-request creation",
 		)
 	}
-	return publisher.resolver.Resolve(ctx, CredentialTarget{
+	target := CredentialTarget{
 		Host:       repository.host,
 		Owner:      repository.owner,
 		Repository: repository.name,
-	})
+	}
+	if capabilityResolver, ok := publisher.resolver.(CapabilityCredentialResolver); ok {
+		return capabilityResolver.ResolveCapability(ctx, target, capability)
+	}
+	return publisher.resolver.Resolve(ctx, target)
 }
+
+// CapabilityCredentialResolver is an optional capability of credential
+// resolvers that select a stored session per required permission class. The
+// capability-missing verdict of the requested class is a distinguishable
+// named condition — resolvers wrap port.ErrCapabilitySessionMissing — and
+// never a silent fallback to a wrong-class session.
+type CapabilityCredentialResolver interface {
+	ResolveCapability(ctx context.Context, target CredentialTarget, capability port.CredentialCapability) (string, error)
+}
+
+var _ CapabilityCredentialResolver = (*AuthService)(nil)
 
 func parseAPIBaseURL(raw string) (*url.URL, error) {
 	parsed, err := url.Parse(raw)
@@ -637,7 +661,7 @@ func (publisher *Publisher) ListPullRequests(
 			"per_page": {strconv.Itoa(pullRequestInventoryPageSize)},
 			"page":     {strconv.Itoa(page)},
 		}
-		response, err := publisher.request(ctx, repository, http.MethodGet, repositoryEndpoint(apiBase, repository, "pulls", values), nil)
+		response, err := publisher.request(ctx, repository, port.CapabilityPullRequests, http.MethodGet, repositoryEndpoint(apiBase, repository, "pulls", values), nil)
 		if err != nil {
 			return nil, err
 		}

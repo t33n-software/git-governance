@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	sessionStoreSchemaVersion = 1
+	sessionStoreSchemaVersion = 2
 	dpapiEntropy              = "git-governance/github-app-session-store/v1"
 )
 
@@ -50,11 +50,13 @@ type sessionDocument struct {
 	// discovery ordering, never the publication selection path.
 	ActiveScopeByHost map[string]string `json:"activeScopeByHost,omitempty"`
 	ActiveByScope     map[string]string `json:"activeByScope,omitempty"`
-	// ScopeByRepository maps a canonical repository identity to the client ID
-	// of the session scope bound to it. It is the primary selection path for
-	// credential resolution.
-	ScopeByRepository map[string]string  `json:"scopeByRepository,omitempty"`
-	Sessions          map[string]Session `json:"sessions"`
+	// ScopeByRepository maps a canonical repository identity to the client
+	// IDs of the session scopes bound to it — one per GitHub App class.
+	// Capability-scoped credential resolution probes these bindings; a
+	// document of the prior single-binding schema is rejected fail-closed by
+	// the schema version gate.
+	ScopeByRepository map[string][]string `json:"scopeByRepository,omitempty"`
+	Sessions          map[string]Session  `json:"sessions"`
 }
 
 type dpapiSessionStore struct {
@@ -123,25 +125,36 @@ func loadScopedSession(document sessionDocument, host, clientID string) (Session
 	return session, nil
 }
 
-// LoadActiveForRepository resolves the session bound to the canonical
-// repository identity. A missing binding or a binding whose session was
-// removed fails closed with errSessionNotFound so discovery can rebind.
-func (store *dpapiSessionStore) LoadActiveForRepository(
+// ListForRepository returns every session bound to the canonical repository
+// identity in deterministic client-ID order. Bindings whose session was
+// removed are skipped so a partially maintained binding cannot lock out
+// capability-scoped selection; an empty result sends the caller to discovery.
+func (store *dpapiSessionStore) ListForRepository(
 	ctx context.Context,
 	host, owner, repository string,
-) (Session, error) {
+) ([]Session, error) {
 	if err := contextFailure(ctx); err != nil {
-		return Session{}, err
+		return nil, err
 	}
 	document, err := store.load()
 	if err != nil {
-		return Session{}, err
+		return nil, err
 	}
-	clientID, found := document.ScopeByRepository[repositoryScopeKey(host, owner, repository)]
-	if !found || strings.TrimSpace(clientID) == "" {
-		return Session{}, errSessionNotFound
+	bound := document.ScopeByRepository[repositoryScopeKey(host, owner, repository)]
+	clientIDs := append([]string(nil), bound...)
+	sort.Strings(clientIDs)
+	sessions := make([]Session, 0, len(clientIDs))
+	for _, clientID := range clientIDs {
+		session, err := loadScopedSession(document, host, clientID)
+		if errors.Is(err, errSessionNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
 	}
-	return loadScopedSession(document, host, clientID)
+	return sessions, nil
 }
 
 // ListForHost returns every active session scope stored for the host in
@@ -175,8 +188,11 @@ func (store *dpapiSessionStore) ListForHost(ctx context.Context, host string) ([
 	return sessions, nil
 }
 
-// BindRepository binds the canonical repository identity to the session scope
-// of the given client ID. Binding an unknown scope fails closed.
+// BindRepository upserts the binding of the canonical repository identity to
+// the session scope of the given client ID. Several sessions may be bound to
+// one repository — one per GitHub App class — so a login with a different app
+// adds a binding instead of moving the existing one. Binding an unknown scope
+// fails closed.
 func (store *dpapiSessionStore) BindRepository(
 	ctx context.Context,
 	host, owner, repository, clientID string,
@@ -195,7 +211,13 @@ func (store *dpapiSessionStore) BindRepository(
 	if _, found := document.ActiveByScope[sessionScopeKey(host, clientID)]; !found {
 		return errors.New("protected GitHub App repository binding references an unknown session scope")
 	}
-	document.ScopeByRepository[repositoryScopeKey(host, owner, repository)] = clientID
+	key := repositoryScopeKey(host, owner, repository)
+	for _, bound := range document.ScopeByRepository[key] {
+		if bound == clientID {
+			return nil
+		}
+	}
+	document.ScopeByRepository[key] = append(document.ScopeByRepository[key], clientID)
 	return store.save(document)
 }
 
@@ -239,11 +261,24 @@ func (store *dpapiSessionStore) DeleteActive(ctx context.Context, host, clientID
 	if document.ActiveScopeByHost[normalizeHost(host)] == scope {
 		delete(document.ActiveScopeByHost, normalizeHost(host))
 	}
+	trimmed := strings.TrimSpace(clientID)
 	bindingPrefix := normalizeHost(host) + "\x00"
-	for repositoryKey, boundClientID := range document.ScopeByRepository {
-		if strings.HasPrefix(repositoryKey, bindingPrefix) && boundClientID == strings.TrimSpace(clientID) {
-			delete(document.ScopeByRepository, repositoryKey)
+	for repositoryKey, bound := range document.ScopeByRepository {
+		if !strings.HasPrefix(repositoryKey, bindingPrefix) {
+			continue
 		}
+		remaining := make([]string, 0, len(bound))
+		for _, entry := range bound {
+			if entry == trimmed {
+				continue
+			}
+			remaining = append(remaining, entry)
+		}
+		if len(remaining) == 0 {
+			delete(document.ScopeByRepository, repositoryKey)
+			continue
+		}
+		document.ScopeByRepository[repositoryKey] = remaining
 	}
 	return store.save(document)
 }
@@ -265,11 +300,30 @@ func (store *dpapiSessionStore) load() (sessionDocument, error) {
 		return sessionDocument{}, fmt.Errorf("decrypt protected GitHub App session: %w", err)
 	}
 	var document sessionDocument
-	if err := json.Unmarshal(plain, &document); err != nil {
+	versionProbe := struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}{}
+	if err := json.Unmarshal(plain, &versionProbe); err != nil || versionProbe.SchemaVersion <= 0 {
 		return sessionDocument{}, errors.New("protected GitHub App session has an invalid format")
 	}
-	if document.SchemaVersion != sessionStoreSchemaVersion {
+	if versionProbe.SchemaVersion < sessionStoreSchemaVersion {
+		// The document was written by an older binary with an incompatible
+		// store format. Its sessions are unusable by this binary and the
+		// documented remediation is one fresh login per bound app: discard
+		// the unreadable document without interpreting it and start empty,
+		// so the remediation path never requires manual file surgery. A
+		// document from a newer binary is never discarded and keeps failing
+		// closed.
+		if err := removeSessionFile(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return sessionDocument{}, fmt.Errorf("discard unreadable session store: %w", err)
+		}
+		return emptySessionDocument(), nil
+	}
+	if versionProbe.SchemaVersion > sessionStoreSchemaVersion {
 		return sessionDocument{}, errors.New("protected GitHub App session has an unsupported schema version")
+	}
+	if err := json.Unmarshal(plain, &document); err != nil {
+		return sessionDocument{}, errors.New("protected GitHub App session has an invalid format")
 	}
 	if document.ActiveByScope == nil {
 		if len(document.Sessions) != 0 {
@@ -284,7 +338,7 @@ func (store *dpapiSessionStore) load() (sessionDocument, error) {
 		document.ActiveScopeByHost = make(map[string]string)
 	}
 	if document.ScopeByRepository == nil {
-		document.ScopeByRepository = make(map[string]string)
+		document.ScopeByRepository = make(map[string][]string)
 	}
 	return document, nil
 }
@@ -347,7 +401,7 @@ func emptySessionDocument() sessionDocument {
 		SchemaVersion:     sessionStoreSchemaVersion,
 		ActiveScopeByHost: make(map[string]string),
 		ActiveByScope:     make(map[string]string),
-		ScopeByRepository: make(map[string]string),
+		ScopeByRepository: make(map[string][]string),
 		Sessions:          make(map[string]Session),
 	}
 }

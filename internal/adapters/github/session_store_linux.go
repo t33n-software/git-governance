@@ -57,22 +57,45 @@ func (store *linuxSecretServiceStore) LoadActiveForHost(ctx context.Context, hos
 	return store.loadScoped(ctx, nativeSessionScope(host, strings.TrimSpace(string(clientID))), host, strings.TrimSpace(string(clientID)))
 }
 
-// LoadActiveForRepository resolves the session bound to the canonical
-// repository identity through its binding record. A missing binding or a
-// binding whose session was removed fails closed with errSessionNotFound so
-// discovery can rebind.
-func (store *linuxSecretServiceStore) LoadActiveForRepository(
+// ListForRepository returns every session bound to the canonical repository
+// identity through its binding record in deterministic client-ID order.
+// Bindings whose session was removed are skipped so a partially maintained
+// binding cannot lock out capability-scoped selection; a missing binding
+// returns an empty result that sends the caller to discovery.
+func (store *linuxSecretServiceStore) ListForRepository(
 	ctx context.Context,
 	host, owner, repository string,
-) (Session, error) {
+) ([]Session, error) {
 	if err := sessionStoreContextError(ctx); err != nil {
-		return Session{}, err
+		return nil, err
 	}
-	clientID, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository))
+	raw, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository))
+	if errors.Is(err, errSessionNotFound) {
+		return nil, nil
+	}
 	if err != nil {
-		return Session{}, err
+		return nil, err
 	}
-	return store.loadScoped(ctx, nativeSessionScope(host, strings.TrimSpace(string(clientID))), host, strings.TrimSpace(string(clientID)))
+	clientIDs, err := parseRepositoryBinding(raw)
+	if err != nil {
+		// A record written by an older binary carries the prior
+		// single-client-ID form. The record is discarded without
+		// interpretation and discovery re-derives the binding at the next
+		// resolution; sessions are never touched.
+		return nil, nil
+	}
+	sessions := make([]Session, 0, len(clientIDs))
+	for _, clientID := range clientIDs {
+		session, err := store.loadScoped(ctx, nativeSessionScope(host, clientID), host, clientID)
+		if errors.Is(err, errSessionNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	return sessions, nil
 }
 
 // ListForHost returns every active session scope stored for the host in
@@ -107,8 +130,11 @@ func (store *linuxSecretServiceStore) ListForHost(ctx context.Context, host stri
 	return sessions, nil
 }
 
-// BindRepository binds the canonical repository identity to the session scope
-// of the given client ID. Binding an unknown scope fails closed.
+// BindRepository upserts the binding of the canonical repository identity to
+// the session scope of the given client ID. Several sessions may be bound to
+// one repository — one per GitHub App class — so a login with a different app
+// adds a binding instead of moving the existing one. Binding an unknown scope
+// fails closed.
 func (store *linuxSecretServiceStore) BindRepository(
 	ctx context.Context,
 	host, owner, repository, clientID string,
@@ -123,7 +149,23 @@ func (store *linuxSecretServiceStore) BindRepository(
 	if _, err := store.lookup(ctx, nativeSessionScope(host, clientID), linuxSecretActiveAccount); err != nil {
 		return err
 	}
-	return store.store(ctx, host, repositoryBindingAccount(host, owner, repository), []byte(clientID))
+	bound := []string(nil)
+	if raw, err := store.lookup(ctx, host, repositoryBindingAccount(host, owner, repository)); err == nil {
+		if parsed, parseErr := parseRepositoryBinding(raw); parseErr == nil {
+			bound = parsed
+		}
+		// A prior-format or unreadable record is replaced by the fresh
+		// multi-class binding without interpretation; discovery re-derives
+		// any dropped binding.
+	} else if !errors.Is(err, errSessionNotFound) {
+		return err
+	}
+	for _, existing := range bound {
+		if existing == clientID {
+			return nil
+		}
+	}
+	return store.store(ctx, host, repositoryBindingAccount(host, owner, repository), encodeRepositoryBinding(append(bound, clientID)))
 }
 
 func (store *linuxSecretServiceStore) SaveActive(ctx context.Context, session Session) error {

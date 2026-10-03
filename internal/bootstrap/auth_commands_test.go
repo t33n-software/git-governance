@@ -13,6 +13,7 @@ import (
 	"github.com/t33n-software/git-governance/internal/adapters/browser"
 	"github.com/t33n-software/git-governance/internal/adapters/github"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
@@ -25,7 +26,7 @@ func TestGitHubAuthCommandsUseExplicitInteractiveDeviceFlow(t *testing.T) {
 		RefreshTokenExpiresAt: expiresAt,
 		RefreshState:          "active",
 	}
-	provider := &bootstrapAuthProvider{loginStatus: status, statusValue: status, logoutStatus: status}
+	provider := &bootstrapAuthProvider{loginStatus: status, statusValues: []github.SessionStatus{status}, logoutStatus: status}
 	opener := &bootstrapBrowserOpener{}
 	prompt := &runtimeTestPrompt{inputValue: "public-client-id"}
 	application := newAuthCommandApplication(provider, opener, prompt)
@@ -69,7 +70,7 @@ func TestGitHubAuthStatusAndLogoutContracts(t *testing.T) {
 		RefreshTokenExpiresAt: expiresAt,
 		RefreshState:          "active",
 	}
-	provider := &bootstrapAuthProvider{statusValue: status, logoutStatus: status}
+	provider := &bootstrapAuthProvider{statusValues: []github.SessionStatus{status}, logoutStatus: status}
 	application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{})
 
 	statusCommand := newAuthCommand(application)
@@ -112,7 +113,7 @@ func TestGitHubAuthCommandsBindTheWorkingContextRepository(t *testing.T) {
 		RefreshState:          "active",
 	}
 	git := &commandGit{remoteURL: "https://github.com/acme/governance.git"}
-	provider := &bootstrapAuthProvider{loginStatus: status, statusValue: status, logoutStatus: status}
+	provider := &bootstrapAuthProvider{loginStatus: status, statusValues: []github.SessionStatus{status}, logoutStatus: status}
 	application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{inputValue: "public-client-id"}, git)
 
 	if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "login", "github"); err != nil {
@@ -132,8 +133,8 @@ func TestGitHubAuthCommandsBindTheWorkingContextRepository(t *testing.T) {
 	if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github"); err != nil {
 		t.Fatalf("logout error = %v", err)
 	}
-	if provider.logoutTarget != (github.CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}) {
-		t.Fatalf("logout target = %#v", provider.logoutTarget)
+	if provider.logoutRequest.Repository != (github.CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}) {
+		t.Fatalf("logout target = %#v", provider.logoutRequest.Repository)
 	}
 
 	fields := githubSessionFields(status)
@@ -157,7 +158,7 @@ func TestGitHubAuthCommandsFallBackToHostLevelWithoutResolvableRemote(t *testing
 		{discoverErr: errors.New("not a repository")},
 		{remoteURLErr: errors.New("remote unavailable")},
 	} {
-		provider := &bootstrapAuthProvider{loginStatus: status, statusValue: status, logoutStatus: status}
+		provider := &bootstrapAuthProvider{loginStatus: status, statusValues: []github.SessionStatus{status}, logoutStatus: status}
 		application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{inputValue: "public-client-id"}, git)
 		if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "login", "github"); err != nil {
 			t.Fatalf("login error = %v", err)
@@ -174,8 +175,8 @@ func TestGitHubAuthCommandsFallBackToHostLevelWithoutResolvableRemote(t *testing
 		if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github"); err != nil {
 			t.Fatalf("logout error = %v", err)
 		}
-		if provider.logoutTarget != (github.CredentialTarget{}) {
-			t.Fatalf("unresolvable context selected a logout target: %#v", provider.logoutTarget)
+		if provider.logoutRequest.Repository != (github.CredentialTarget{}) {
+			t.Fatalf("unresolvable context selected a logout target: %#v", provider.logoutRequest.Repository)
 		}
 	}
 }
@@ -278,6 +279,140 @@ func TestAuthCommandHelpersAreRedactedAndStable(t *testing.T) {
 	assertBootstrapAuthProblem(t, githubAuthenticationUnavailable(), problem.CodeConfigurationUnavailable)
 }
 
+func TestGitHubAuthStatusRendersEveryBoundSessionClass(t *testing.T) {
+	expiresAt := time.Date(2026, time.December, 31, 12, 0, 0, 0, time.UTC)
+	publisherSession := github.SessionStatus{
+		Host: "github.com", Account: "octocat", ClientID: "publisher-client-id", Source: "native-secret-store",
+		Repository: "acme/governance", AppSlug: "acme-publisher",
+		Capabilities:          []string{"contents", "metadata", "pull_requests"},
+		RefreshTokenExpiresAt: expiresAt, RefreshState: "active",
+	}
+	verifySession := github.SessionStatus{
+		Host: "github.com", Account: "octocat", ClientID: "verify-client-id", Source: "native-secret-store",
+		Repository: "acme/governance", AppSlug: "acme-verify",
+		Capabilities:          []string{"contents", "deployments", "metadata"},
+		RefreshTokenExpiresAt: expiresAt, RefreshState: "active",
+	}
+	provider := &bootstrapAuthProvider{statusValues: []github.SessionStatus{publisherSession, verifySession}}
+	application := newAuthCommandApplication(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{})
+	output, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "status", "github")
+	if err != nil {
+		t.Fatalf("auth status error = %v", err)
+	}
+	for _, expected := range []string{
+		"session[1].account: octocat", "session[1].appSlug: acme-publisher",
+		"session[1].capabilities: contents, metadata, pull_requests",
+		"session[2].appSlug: acme-verify", "session[2].capabilities: contents, deployments, metadata",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("status output missing %q: %q", expected, output)
+		}
+	}
+
+	single := &bootstrapAuthProvider{statusValues: []github.SessionStatus{publisherSession}}
+	singleApplication := newAuthCommandApplication(single, &bootstrapBrowserOpener{}, &runtimeTestPrompt{})
+	output, _, err = executeAuthCommand(t, newAuthCommand(singleApplication), context.Background(), "status", "github")
+	if err != nil {
+		t.Fatalf("single-session status error = %v", err)
+	}
+	if strings.Contains(output, "session[") {
+		t.Fatalf("single session rendered with an index prefix: %q", output)
+	}
+	if !strings.Contains(output, "appSlug: acme-publisher") {
+		t.Fatalf("single session status missing the measured app class: %q", output)
+	}
+}
+
+func TestGitHubAuthLogoutSelectsOneBoundSessionInteractively(t *testing.T) {
+	expiresAt := time.Date(2026, time.December, 31, 12, 0, 0, 0, time.UTC)
+	publisherSession := github.SessionStatus{
+		Host: "github.com", Account: "octocat", ClientID: "publisher-client-id", Source: "native-secret-store",
+		Repository: "acme/governance", RefreshTokenExpiresAt: expiresAt, RefreshState: "active",
+	}
+	verifySession := github.SessionStatus{
+		Host: "github.com", Account: "octocat", ClientID: "verify-client-id", Source: "native-secret-store",
+		Repository: "acme/governance", RefreshTokenExpiresAt: expiresAt, RefreshState: "active",
+	}
+	prompt := &runtimeTestPrompt{selectValue: "verify-client-id"}
+	provider := &bootstrapAuthProvider{logoutCandidates: []github.SessionStatus{publisherSession, verifySession}}
+	application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, prompt,
+		&commandGit{remoteURL: "https://github.com/acme/governance.git"})
+	output, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github")
+	if err != nil {
+		t.Fatalf("auth logout error = %v", err)
+	}
+	if provider.logoutCalls != 1 || len(provider.logoutRequest.Repository.Owner) == 0 {
+		t.Fatalf("logout call = %d, request = %#v", provider.logoutCalls, provider.logoutRequest)
+	}
+	if provider.logoutRequest.OnSessionSelection == nil {
+		t.Fatal("interactive logout carried no selection callback")
+	}
+	if len(prompt.selectRequests) != 1 || len(prompt.selectRequests[0].Options) != 2 {
+		t.Fatalf("selection prompts = %#v", prompt.selectRequests)
+	}
+	if !strings.Contains(output, "remoteRevocation: not supported by the local Device Flow client") {
+		t.Fatalf("logout output = %q", output)
+	}
+}
+
+func TestGitHubAuthLogoutRejectsAnUnknownSelection(t *testing.T) {
+	expiresAt := time.Date(2026, time.December, 31, 12, 0, 0, 0, time.UTC)
+	candidates := []github.SessionStatus{
+		{Host: "github.com", Account: "octocat", ClientID: "publisher-client-id", Source: "native-secret-store",
+			Repository: "acme/governance", RefreshTokenExpiresAt: expiresAt, RefreshState: "active"},
+		{Host: "github.com", Account: "octocat", ClientID: "verify-client-id", Source: "native-secret-store",
+			Repository: "acme/governance", RefreshTokenExpiresAt: expiresAt, RefreshState: "active"},
+	}
+	prompt := &runtimeTestPrompt{selectValue: "unknown-client-id"}
+	provider := &bootstrapAuthProvider{logoutCandidates: candidates}
+	application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, prompt,
+		&commandGit{remoteURL: "https://github.com/acme/governance.git"})
+	_, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github")
+	assertBootstrapAuthProblem(t, err, problem.CodeInvalidInput)
+}
+
+func TestGitHubAuthLogoutSelectFailureSurfacesThePromptProblem(t *testing.T) {
+	expiresAt := time.Date(2026, time.December, 31, 12, 0, 0, 0, time.UTC)
+	promptErr := errors.New("terminal select unavailable")
+	prompt := &runtimeTestPrompt{selectErr: promptErr}
+	provider := &bootstrapAuthProvider{logoutCandidates: []github.SessionStatus{
+		{Host: "github.com", Account: "octocat", ClientID: "publisher-client-id", Repository: "acme/governance", RefreshTokenExpiresAt: expiresAt, RefreshState: "active"},
+		{Host: "github.com", Account: "octocat", ClientID: "verify-client-id", Repository: "acme/governance", RefreshTokenExpiresAt: expiresAt, RefreshState: "active"},
+	}}
+	application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, prompt,
+		&commandGit{remoteURL: "https://github.com/acme/governance.git"})
+	_, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github")
+	if !errors.Is(err, promptErr) {
+		t.Fatalf("logout selection error = %v, want %v", err, promptErr)
+	}
+}
+
+func TestSurfacesSummaryRendersNamedCapabilityReasons(t *testing.T) {
+	summary := surfacesSummary([]ticketalloc.SurfaceStatus{
+		{Surface: "branch refs", State: "scanned"},
+		{Surface: "protected-line request records", State: "absent",
+			Reason: "no configured provider session carries the deployments read permission"},
+	})
+	want := "branch refs=scanned; protected-line request records=absent " +
+		"(no configured provider session carries the deployments read permission)"
+	if summary != want {
+		t.Fatalf("surfaces summary = %q, want %q", summary, want)
+	}
+}
+
+func TestGitHubAuthLogoutFailsClosedOnAmbiguityWithoutTerminal(t *testing.T) {
+	provider := &bootstrapAuthProvider{}
+	application := newAuthCommandApplicationWithGit(provider, &bootstrapBrowserOpener{}, &runtimeTestPrompt{},
+		&commandGit{remoteURL: "https://github.com/acme/governance.git"})
+	application.runtime.InputIsTerminal = func() bool { return false }
+	if _, _, err := executeAuthCommand(t, newAuthCommand(application), context.Background(), "logout", "github"); err != nil {
+		t.Fatalf("ambiguity is resolved by the adapter, not the terminal state: %v", err)
+	}
+	if provider.logoutCalls != 1 || provider.logoutRequest.OnSessionSelection != nil {
+		t.Fatalf("non-interactive logout request = %#v", provider.logoutRequest)
+	}
+}
+
 func newAuthCommandApplication(
 	provider github.AuthProvider,
 	opener browser.Opener,
@@ -355,20 +490,21 @@ func mapValues(values map[string]string) []string {
 }
 
 type bootstrapAuthProvider struct {
-	loginStatus     github.SessionStatus
-	statusValue     github.SessionStatus
-	logoutStatus    github.SessionStatus
-	loginErr        error
-	statusErr       error
-	logoutErr       error
-	resolveErr      error
-	loginCalls      int
-	statusCalls     int
-	logoutCalls     int
-	loginClientID   string
-	loginRepository github.CredentialTarget
-	statusTarget    github.CredentialTarget
-	logoutTarget    github.CredentialTarget
+	loginStatus      github.SessionStatus
+	statusValues     []github.SessionStatus
+	logoutStatus     github.SessionStatus
+	logoutCandidates []github.SessionStatus
+	loginErr         error
+	statusErr        error
+	logoutErr        error
+	resolveErr       error
+	loginCalls       int
+	statusCalls      int
+	logoutCalls      int
+	loginClientID    string
+	loginRepository  github.CredentialTarget
+	statusTarget     github.CredentialTarget
+	logoutRequest    github.LogoutRequest
 }
 
 func (provider *bootstrapAuthProvider) Resolve(context.Context, github.CredentialTarget) (string, error) {
@@ -396,16 +532,26 @@ func (provider *bootstrapAuthProvider) Login(_ context.Context, request github.L
 	return provider.loginStatus, nil
 }
 
-func (provider *bootstrapAuthProvider) Status(_ context.Context, target github.CredentialTarget) (github.SessionStatus, error) {
+func (provider *bootstrapAuthProvider) Status(_ context.Context, target github.CredentialTarget) ([]github.SessionStatus, error) {
 	provider.statusCalls++
 	provider.statusTarget = target
-	return provider.statusValue, provider.statusErr
+	return provider.statusValues, provider.statusErr
 }
 
-func (provider *bootstrapAuthProvider) Logout(_ context.Context, target github.CredentialTarget) (github.SessionStatus, error) {
+func (provider *bootstrapAuthProvider) Logout(_ context.Context, request github.LogoutRequest) (github.SessionStatus, error) {
 	provider.logoutCalls++
-	provider.logoutTarget = target
-	return provider.logoutStatus, provider.logoutErr
+	provider.logoutRequest = request
+	if provider.logoutErr != nil {
+		return github.SessionStatus{}, provider.logoutErr
+	}
+	if request.OnSessionSelection != nil && len(provider.logoutCandidates) > 1 {
+		chosen, err := request.OnSessionSelection(provider.logoutCandidates)
+		if err != nil {
+			return github.SessionStatus{}, err
+		}
+		return chosen, nil
+	}
+	return provider.logoutStatus, nil
 }
 
 type bootstrapBrowserOpener struct {

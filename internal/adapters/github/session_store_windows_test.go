@@ -68,7 +68,7 @@ func TestDPAPISessionStoreRoundTripsAndRemovesEncryptedSessions(t *testing.T) {
 	}
 }
 
-func TestDPAPISessionStoreIsolatesClientIDsAndRejectsLegacySchema(t *testing.T) {
+func TestDPAPISessionStoreIsolatesClientIDsAndDiscardsLegacySchema(t *testing.T) {
 	ctx := context.Background()
 	tenantA := testStoredSession("github.com", "octocat")
 	tenantA.ClientID = "tenant-a-client-id"
@@ -96,11 +96,17 @@ func TestDPAPISessionStoreIsolatesClientIDsAndRejectsLegacySchema(t *testing.T) 
 		t.Fatal(err)
 	}
 	legacyStore := newDPAPISessionStore(legacyPath)
-	if _, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err == nil {
-		t.Fatal("LoadActive accepted a legacy schema")
+	// The legacy host-account document is discarded without interpretation:
+	// its sessions are never selected, and the documented remediation is one
+	// fresh login per bound app.
+	if _, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); !errors.Is(err, errSessionNotFound) {
+		t.Fatalf("legacy document LoadActive() error = %v, want the discarded empty store", err)
 	}
-	if err := legacyStore.SaveActive(ctx, tenantA); err == nil {
-		t.Fatal("SaveActive accepted a legacy schema")
+	if err := legacyStore.SaveActive(ctx, tenantA); err != nil {
+		t.Fatalf("recovered SaveActive() error = %v", err)
+	}
+	if loaded, err := legacyStore.LoadActive(ctx, tenantA.Host, tenantA.ClientID); err != nil || loaded != tenantA {
+		t.Fatalf("recovered LoadActive() = (%#v, %v)", loaded, err)
 	}
 
 	store := newDPAPISessionStore(filepath.Join(t.TempDir(), "github-app-sessions.dpapi"))
@@ -205,9 +211,33 @@ func TestDPAPISessionStoreResolvesActiveSessionByHost(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects a document without the client-ID-scoped layout", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		document := struct {
+			SchemaVersion int                `json:"schemaVersion"`
+			Sessions      map[string]Session `json:"sessions"`
+		}{
+			SchemaVersion: sessionStoreSchemaVersion,
+			Sessions: map[string]Session{
+				sessionKey("github.com", "octocat", "public-client-id"): testStoredSession("github.com", "octocat"),
+			},
+		}
+		encrypted, err := protectDPAPI(mustJSON(t, document))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newDPAPISessionStore(path).LoadActive(ctx, "github.com", "public-client-id"); err == nil ||
+			!strings.Contains(err.Error(), "client-ID-scoped layout") {
+			t.Fatalf("client-ID layout rejection = %v", err)
+		}
+	})
+
 	t.Run("documents without the host pointer fail closed", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "sessions.dpapi")
-		encrypted, err := protectDPAPI([]byte(`{"schemaVersion":1}`))
+		encrypted, err := protectDPAPI([]byte(`{"schemaVersion":2}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,7 +253,7 @@ func TestDPAPISessionStoreResolvesActiveSessionByHost(t *testing.T) {
 func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("round trips repository bindings and removes them with the session", func(t *testing.T) {
+	t.Run("round trips multi-class bindings and removes them with the session", func(t *testing.T) {
 		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
 		tenantA := testStoredSession("github.com", "octocat")
 		tenantA.ClientID = "tenant-a-client-id"
@@ -236,18 +266,24 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
-			t.Fatalf("unbound LoadActiveForRepository() error = %v", err)
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("unbound ListForRepository() = (%#v, %v)", bound, err)
 		}
 		if err := store.BindRepository(ctx, "github.com", "acme", "governance", tenantA.ClientID); err != nil {
 			t.Fatalf("BindRepository() error = %v", err)
 		}
+		// A second login with a different app class adds a binding instead of
+		// moving the existing one, and binding the same class again is an
+		// idempotent upsert.
 		if err := store.BindRepository(ctx, "GitHub.COM", "ACME", "Governance", platform.ClientID); err != nil {
-			t.Fatalf("rebinding with different casing error = %v", err)
+			t.Fatalf("binding a second app class error = %v", err)
 		}
-		loaded, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance")
-		if err != nil || loaded != platform {
-			t.Fatalf("rebound LoadActiveForRepository() = (%#v, %v)", loaded, err)
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", tenantA.ClientID); err != nil {
+			t.Fatalf("idempotent rebinding error = %v", err)
+		}
+		bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance")
+		if err != nil || len(bound) != 2 || bound[0].ClientID != "platform-client-id" || bound[1].ClientID != "tenant-a-client-id" {
+			t.Fatalf("multi-class ListForRepository() = (%#v, %v)", bound, err)
 		}
 
 		if err := store.BindRepository(ctx, "github.com", "acme", "license-hub", tenantA.ClientID); err != nil {
@@ -256,11 +292,192 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 		if err := store.DeleteActive(ctx, platform.Host, platform.ClientID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
-			t.Fatalf("binding of the deleted session survived: %v", err)
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil ||
+			len(bound) != 1 || bound[0].ClientID != tenantA.ClientID {
+			t.Fatalf("binding of the deleted session survived: (%#v, %v)", bound, err)
 		}
-		if loaded, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "license-hub"); err != nil || loaded != tenantA {
-			t.Fatalf("unrelated binding = (%#v, %v)", loaded, err)
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "license-hub"); err != nil ||
+			len(bound) != 1 || bound[0] != tenantA {
+			t.Fatalf("unrelated binding = (%#v, %v)", bound, err)
+		}
+	})
+
+	t.Run("discards a prior single-binding schema and recovers on login", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		legacyDocument := struct {
+			SchemaVersion     int                `json:"schemaVersion"`
+			ActiveScopeByHost map[string]string  `json:"activeScopeByHost,omitempty"`
+			ActiveByScope     map[string]string  `json:"activeByScope,omitempty"`
+			ScopeByRepository map[string]string  `json:"scopeByRepository,omitempty"`
+			Sessions          map[string]Session `json:"sessions"`
+		}{
+			SchemaVersion:     1,
+			ActiveByScope:     map[string]string{"github.com\x00public-client-id": "octocat"},
+			ScopeByRepository: map[string]string{"github.com\x00acme\x00governance": "public-client-id"},
+			Sessions: map[string]Session{
+				"github.com\x00octocat\x00public-client-id": testStoredSession("github.com", "octocat"),
+			},
+		}
+		encrypted, err := protectDPAPI(mustJSON(t, legacyDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		store := newDPAPISessionStore(path)
+		// The unreadable prior-format document is discarded without
+		// interpretation, so the documented re-login remediation works
+		// without manual file surgery.
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("prior-schema ListForRepository() = (%#v, %v)", bound, err)
+		}
+		recovered := testStoredSession("github.com", "octocat")
+		if err := store.SaveActive(ctx, recovered); err != nil {
+			t.Fatalf("post-discard SaveActive() error = %v", err)
+		}
+		if loaded, err := store.LoadActive(ctx, "GitHub.COM", recovered.ClientID); err != nil || loaded != recovered {
+			t.Fatalf("recovered LoadActive() = (%#v, %v)", loaded, err)
+		}
+	})
+
+	t.Run("fails closed when the unreadable document cannot be discarded", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		legacyDocument := struct {
+			SchemaVersion int `json:"schemaVersion"`
+		}{SchemaVersion: 1}
+		encrypted, err := protectDPAPI(mustJSON(t, legacyDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		preserveWindowsStoreHooks(t)
+		removeErr := errors.New("removal denied")
+		removeSessionFile = func(string) error {
+			return removeErr
+		}
+		_, err = newDPAPISessionStore(path).LoadActive(ctx, "github.com", "public-client-id")
+		if !errors.Is(err, removeErr) {
+			t.Fatalf("failed discard error = %v, want %v", err, removeErr)
+		}
+	})
+
+	t.Run("rejects a current-schema document with an incompatible binding shape", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		corruptDocument := struct {
+			SchemaVersion     int               `json:"schemaVersion"`
+			ScopeByRepository map[string]string `json:"scopeByRepository"`
+		}{
+			SchemaVersion:     sessionStoreSchemaVersion,
+			ScopeByRepository: map[string]string{"github.com\x00acme\x00governance": "public-client-id"},
+		}
+		encrypted, err := protectDPAPI(mustJSON(t, corruptDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newDPAPISessionStore(path).ListForRepository(ctx, "github.com", "acme", "governance"); err == nil ||
+			!strings.Contains(err.Error(), "invalid format") {
+			t.Fatalf("corrupt current-schema document rejection = %v", err)
+		}
+	})
+
+	t.Run("rejects a document from a newer binary fail-closed", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sessions.dpapi")
+		newerDocument := struct {
+			SchemaVersion int                `json:"schemaVersion"`
+			Sessions      map[string]Session `json:"sessions"`
+		}{
+			SchemaVersion: sessionStoreSchemaVersion + 1,
+			Sessions: map[string]Session{
+				sessionKey("github.com", "octocat", "public-client-id"): testStoredSession("github.com", "octocat"),
+			},
+		}
+		encrypted, err := protectDPAPI(mustJSON(t, newerDocument))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, encrypted, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := newDPAPISessionStore(path).LoadActive(ctx, "github.com", "public-client-id"); err == nil ||
+			!strings.Contains(err.Error(), "unsupported schema version") {
+			t.Fatalf("newer-schema rejection = %v", err)
+		}
+	})
+
+	t.Run("skips dangling scopes and fails closed on inconsistent indexes", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		session := testStoredSession("github.com", "octocat")
+		// A second scope keeps the document layout-valid while the bound
+		// scope record disappears.
+		remaining := testStoredSession("github.com", "hubot")
+		remaining.ClientID = "remaining-client-id"
+		if err := store.SaveActive(ctx, session); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveActive(ctx, remaining); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", session.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		// A binding whose scope record disappeared is skipped, not fatal.
+		document, err := store.load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		delete(document.ActiveByScope, sessionScopeKey("github.com", session.ClientID))
+		if err := store.save(document); err != nil {
+			t.Fatal(err)
+		}
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("dangling scope ListForRepository() = (%#v, %v)", bound, err)
+		}
+		// A binding whose session index entry vanished fails closed.
+		document, err = store.load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		document.ActiveByScope[sessionScopeKey("github.com", session.ClientID)] = "octocat"
+		delete(document.Sessions, sessionKey("github.com", "octocat", session.ClientID))
+		if err := store.save(document); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err == nil {
+			t.Fatal("ListForRepository accepted an inconsistent session index")
+		}
+	})
+
+	t.Run("preserves foreign-host bindings and removes emptied ones", func(t *testing.T) {
+		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
+		local := testStoredSession("github.com", "octocat")
+		foreign := testStoredSession("github.enterprise.example", "hubot")
+		if err := store.SaveActive(ctx, local); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.SaveActive(ctx, foreign); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(ctx, "github.com", "acme", "governance", local.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.BindRepository(ctx, "github.enterprise.example", "acme", "governance", foreign.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.DeleteActive(ctx, local.Host, local.ClientID); err != nil {
+			t.Fatal(err)
+		}
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("emptied binding = (%#v, %v)", bound, err)
+		}
+		if bound, err := store.ListForRepository(ctx, "github.enterprise.example", "acme", "governance"); err != nil ||
+			len(bound) != 1 || bound[0] != foreign {
+			t.Fatalf("foreign-host binding = (%#v, %v)", bound, err)
 		}
 	})
 
@@ -300,8 +517,8 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 		if err := store.save(document); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, errSessionNotFound) {
-			t.Fatalf("dangling binding LoadActiveForRepository() error = %v", err)
+		if bound, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); err != nil || len(bound) != 0 {
+			t.Fatalf("dangling binding ListForRepository() = (%#v, %v)", bound, err)
 		}
 	})
 
@@ -350,8 +567,8 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 		store := newDPAPISessionStore(filepath.Join(t.TempDir(), "sessions.dpapi"))
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := store.LoadActiveForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, context.Canceled) {
-			t.Fatalf("cancelled LoadActiveForRepository() error = %v", err)
+		if _, err := store.ListForRepository(ctx, "github.com", "acme", "governance"); !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled ListForRepository() error = %v", err)
 		}
 		if _, err := store.ListForHost(ctx, "github.com"); !errors.Is(err, context.Canceled) {
 			t.Fatalf("cancelled ListForHost() error = %v", err)
@@ -366,8 +583,8 @@ func TestDPAPISessionStoreRepositoryBindings(t *testing.T) {
 			return nil, readErr
 		}
 		store = newDPAPISessionStore("session.dpapi")
-		if _, err := store.LoadActiveForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, readErr) {
-			t.Fatalf("LoadActiveForRepository read error = %v", err)
+		if _, err := store.ListForRepository(context.Background(), "github.com", "acme", "governance"); !errors.Is(err, readErr) {
+			t.Fatalf("ListForRepository read error = %v", err)
 		}
 		if _, err := store.ListForHost(context.Background(), "github.com"); !errors.Is(err, readErr) {
 			t.Fatalf("ListForHost read error = %v", err)
@@ -519,7 +736,7 @@ func TestDPAPISessionStoreHandlesCorruptionCancellationAndHelpers(t *testing.T) 
 		t.Fatal("load accepted an unsupported schema")
 	}
 
-	emptyMaps, err := protectDPAPI([]byte(`{"schemaVersion":1}`))
+	emptyMaps, err := protectDPAPI([]byte(`{"schemaVersion":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,11 +59,15 @@ context, derived from its Git remote:
 GitHub host + repository owner + repository name
 ```
 
-A developer authenticates once per repository tenant — typically one GitHub
-App per project — and the CLI keeps every tenant session stored side by side.
-The session that completes `auth login github` is bound to the repository
-selected by the working directory or `--repo` at login time. From that point
-on, no environment variable, flag, or repeated input is involved:
+A developer authenticates once per repository tenant and per GitHub App
+class — typically one source-publisher App per project, plus one lifecycle
+read App where the project needs Deployments evidence — and the CLI keeps
+every session stored side by side. Several sessions may be bound to the same
+repository: one per GitHub App class. The session that completes
+`auth login github` is bound to the repository selected by the working
+directory or `--repo` at login time; a login with a different App adds its
+own binding instead of moving the existing one. From that point on, no
+environment variable, flag, or repeated input is involved:
 
 - `auth status github` reads the session bound to the repository selected by
   the working directory or `--repo`. Outside a resolvable GitHub repository
@@ -94,6 +98,51 @@ coverage is skipped, the covering session is rebound, and only a target that
 no stored session can cover fails closed with an actionable authorization
 error. A repository whose sessions all fail token refresh reports the
 re-login remediation instead.
+
+## Capability-scoped session resolution
+
+GitHub API operations require different permission classes. Pull-request
+publication and pull-request inventory reads use the Pull requests class;
+protected-line evidence reads use the Deployments class. Credential
+resolution therefore selects the session per required capability class
+instead of reusing whatever session is bound:
+
+1. It probes the sessions bound to the target repository in deterministic
+   client-ID order, refreshing each token and verifying repository coverage.
+2. It resolves the app registration of every probed session — measured fresh
+   from the public app registration through that session's installation
+   surface, memoized only for the lifetime of the token that measured it and
+   never persisted — and selects the first session that both covers the
+   repository and carries the requested permission class. A covering carrier
+   found during host-wide discovery is bound additively for later
+   capability-scoped resolutions.
+3. A repository whose covering sessions all lack the requested class fails
+   closed with a named capability error and the re-login remediation for that
+   class. A genuine network or authorization failure keeps failing closed as
+   an infrastructure error.
+
+This is the machine-enforced form of the least-privilege class law: the
+source-publisher session is structurally never selected for a
+Deployments-scoped read, and no org-wide read identity exists. The capability
+classification of the allocation inventory stays a fresh measurement per gate
+invocation and never becomes stored claim state.
+
+## Session status and logout with several app classes
+
+`auth status github` reports every session bound to the selected repository —
+one entry per GitHub App class, each with its freshly measured app slug and
+carried permission classes. Measuring a session's card requires its token, so
+a repository-bound status performs live GitHub API calls and fails closed
+when a bound session cannot be measured; the re-login remediation names the
+unmeasurable session. The zero-target form (outside a resolvable repository
+context) stays a token-free recency readout.
+
+`auth logout github` never silently picks one of several bound sessions. When
+several sessions are bound to the repository, an interactive terminal selects
+the session to remove by app identity, and the remaining sessions keep their
+bindings; without an interactive terminal the command fails closed with the
+bound sessions listed. The zero-target form still removes the most recently
+used host session.
 
 ## Multiple projects on one workstation
 
@@ -129,6 +178,16 @@ is rejected fail-closed. Sessions stored before repository bindings exist
 simply have no binding; the first publication discovers and binds the
 covering session, and one fresh `auth login github` per repository context
 writes the binding immediately.
+
+The repository binding store that predates multi-app-class bindings is the
+same class of breaking local-store change. The upgraded binary discards an
+unreadable prior-format document without interpreting it, so the documented
+remediation works without manual file surgery: run `auth login github` once
+per bound GitHub App. A store document from a newer binary is never discarded
+and keeps failing closed; the stored data is never transformed or re-assigned.
+On the native-tool platforms an unreadable repository-binding record is
+replaced at the next login, and discovery re-derives any dropped binding at
+the next resolution.
 
 The local operating-system secret store must also be available:
 
