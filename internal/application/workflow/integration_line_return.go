@@ -22,6 +22,11 @@ const (
 	// changes kept the workspace on the publishing branch; every foreign or
 	// uncommitted change is preserved untouched.
 	IntegrationLineReturnSkippedDirtyWorktree IntegrationLineReturnStatus = "skipped-dirty-worktree"
+	// IntegrationLineReturnSkippedWorktree reports that the publishing
+	// checkout is a linked task worktree; the develop integration line stays
+	// bound in the primary checkout and the worktree form is reported
+	// honestly without questioning the publication.
+	IntegrationLineReturnSkippedWorktree IntegrationLineReturnStatus = "skipped-worktree"
 	// IntegrationLineReturnFailed reports that the transition failed after the
 	// pull request had already been created successfully; the publication
 	// itself remains valid.
@@ -87,6 +92,27 @@ func returnToIntegrationLine(
 	repository port.RepositoryIdentity,
 ) IntegrationLineReturn {
 	home := mustDevelop()
+	// A linked task worktree never participates in the governed return to the
+	// develop integration line: the integration line stays bound in the
+	// primary checkout. The worktree form is reported honestly and the
+	// publication is never questioned.
+	if manager, ok := git.(port.WorktreeManager); ok {
+		linked, err := manager.LinkedWorktree(ctx, repository)
+		if err != nil {
+			return IntegrationLineReturn{
+				Status: IntegrationLineReturnFailed,
+				Branch: home,
+				Detail: "inspect the worktree form: " + err.Error(),
+			}
+		}
+		if linked {
+			return IntegrationLineReturn{
+				Status: IntegrationLineReturnSkippedWorktree,
+				Branch: home,
+				Detail: "the publishing checkout is a linked task worktree; the develop integration line stays bound in the primary checkout",
+			}
+		}
+	}
 	current, err := git.CurrentBranch(ctx, repository)
 	if err != nil {
 		return IntegrationLineReturn{

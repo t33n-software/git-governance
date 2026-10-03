@@ -26,8 +26,9 @@ orchestration alike:
   `origin/develop` revision.
 - The worktree is the highest isolation boundary on a development machine;
   above it lie only machine and container boundaries (the CI class).
-- Raw Git is sanctioned exclusively for worktree acquisition
-  (`git fetch --prune origin`, `git worktree add --detach`).
+- The worktree acquisition runs through the governed
+  `workflow worktree start` endpoint, which fetches the selected remote and
+  creates the worktree detached from the current `origin/develop` revision.
 - The sanctioned first mutation inside the worktree is the governed
   `workflow ticket start` dispatch, which creates the official working branch.
 - Commits and publication run through the binary inside the worktree.
@@ -76,9 +77,10 @@ revision, and hides which task a tree belongs to.
 - The workflow core treats a detached task worktree as a legitimate pre-start
   context with the governed `workflow ticket start` dispatch as the sanctioned
   first mutation.
-- The binary gains worktree lifecycle endpoints and publish-return awareness
-  for the worktree checkout shape; the fail-closed gates remain per worktree.
-- Raw Git remains forbidden beyond worktree acquisition; branch creation,
-  commits, and publication stay governed.
+- The binary provides the worktree lifecycle endpoints and publish-return
+  awareness for the worktree checkout shape; the fail-closed gates remain per
+  worktree.
+- Raw Git remains forbidden for the complete worktree lifecycle; acquisition,
+  branch creation, commits, and publication stay governed.
 - Cleanup discipline extends the governed branch cleanup with worktree
   removal.

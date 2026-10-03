@@ -406,6 +406,18 @@ einzige, in dem das Mutations-Embargo nicht aktiviert wird — die Erstellung
 des initialen Content-Sets ist der Input der Geburt, keine Mutation an einer
 Shared Line.
 
+Ein frischer, detached Task-Worktree, den ein Akteur für ein Ticket erzeugt
+hat, ist legitimer Pre-Start-Kontext für jeden Akteur, der Ticket-Arbeit
+ausführt — den orchestrierenden Agent wie den menschlichen Entwickler. Die
+Worktree-Akquisition erfolgt governet über den `workflow worktree
+start`-Endpoint, der den Worktree aus der aktuellen `origin/develop`-Revision
+erzeugt; die sanktionierte erste Mutation im Worktree ist der governete
+`workflow ticket start`-Dispatch, der die offizielle Working-Branch im
+Worktree erzeugt. Unter Agent-Orchestrierung erzeugt der Orchestrator den
+Worktree und die Children attachen; in Einzelarbeit erzeugt und nutzt der
+Entwickler ihn direkt. Jeder andere detached- oder unknown-Zustand bleibt
+`BLOCKED` bis Benutzerentscheidung.
+
 Der ausgecheckte Branch ist ein Befund, keine Absicht: Ein Entwickler kann
 zwischenzeitlich selbstständig gewechselt haben, etwa um einen Stand auf einer
 anderen Branch zu prüfen. Der Agent leitet aus dem aktuellen Branch daher
@@ -450,8 +462,9 @@ Erlaubt bleiben unter aktivem Embargo ausschließlich:
 - read-only Orientierung (Status, Historie, Diffs, Hilfetexte);
 - nicht mutierende governete Endpunkte (Diagnose, Validierung, Policy,
   Help-Reanchor);
-- der Dispatch eines Ebene-1-Workflows, der die Shared Line verlässt und die
-  offizielle Working-Branch governet erzeugt.
+- der Dispatch eines Ebene-1-Workflows, der die Shared Line verlässt — die
+  governete Worktree-Akquisition (`workflow worktree start`) und der
+  Workflow, der die offizielle Working-Branch governet erzeugt.
 ```
 
 Das Embargo endet erst, wenn nach dem Workflow-Dispatch der Branch-Kontext
@@ -571,7 +584,7 @@ Jede Git-Wirkung wird über genau eine von drei Ebenen ausgeführt. Die Auswahl
 ist verbindlich und wird vor der ersten Invocation nachgewiesen:
 
 ```text
-Ebene 1 — Workflows (`workflow ticket|hotfix|release|cleanup`)
+Ebene 1 — Workflows (`workflow ticket|hotfix|release|cleanup|worktree`)
   Pflicht, immer wenn das Aufgabenmuster von einem Workflow abgedeckt ist.
   Workflows kapseln Reihenfolge, Validierung und Gates inhärent.
 
@@ -612,7 +625,7 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 
 | Branch-Kontext | Aufgabenmuster | Verbindlicher Einstieg |
 |---|---|---|
-| `shared_line` | `ticket` | Embargo aktiv; Intake; dann `workflow ticket start`; erst danach Implementierung |
+| `shared_line` | `ticket` | Embargo aktiv; Intake; dann `workflow worktree start` gemäß der Worktree-Konvention aus [3.1]; im Worktree `workflow ticket start`; erst danach Implementierung |
 | `shared_line` | `hotfix` | Embargo aktiv; betroffene Linie fachlich binden; dann `workflow hotfix start` |
 | `shared_line` | `release` / `support` | Embargo aktiv; dann der passende `workflow release`-Pfad |
 | `shared_line` | `exploration` | Embargo aktiv; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
@@ -623,7 +636,8 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `unborn` | `bootstrap` | Kein Embargo; Intake (Ticket der Geburt); dann `workflow bootstrap`; das initiale Content-Set entsteht vor der Geburt auf dem ungeborenen Repository |
 | `unborn` | `ticket` / `hotfix` / `release` / `support` / `exploration` | `BLOCKED`: die Geburt geht jedem anderen Workflow voraus — zuerst `workflow bootstrap`, danach bindet der geborene Kontext die regulären Pfade |
 | `unborn` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
-| `detached` / `unknown` | jedes Muster | `BLOCKED` bis Benutzerentscheidung |
+| `detached` (frischer Task-Worktree gemäß [3.1]) | `ticket` | Worktree-Regel aus [3.1]: legitimer Pre-Start-Kontext; Intake; dann `workflow ticket start` im Worktree; erst danach Implementierung |
+| übrige `detached`-/`unknown`-Zustände | jedes Muster | `BLOCKED` bis Benutzerentscheidung |
 
 Aus dieser Matrix abgeleitete Hartverbote:
 
@@ -849,6 +863,9 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `branch refresh-shared-lines` | E2 | Ausdrücklich benötigte Frische lokaler Shared-Line-Checkouts, etwa weil ein nachgelagerter Prozess den lokalen Baum liest | Nur Fast-Forward, fail-closed, keine Remote-Mutation, kein Checkout-Wechsel, keine Linien-Erzeugung |
 | `commit create` | E2 | Einen explizit abgegrenzten semantischen Commit erzeugen; nur auf einer verifizierten offiziellen Working-Branch nach freigegebenem Embargo | Nur explizite Pfade, kein implizites Staging |
 | `workflow cleanup` | E1 | Ausschließlich lokal übertragene private Scratch-Branches aufräumen | Löscht keine Remote- oder offiziellen Branches |
+| `workflow worktree start` | E1 | Einen detached Task-Worktree für ein Ticket governet akquirieren und den Branch-Kontext daran binden | Erzeugt den Worktree aus der aktuellen `origin/develop`-Revision; keine Branch-Erzeugung; die erste Mutation im Worktree bleibt `workflow ticket start` |
+| `workflow worktree list` | RO | Lokale Task-Worktrees inventarisieren | Keine Mutation |
+| `workflow worktree remove` | E1 | Den Worktree eines abgeschlossenen Tickets entfernen | Löscht ausschließlich den Worktree; keine offiziellen oder Remote-Branches |
 
 ### 5.3 Hotfix-Arbeit
 
@@ -1241,6 +1258,16 @@ niemals als neue Aufgabenquelle. Befindet sich die Umgebung abweichend auf der
 Ticket-Branch — etwa nach einem übersprungenen oder fehlgeschlagenen
 Rückwechsel, nach einem manuellen Wechsel durch den Entwickler oder unter
 einer älteren Binary —, folgt der nächste Start den Regeln aus [3.3].
+
+Aus einem Task-Worktree heraus gilt der Publish-Return-Sonderfall: Die
+Worktree-Checkout-Form nimmt am governeten Rückwechsel auf die
+Integrationslinie nicht teil, wenn diese im primären Checkout gebunden ist;
+der Rückwechsel-Status wird ehrlich gemeldet, der erstellte Pull Request
+bleibt unangetastet, und die konkrete Rückkehrform des Worktrees (Verbleib
+auf der publizierten Ticket-Branch oder detached
+Nach-Publikations-Zustand) wird aus der aktuellen Binary-Hilfe abgeleitet.
+Ein fail-open Rückwechsel-Befund stellt den Publish-Erfolg niemals in
+Frage.
 
 Der lokale Checkout der Integrationslinie darf hinter ihrer
 Remote-Tracking-Referenz zurückliegen; das ist erwartet und harmlos, weil jede
