@@ -424,7 +424,7 @@ release ref remains unchanged. The controlled combination with the current
 develop state happens exclusively on a ticket-bound preparation branch and is
 reviewed via a merge-commit PR to develop. The protected main control-plane
 workflow builds a trusted binary before switching to this branch and executes
-the controlled reconciliation from there. ADR-0004 describes this execution
+the controlled reconciliation from there. ADR-0010 describes this execution
 boundary; ADR-0005 separates the reconciliation publisher identity from the
 release automation.
 
