@@ -31,16 +31,17 @@ actor creates the worktree and the contributing agents attach to it; this
 orchestration pattern is an application class of the convention, not its
 definition. A developer working alone creates and uses the worktree directly.
 
-## Worktree acquisition (the sanctioned raw-Git exception)
+## Worktree acquisition
 
-Raw Git is sanctioned for exactly one step — worktree acquisition:
+The worktree acquisition runs through the governed lifecycle endpoint:
 
 ```bash
-git fetch --prune origin
-git worktree add --detach ../<repository>-<ticket> origin/develop
+git-governance workflow worktree start
 ```
 
-The worktree is created detached. No branch is created in this step.
+The endpoint fetches the selected remote and creates the worktree detached
+from the current `origin/develop` revision of that remote. No branch is
+created in this step.
 
 ## Sanctioned first mutation
 
@@ -60,8 +61,9 @@ and publication — runs through the binary inside the worktree.
 
 1. One worktree per active ticket per actor; a new, independent task receives
    its own worktree.
-2. Worktree acquisition is the only raw-Git mutation; branch creation is
-   always governed (`workflow ticket start`).
+2. Worktree acquisition runs through the governed
+   `workflow worktree start` endpoint; branch creation is always governed
+   (`workflow ticket start`).
 3. Never commit on the detached worktree HEAD; the governed branch creation
    precedes every commit.
 4. Never share one worktree across tickets.

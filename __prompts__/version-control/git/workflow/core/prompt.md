@@ -409,14 +409,14 @@ Shared Line.
 Ein frischer, detached Task-Worktree, den ein Akteur für ein Ticket erzeugt
 hat, ist legitimer Pre-Start-Kontext für jeden Akteur, der Ticket-Arbeit
 ausführt — den orchestrierenden Agent wie den menschlichen Entwickler. Die
-Worktree-Akquisition über rohes `git worktree add --detach` aus der
-aktuellen `origin/develop`-Revision ist die einzige sanktionierte rohe
-Git-Mutation; die sanktionierte erste Mutation im Worktree ist der
-governete `workflow ticket start`-Dispatch, der die offizielle
-Working-Branch im Worktree erzeugt. Unter Agent-Orchestrierung erzeugt der
-Orchestrator den Worktree und die Children attachen; in Einzelarbeit erzeugt
-und nutzt der Entwickler ihn direkt. Jeder andere detached- oder
-unknown-Zustand bleibt `BLOCKED` bis Benutzerentscheidung.
+Worktree-Akquisition erfolgt governet über den `workflow worktree
+start`-Endpoint, der den Worktree aus der aktuellen `origin/develop`-Revision
+erzeugt; die sanktionierte erste Mutation im Worktree ist der governete
+`workflow ticket start`-Dispatch, der die offizielle Working-Branch im
+Worktree erzeugt. Unter Agent-Orchestrierung erzeugt der Orchestrator den
+Worktree und die Children attachen; in Einzelarbeit erzeugt und nutzt der
+Entwickler ihn direkt. Jeder andere detached- oder unknown-Zustand bleibt
+`BLOCKED` bis Benutzerentscheidung.
 
 Der ausgecheckte Branch ist ein Befund, keine Absicht: Ein Entwickler kann
 zwischenzeitlich selbstständig gewechselt haben, etwa um einen Stand auf einer
