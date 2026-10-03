@@ -8,6 +8,7 @@
 - [GitHub ruleset conventions](conventions/hosting-platforms/github/rulesets/README.md)
 - [Development verification](development/verification.md)
 - [Build and release artifact ownership](conventions/build-and-release-artifact-ownership.md)
+- [Worktree isolation convention](conventions/worktrees/worktree-isolation.md)
 - [Commit conventions](conventions/commits/README.md)
 - [CLI conventions](conventions/cli/README.md)
 - [Architecture decision record](architecture/ADR-0001-GO-CLI-TARGET-ARCHITECTURE.md)

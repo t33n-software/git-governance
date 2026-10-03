@@ -114,7 +114,7 @@ trust-equivalent, because the protected environment, the server-side
 provenance revalidation, and the publisher identity carry the control. The
 local CLI therefore never triggers this workflow as an automatic side effect
 of the candidate push; the trigger-boundary rationale is recorded in
-[ADR-0004](../../architecture/ADR-0004-TRUSTED-RELEASE-RECONCILIATION-CONTROL.md).
+[ADR-0010](../../architecture/ADR-0010-TRUSTED-RELEASE-RECONCILIATION-CONTROL.md).
 The trusted controller accepts the branch only when it proves all of the
 following:
 
