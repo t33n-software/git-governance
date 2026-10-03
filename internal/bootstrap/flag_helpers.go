@@ -188,10 +188,17 @@ func registerSubjectFlag(command *cobra.Command, target *string, name, context s
 	registerValueDomainFlag(command, target, name, "", cliparam.CommitSubject(), context)
 }
 
-// registerBodyFlag binds a commit body flag under the given name
-// (free-constrained); mandatory-body contexts stay endpoint context.
-func registerBodyFlag(command *cobra.Command, target *string, name, context string) {
-	registerValueDomainFlag(command, target, name, "", cliparam.CommitBody(), context)
+// registerBodyFileFlag binds a commit body message-file flag under the given
+// name (structural-reference); mandatory-body contexts stay endpoint context.
+func registerBodyFileFlag(command *cobra.Command, target *string, name, context string) {
+	registerPathDomainFlag(command, target, name, cliparam.MessageFile().WithLead("file containing the commit body"), context)
+}
+
+// registerPullRequestBodyFileFlag binds the pull-request description
+// message-file flag (structural-reference); the mandatory coupling with
+// --create-pull-request stays endpoint context.
+func registerPullRequestBodyFileFlag(command *cobra.Command, target *string, context string) {
+	registerPathDomainFlag(command, target, "body-file", cliparam.MessageFile().WithLead("pull request description file"), context)
 }
 
 // registerFooterFlag binds a repeatable commit footer flag under the given
@@ -251,12 +258,6 @@ func registerBranchReferenceFlag(command *cobra.Command, target *string, name, r
 // (structural-reference with framework file completion).
 func registerRecordFlag(command *cobra.Command, target *string) {
 	registerPathDomainFlag(command, target, "record", cliparam.RecordPath(), "defaults to the ticket record path")
-}
-
-// registerCommitMessageFlag binds the complete commit message flag
-// (free-constrained full grammar).
-func registerCommitMessageFlag(command *cobra.Command, target *string) {
-	registerValueDomainFlag(command, target, "message", "", cliparam.CommitMessage(), "")
 }
 
 // registerCommitMessageFileFlag binds the commit message file flag

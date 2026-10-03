@@ -626,7 +626,7 @@ func TestTicketPublishResumesScratchTransferWithoutPrompts(t *testing.T) {
 		context.Background(),
 		"--type", "feat",
 		"--subject", "add export",
-		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+		"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 		"--resume",
 	)
 	if err != nil || stderr != "" {
@@ -651,7 +651,7 @@ func TestTicketPublishResumesScratchTransferWithoutPrompts(t *testing.T) {
 		context.Background(),
 		"--type", "feat",
 		"--subject", "add export",
-		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+		"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 		"--resume",
 	)
 	assertProblemCode(t, err, problem.CodeScratchMergeConflict)

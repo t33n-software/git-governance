@@ -192,7 +192,7 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 		targetRaw            string
 		commitFamily         string
 		commitSubject        string
-		commitBody           string
+		commitBodyFile       string
 		commitFooters        []string
 		commitBreaking       bool
 		commitBreakingImpact string
@@ -202,6 +202,10 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 		Short: "Squash a private scratch branch into its official ticket branch",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			commitBody, err := resolveMessageFile(commitBodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -277,7 +281,7 @@ func newScratchMergeCommand(application *application) *cobra.Command {
 	registerBranchReferenceFlag(command, &targetRaw, "target", "optional local official ticket branch target")
 	registerCommitTypeFlag(command, &commitFamily, "for the squashed change")
 	registerSubjectFlag(command, &commitSubject, "subject", "for the squashed change")
-	registerBodyFlag(command, &commitBody, "body", "documenting the discarded experiment paths (mandatory)")
+	registerBodyFileFlag(command, &commitBodyFile, "body-file", "documenting the discarded experiment paths (mandatory)")
 	registerFooterFlag(command, &commitFooters, "footer", "")
 	command.Flags().BoolVar(&commitBreaking, "breaking", false, "mark an incompatible public contract change")
 	registerBreakingDescriptionFlag(command, &commitBreakingImpact, "breaking-description", "")
@@ -291,7 +295,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 		strategyRaw         string
 		mergeFamily         string
 		mergeSubject        string
-		mergeBody           string
+		mergeBodyFile       string
 		mergeFooters        []string
 		mergeBreaking       bool
 		mergeBreakingImpact string
@@ -302,6 +306,10 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 		Short: "Check, rebase, or merge the current branch target base safely",
 		RunE: func(command *cobra.Command, _ []string) error {
 			services := application.services()
+			mergeBody, err := resolveMessageFile(mergeBodyFile, "merge-body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -331,7 +339,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 				if command.Flags().Changed("strategy") {
 					return invalidOption("strategy", strategyRaw, "omitted; --resume continues the paused Git operation")
 				}
-				if mergeFamily != "" || mergeSubject != "" || mergeBody != "" || len(mergeFooters) > 0 || mergeBreaking || mergeBreakingImpact != "" {
+				if mergeFamily != "" || mergeSubject != "" || mergeBodyFile != "" || len(mergeFooters) > 0 || mergeBreaking || mergeBreakingImpact != "" {
 					return invalidOption("merge commit input", "configured", "omitted; --resume continues the paused Git operation")
 				}
 				if err := application.confirmMutation(
@@ -369,7 +377,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 						return err
 					}
 					parsedMergeMessage = &message
-				} else if mergeFamily != "" || mergeSubject != "" || mergeBody != "" || len(mergeFooters) > 0 || mergeBreaking || mergeBreakingImpact != "" {
+				} else if mergeFamily != "" || mergeSubject != "" || mergeBodyFile != "" || len(mergeFooters) > 0 || mergeBreaking || mergeBreakingImpact != "" {
 					return invalidOption("merge commit input", "configured", "merge commit inputs are only supported with --strategy merge")
 				}
 				if strategy == branchapp.SyncRebase || strategy == branchapp.SyncMerge {
@@ -417,7 +425,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 	registerSyncStrategyFlag(command, &strategyRaw)
 	registerMergeTypeFlag(command, &mergeFamily)
 	registerSubjectFlag(command, &mergeSubject, "merge-subject", "for --strategy merge")
-	registerBodyFlag(command, &mergeBody, "merge-body", "for the --strategy merge commit")
+	registerBodyFileFlag(command, &mergeBodyFile, "merge-body-file", "for the --strategy merge commit")
 	registerFooterFlag(command, &mergeFooters, "merge-footer", "for the merge commit")
 	command.Flags().BoolVar(&mergeBreaking, "merge-breaking", false, "mark an incompatible public contract change in the merge commit")
 	registerBreakingDescriptionFlag(command, &mergeBreakingImpact, "merge-breaking-description", "for the merge commit")

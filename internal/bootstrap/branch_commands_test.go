@@ -840,7 +840,7 @@ func TestBranchSyncBaseResumeContracts(t *testing.T) {
 		}{
 			{name: "dry-run", arguments: []string{"--resume"}, dryRun: true},
 			{name: "strategy", arguments: []string{"--resume", "--strategy", "rebase"}},
-			{name: "merge body", arguments: []string{"--resume", "--merge-body", "merge origin/develop"}},
+			{name: "merge body", arguments: []string{"--resume", "--merge-body-file", writeMessageFile(t, "merge origin/develop")}},
 			{name: "merge type", arguments: []string{"--resume", "--merge-type", "chore"}},
 			{name: "merge subject", arguments: []string{"--resume", "--merge-subject", "merge origin/develop"}},
 		} {
@@ -990,7 +990,7 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--type", "feat", "--subject", "add export", "--body", body,
+			"--type", "feat", "--subject", "add export", "--body-file", writeMessageFile(t, body),
 		)
 		assertProblemCode(t, err, problem.CodeScratchSourceBranchMissing)
 
@@ -999,7 +999,7 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(newBranchCommandApplication(git, nil, nil, "human")),
 			context.Background(),
-			"--type", "feat", "--subject", "feat(ABC-123): add export", "--body", body,
+			"--type", "feat", "--subject", "feat(ABC-123): add export", "--body-file", writeMessageFile(t, body),
 		)
 		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 	})
@@ -1014,7 +1014,7 @@ func TestScratchMergeCommandFailureContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(application),
 			context.Background(),
-			"--type", "feat", "--subject", "add export", "--body", body,
+			"--type", "feat", "--subject", "add export", "--body-file", writeMessageFile(t, body),
 		)
 		if !errors.Is(err, squashErr) {
 			t.Fatalf("squash merge error = %v, want %v", err, squashErr)
@@ -1046,7 +1046,7 @@ func TestScratchMergeCommandContracts(t *testing.T) {
 			newScratchMergeCommand(application),
 			context.Background(),
 			"--target", target.String(),
-			"--type", "feat", "--subject", "add export", "--body", body,
+			"--type", "feat", "--subject", "add export", "--body-file", writeMessageFile(t, body),
 		)
 		if err != nil {
 			t.Fatalf("scratch merge error = %v", err)
@@ -1091,7 +1091,7 @@ func TestScratchMergeCommandContracts(t *testing.T) {
 			t,
 			newScratchMergeCommand(application),
 			context.Background(),
-			"--type", "feat", "--subject", "add export", "--body", body,
+			"--type", "feat", "--subject", "add export", "--body-file", writeMessageFile(t, body),
 		)
 		assertProblemCode(t, err, problem.CodeOperationCancelled)
 		if len(prompt.confirmRequests) != 1 ||

@@ -18,8 +18,6 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
-const maxCommitMessageBytes = 1 << 20
-
 // validateOptions rejects invalid global option values and combinations
 // fail-closed before any workflow runs, including the --interactive always /
 // --output json combination rule. Canonical conventions:
@@ -154,7 +152,7 @@ func (application *application) validatePullRequestPublication(
 // Git mutation happens.
 func validatePullRequestBody(createPullRequest bool, body string) error {
 	if createPullRequest && strings.TrimSpace(body) == "" {
-		return invalidOption("body", "empty", "a non-empty pull-request description when --create-pull-request is set")
+		return invalidOption("body-file", "empty", "a non-empty pull-request description file passed as --body-file when --create-pull-request is set")
 	}
 	return nil
 }
@@ -294,7 +292,7 @@ func (application *application) resolvePullRequestBody(
 		request.Body = body
 		return request, true, nil
 	}
-	return request, false, invalidOption("body", "empty", "a non-empty pull-request description passed as --body")
+	return request, false, invalidOption("body-file", "empty", "a non-empty pull-request description file passed as --body-file")
 }
 
 func pullRequestPublisherUnavailable() error {
@@ -747,10 +745,7 @@ func currentOrSpecified(ctx context.Context, service services, raw string, repos
 	return service.git.CurrentBranch(ctx, repository)
 }
 
-func readCommitMessage(path, inline string) (string, error) {
-	if inline != "" {
-		return inline, nil
-	}
+func readCommitMessage(path string) (string, error) {
 	if path == "" {
 		return "", missingInput("commit message")
 	}
@@ -766,13 +761,13 @@ func readCommitMessage(path, inline string) (string, error) {
 			Remediation: "provide --message or an existing --message-file",
 		}, err)
 	}
-	if info.Size() > maxCommitMessageBytes {
+	if info.Size() > maxMessageFileBytes {
 		return "", problem.New(problem.Details{
 			Code:        problem.CodeCommitHeaderInvalid,
 			Category:    problem.CategoryUsage,
 			Field:       "message file",
 			Actual:      path,
-			Expected:    fmt.Sprintf("at most %d bytes", maxCommitMessageBytes),
+			Expected:    fmt.Sprintf("at most %d bytes", maxMessageFileBytes),
 			Rule:        "commit message input is size-bounded",
 			Remediation: "reduce the commit message file size",
 		})

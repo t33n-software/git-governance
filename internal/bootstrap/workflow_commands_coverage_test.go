@@ -154,7 +154,7 @@ func TestReleaseDryRunsNeverPublishPullRequests(t *testing.T) {
 				"workflow", "release", "promote",
 				"--release", "release/2.8.0",
 				"--create-pull-request",
-				"--body", "Summary: Promote release 2.8.0 into main.",
+				"--body-file", writeMessageFile(t, "Summary: Promote release 2.8.0 into main."),
 			},
 		},
 		{
@@ -163,7 +163,7 @@ func TestReleaseDryRunsNeverPublishPullRequests(t *testing.T) {
 				"workflow", "release", "backmerge",
 				"--release", "release/2.8.0",
 				"--create-pull-request",
-				"--body", "Summary: Backmerge release 2.8.0 into develop.",
+				"--body-file", writeMessageFile(t, "Summary: Backmerge release 2.8.0 into develop."),
 			},
 		},
 	}
@@ -293,7 +293,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			"--branch", "feature/ABC-123-add-export",
 			"--push",
 			"--create-pull-request",
-			"--body", "Summary: Add the export button.",
+			"--body-file", writeMessageFile(t, "Summary: Add the export button."),
 		)
 		if err != nil || !strings.Contains(output, "https://example.invalid/pr/explicit") || publisher.calls != 1 {
 			t.Fatalf("explicit PR publication = (%q, %v), publisher=%#v", output, err, publisher)
@@ -319,7 +319,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			"--branch", "feature/ABC-123-add-export",
 			"--push",
 			"--create-pull-request",
-			"--body", "Summary: Add the export button.",
+			"--body-file", writeMessageFile(t, "Summary: Add the export button."),
 		)
 		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
 	})
@@ -351,7 +351,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 				output, err := executeBootstrapCommand(
 					t,
 					command,
-					append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body", "Summary: Release 2.8.0 lifecycle pull request.")...)...,
+					append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body-file", writeMessageFile(t, "Summary: Release 2.8.0 lifecycle pull request."))...)...,
 				)
 				if err != nil || !strings.Contains(output, "https://example.invalid/pr/release") || publisher.calls != 1 {
 					t.Fatalf("release publication = (%q, %v), publisher=%#v", output, err, publisher)
@@ -369,7 +369,7 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			_, err := executeBootstrapCommand(
 				t,
 				command,
-				append([]string{"--interactive", "never", "--output", "json"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body", "Summary: Release 2.8.0 lifecycle pull request.")...)...,
+				append([]string{"--interactive", "never", "--output", "json"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body-file", writeMessageFile(t, "Summary: Release 2.8.0 lifecycle pull request."))...)...,
 			)
 			assertProblemCode(t, err, problem.CodeInvalidInput)
 		}
@@ -481,7 +481,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 					"workflow", "hotfix", "publish",
 					"--affected-line", "main",
 					"--resume", "--push", "--create-pull-request",
-					"--body", "Summary: Publish the payment-timeout hotfix.",
+					"--body-file", writeMessageFile(t, "Summary: Publish the payment-timeout hotfix."),
 				},
 			},
 			{
@@ -491,7 +491,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 					"workflow", "release", "publish-stabilization",
 					"--release", "release/2.8.0",
 					"--resume", "--push", "--create-pull-request",
-					"--body", "Summary: Publish the release-blocker stabilization.",
+					"--body-file", writeMessageFile(t, "Summary: Publish the release-blocker stabilization."),
 				},
 			},
 		} {
@@ -567,7 +567,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 		_, err = executeBootstrapCommand(
 			t,
 			command,
-			append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(baseArguments, "--push", "--create-pull-request", "--body", "Summary: Forward-port the reviewed hotfix.")...)...,
+			append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(baseArguments, "--push", "--create-pull-request", "--body-file", writeMessageFile(t, "Summary: Forward-port the reviewed hotfix."))...)...,
 		)
 		if !errors.Is(err, publisherErr) {
 			t.Fatalf("propagation publisher error = %v", err)
@@ -587,7 +587,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 			"--target-line", "develop",
 			"--commit", strings.Repeat("a", 40),
 			"--push", "--create-pull-request",
-			"--body", "Summary: Forward-port the reviewed hotfix.",
+			"--body-file", writeMessageFile(t, "Summary: Forward-port the reviewed hotfix."),
 		)
 		if !errors.Is(err, publisherErr) {
 			t.Fatalf("new propagation publisher error = %v, want %v", err, publisherErr)
@@ -620,7 +620,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 			"workflow", "ticket", "publish",
 			"--branch", "feature/ABC-123-add-export",
 			"--push", "--create-pull-request",
-			"--body", "Summary: Add the export button.",
+			"--body-file", writeMessageFile(t, "Summary: Add the export button."),
 		)
 		if !errors.Is(err, preflightErr) {
 			t.Fatalf("ticket preflight error = %v, want %v", err, preflightErr)
@@ -636,7 +636,7 @@ func TestWorkflowCommandsCoverSilentContinuationFailurePaths(t *testing.T) {
 			_, err := executeBootstrapCommand(
 				t,
 				command,
-				append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body", "Summary: Release 2.8.0 lifecycle pull request.")...)...,
+				append([]string{"--interactive", "never", "--output", "json", "--yes"}, append(commandPath, "--release", "release/2.8.0", "--create-pull-request", "--body-file", writeMessageFile(t, "Summary: Release 2.8.0 lifecycle pull request."))...)...,
 			)
 			if !errors.Is(err, preflightErr) {
 				t.Fatalf("release preflight error = %v, want %v", err, preflightErr)
@@ -690,7 +690,7 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 			"--pull-request-provider", "github",
 			"workflow", "release", "backmerge",
 			"--release", "release/2.8.0", "--create-pull-request",
-			"--body", "Summary: Backmerge release 2.8.0 into develop.",
+			"--body-file", writeMessageFile(t, "Summary: Backmerge release 2.8.0 into develop."),
 		)
 		if err != nil || publisher.lifecycleCalls != 1 || publisher.calls != 0 ||
 			!strings.Contains(output, `"status":"not-required"`) {
@@ -792,7 +792,7 @@ func TestInteractiveTicketPublishFromScratchConfirmsSquashTransfer(t *testing.T)
 		context.Background(),
 		"--type", "feat",
 		"--subject", "add export",
-		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+		"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 	)
 	if err != nil {
 		t.Fatalf("scratch ticket publish error = %v", err)
@@ -919,7 +919,7 @@ func TestInteractiveScratchTicketPublishResumesRebaseWithoutRepeatingTransfer(t 
 		context.Background(),
 		"--type", "feat",
 		"--subject", "add export",
-		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+		"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 	)
 	if err != nil || stderr != "" {
 		t.Fatalf("scratch rebase retry = (%q, %q, %v)", stdout, stderr, err)
@@ -970,7 +970,7 @@ func TestInteractiveScratchTicketPublishResumesSquashMergeConflict(t *testing.T)
 		context.Background(),
 		"--type", "feat",
 		"--subject", "add export",
-		"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+		"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 	)
 	if err != nil || stderr != "" {
 		t.Fatalf("scratch squash retry = (%q, %q, %v)", stdout, stderr, err)
@@ -1054,7 +1054,7 @@ func TestTicketPublishInteractionFailureAndProviderIntentPaths(t *testing.T) {
 			context.Background(),
 			"--type", "feat",
 			"--subject", "add export",
-			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+			"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 		)
 		assertProblemCode(t, err, problem.CodeOperationCancelled)
 	})
@@ -1125,7 +1125,7 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			"--target", target.String(),
 			"--type", "feat",
 			"--subject", "add export",
-			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+			"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 		)
 		if err != nil {
 			t.Fatalf("explicit scratch target dry-run error = %v", err)
@@ -1156,7 +1156,7 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			context.Background(),
 			"--type", "feat",
 			"--subject", "add export",
-			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+			"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 		)
 		assertProblemCode(t, err, problem.CodeScratchSourceBranchMissing)
 
@@ -1167,7 +1167,7 @@ func TestTicketPublishScratchInputContracts(t *testing.T) {
 			context.Background(),
 			"--type", "feat",
 			"--subject", "feat(ABC-123): add export",
-			"--commit-body", "## Motivation\n\nDocuments the discarded experiment paths.",
+			"--commit-body-file", writeMessageFile(t, "## Motivation\n\nDocuments the discarded experiment paths."),
 		)
 		assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
 	})

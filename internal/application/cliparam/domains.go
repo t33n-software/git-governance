@@ -320,14 +320,16 @@ func CommitSubject() Domain {
 	}
 }
 
-// CommitBody is the free-constrained domain of the commit body. The mandatory
-// body contexts (breaking changes, hotfix lane, release stabilization,
-// scratch squash transfer) are endpoint context added by the call site.
-func CommitBody() Domain {
+// MessageFile is the structural-reference domain of a message file: every
+// multi-line message part crosses the CLI boundary exclusively through a
+// file path. The endpoint role (commit body, pull request description) is
+// rendered through WithLead at the call site; the transport rule exists
+// exactly once.
+func MessageFile() Domain {
 	return Domain{
-		Concept: "commit body",
-		Class:   ClassFreeConstrained,
-		Rule:    "free-form text without control characters other than LF (rejected by validation)",
+		Concept: "message file",
+		Class:   ClassStructuralReference,
+		Rule:    "absolute path to an existing plain UTF-8 text file of at most 1 MiB (relative paths are rejected); existence is resolved at runtime",
 	}
 }
 
@@ -404,18 +406,6 @@ func Requester() Domain {
 		Concept: "request-authority actor",
 		Class:   ClassFreeConstrained,
 		Rule:    "a non-empty one-line identifier of at most 200 characters (rejected by validation)",
-	}
-}
-
-// CommitMessage is the free-constrained domain of a complete commit message
-// supplied out of band.
-func CommitMessage() Domain {
-	return Domain{
-		Concept: "complete commit message",
-		Class:   ClassFreeConstrained,
-		Rule: "the full type(TICKET)[!]: subject grammar with optional body and footers " +
-			"(rejected by validation)",
-		Example: "feat(ABC-123): add export button",
 	}
 }
 
@@ -511,7 +501,7 @@ func All() []Domain {
 		TicketID(),
 		BranchSlug(),
 		CommitSubject(),
-		CommitBody(),
+		MessageFile(),
 		CommitFooter(),
 		BreakingDescription(),
 		CommitSHA(),
@@ -519,7 +509,6 @@ func All() []Domain {
 		RequestID(),
 		RunID(),
 		Requester(),
-		CommitMessage(),
 		BaseBranch(),
 		BranchReference(),
 		RecordPath(),
