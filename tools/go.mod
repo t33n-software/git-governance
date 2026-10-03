@@ -8,6 +8,7 @@ tool (
 	github.com/evilmartians/lefthook/v2
 	github.com/t33n-software/go-quality-authority/cmd/check-coverage
 	github.com/t33n-software/go-quality-authority/cmd/quality-gate
+	github.com/t33n-software/license-hub/cmd/license
 	github.com/t33n-software/repository-governance/cmd/provision-canonical
 	github.com/t33n-software/repository-governance/cmd/verify-canonical
 	golang.org/x/vuln/cmd/govulncheck
@@ -71,6 +72,7 @@ require (
 	github.com/schollz/progressbar/v3 v3.19.1 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/t33n-software/go-quality-authority v1.1.0 // indirect
+	github.com/t33n-software/license-hub v1.0.0 // indirect
 	github.com/t33n-software/repository-governance v1.2.0 // indirect
 	github.com/tidwall/jsonc v0.3.3 // indirect
 	github.com/urfave/cli/v3 v3.10.1 // indirect
