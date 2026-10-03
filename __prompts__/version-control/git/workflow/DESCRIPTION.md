@@ -137,7 +137,7 @@ The combined adapter and core guarantee:
   through its gated state chain into the core;
 - a skipped initialization is reported as a process violation and repeated,
   never silently continued;
-- the portable workflow has no dependency on AI-Base-Rules, docs/ or business files;
+- the portable workflow has no dependency on external knowledge bases, docs/ or business files;
 - this source repository retains its source-based execution binding;
 - the current CLI help remains the authority for command syntax;
 - branch and commit conventions are obtained from the live policy and validators;

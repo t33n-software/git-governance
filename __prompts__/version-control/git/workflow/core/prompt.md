@@ -5,7 +5,7 @@
 
 Dieser Prompt ist der vollständige, portable und ausführbare Kernvertrag für
 Agents, die mit der Release-Binary `git-governance` arbeiten. Er ist
-eigenständig: Für seine Ausführung sind weder ein AI-Base-Rules-Projekt,
+eigenständig: Für seine Ausführung sind weder eine externe Wissensbasis,
 Repository-Dokumentation noch Projektquellcode als Wissensquelle erforderlich.
 
 Der Core ist eine Governance-Overlay-Schicht. Höher priorisierte System-,
