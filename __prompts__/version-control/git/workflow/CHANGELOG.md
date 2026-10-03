@@ -10,12 +10,12 @@
 |-------|-------|
 | Scope Root | `__prompts__/version-control/git/workflow` |
 | Versioning Standard | `Semantic Versioning 2.0.0` |
-| Current Version | `1.2.0` |
+| Current Version | `1.3.0` |
 | Semver Class | `minor` |
 | Breaking Change | `no` for the complete workflow bundle |
 | Commit Scope | `workflow-adapter` |
-| Ticket Scope | `GOV-42` |
-| Current HEAD Commit Hash | `76324d8799b687854c854b0aad700beb85e004e1` (pre-finalization evidence; the new version entry is intentionally not committed yet) |
+| Ticket Scope | `GOV-129` |
+| Current HEAD Commit Hash | `5256c1abf06941d68b6c5ddebfcd1a3760b30075` (pre-finalization evidence; the new version entry is intentionally not committed yet) |
 
 ---
 
@@ -24,6 +24,7 @@
 
 | Version | Date | Class | Breaking | Commit Type | HEAD Commit Hash | Summary | Commit Subject |
 |---------|------|-------|----------|-------------|------------------|---------|----------------|
+| `1.3.0` | `2026-10-03` | minor | no | `feat` | `5256c1abf06941d68b6c5ddebfcd1a3760b30075` (pre-finalization evidence) | Bound the task-bound worktree convention across the workflow contracts: actor-agnostic worktree rule, endpoint register, publish-return special case, and the merged legacy-name generalization. | pending (finalization deferred) |
 | `1.2.0` | `2026-08-16` | minor | no | `feat` | pending (finalization deferred) | Hardened the adapter into a fully gated DWCEA bootstrap: binding activation contract, fine-grained state machine, explicit proof ledger, pre-action embargo, invalidation rules, bootstrap symbol discipline and an extended prohibition and completion contract. | pending (finalization deferred) |
 | `1.1.0` | `2026-08-08` | minor | no | `feat` | `562b705e8cbd15295010a0aa0ed64faa7118990e` | Split the portable binary workflow core from this repository's Go-source adapter; added complete adapter and core metadata plus Help-first drift controls. | `feat(GOV-42): separate portable workflow core` |
 | `1.0.0` | `2026-08-07` | patch | no | `docs` | `9ee1a308355ccf8f14ae2467b15faba33947ca67` | Canonicalized the governed workflow prompt and retained the stable Cursor rule entrypoint. | `docs(GOV-35): centralize canonical rule prompts` |
@@ -33,7 +34,39 @@
 ## 3. Current Version Entry
 [INTENT: SPECIFICATION]
 
-### 3.1 Version `1.2.0`
+### 3.1 Version `1.3.0`
+[INTENT: SPECIFICATION]
+
+**Classification**
+
+| Field | Value |
+|-------|-------|
+| Semver Class | `minor` |
+| Breaking Change | `no` |
+| Rationale | The adapter and core keep every prior workflow capability and authority; the version binds the task-bound worktree convention into the workflow topology and adopts the merged legacy-name generalization. The retired raw worktree-acquisition form was bound as a transitional convention and is replaced by the governed lifecycle endpoints it anticipated. |
+
+**Change Units**
+
+| ID | Category | Breaking | Summary | Affected Files | Description Alignment |
+|----|----------|----------|---------|----------------|----------------------|
+| CHG-301 | `contract` | no | Bound the actor-agnostic worktree rule: a fresh detached task worktree is a legitimate pre-start context for every actor executing ticket work, acquired through the governed `workflow worktree start` endpoint; every other detached or unknown state stays blocked. | `core/prompt.md` | `DESCRIPTION.md` sections 5 and 6 updated |
+| CHG-302 | `runtime` | no | Added the worktree lifecycle endpoint register entries (`workflow worktree start` E1, `workflow worktree list` RO, `workflow worktree remove` E1) and extended the execution-level workflow family enumeration accordingly. | `core/prompt.md` | `DESCRIPTION.md` section 6 updated |
+| CHG-303 | `runtime` | no | Added the publish-return worktree special case: a linked task worktree checkout does not participate in the governed return to the integration line and reports its form honestly without questioning the publication. | `core/prompt.md` | `DESCRIPTION.md` section 5 updated |
+| CHG-304 | `naming` | no | Adopted the merged legacy-name generalization across the adapter non-duplication list, the adapter conventions, the core purpose description, and the workflow description index; semantics identical. | `prompt.md`, `CONVENTIONS.md`, `core/description/purpose-and-architecture.md`, `DESCRIPTION.md` | `DESCRIPTION.md` section 5 updated |
+
+**Migration / Consumer Impact**
+
+No migration required. The worktree convention and its endpoints are additive; consumers without the convention keep the generic endpoint register entries dormant through the help-first contract. Agents working in this repository acquire task worktrees through `workflow worktree start` instead of the retired raw acquisition form.
+
+**Commit Alignment**
+
+| Field | Value |
+|-------|-------|
+| Commit Subject | pending (finalization deferred by user instruction; metadata finalized without commit) |
+| Breaking Footer | none |
+| Current HEAD Commit Hash | `5256c1abf06941d68b6c5ddebfcd1a3760b30075` |
+
+### 3.2 Version `1.2.0`
 [INTENT: SPECIFICATION]
 
 **Classification**
@@ -69,7 +102,7 @@ No migration required. The stable Cursor symlink continues to resolve to `prompt
 | Breaking Footer | none |
 | Current HEAD Commit Hash | `76324d8799b687854c854b0aad700beb85e004e1` |
 
-### 3.2 Version `1.1.0`
+### 3.3 Version `1.1.0`
 [INTENT: SPECIFICATION]
 
 **Classification**
@@ -105,7 +138,7 @@ second full workflow copy. The repository's Cursor entrypoint remains stable.
 | Breaking Footer | none |
 | HEAD Commit Hash | `562b705e8cbd15295010a0aa0ed64faa7118990e` |
 
-### 3.3 Version `1.0.0`
+### 3.4 Version `1.0.0`
 [INTENT: SPECIFICATION]
 
 The initial version placed the complete workflow directly in `prompt.md` and

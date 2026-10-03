@@ -143,6 +143,9 @@ The combined adapter and core guarantee:
 - branch and commit conventions are obtained from the live policy and validators;
 - regular ticket, hotfix, release, support and conflict paths are all explicit;
 - shared lines are guarded by the core's mutation embargo before any edit;
+- task-bound worktree isolation is actor-agnostic: ticket work acquires its
+  detached worktree through the governed `workflow worktree start` endpoint,
+  and the first mutation inside the worktree is the governed ticket start;
 - Scratch is selected through a decision matrix instead of created by default;
 - current GOV-42 main-hotfix delivery endpoints and controller boundaries are represented;
 - unavailable binary or protected-controller capability fails closed;
@@ -159,6 +162,7 @@ The portable core requires Help-first discovery for the current CLI's:
 ```text
 branch, commit, policy, doctor, validation and authentication endpoints
 ticket start and publication workflows
+worktree acquisition, inventory and removal lifecycle workflows
 hotfix record, delivery, single-commit and manifest propagation workflows
 release request, cut, stabilization, alignment, promotion, backmerge and support workflows
 Scratch cleanup and controlled transfer paths
