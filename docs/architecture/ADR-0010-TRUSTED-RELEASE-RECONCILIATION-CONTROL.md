@@ -1,4 +1,4 @@
-# ADR-0004: Trusted Release Reconciliation Control
+# ADR-0010: Trusted Release Reconciliation Control
 
 - Status: Accepted
 - Date: 2026-08-01
