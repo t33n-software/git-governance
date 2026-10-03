@@ -509,7 +509,7 @@ func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
 		}
 		recordErr := errSessionStoreUnavailable
 		runner.fail = func(command, service, account string, call int) error {
-			if command == "find-generic-password" && call == 2 {
+			if command == "find-generic-password" && account == repositoryBindingAccount("github.com", "acme", "governance") {
 				return recordErr
 			}
 			return nil

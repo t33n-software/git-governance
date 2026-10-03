@@ -487,7 +487,7 @@ func TestLinuxSecretServiceStoreRepositoryBindings(t *testing.T) {
 		}
 		recordErr := errSessionStoreUnavailable
 		runner.fail = func(command, host, account string, call int) error {
-			if command == "lookup" && call == 2 {
+			if command == "lookup" && account == repositoryBindingAccount("github.com", "acme", "governance") {
 				return recordErr
 			}
 			return nil
