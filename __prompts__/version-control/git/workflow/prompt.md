@@ -314,7 +314,7 @@ Diese Adapterdatei ist absichtlich klein. Sie dupliziert nicht:
 - Release-, Hotfix- oder Propagation-Policy;
 - Quality-Kommandos;
 - Provider-Credentials, Tokenquellen oder Secrets;
-- Inhalte aus AI-Base-Rules, docs/, Business-Dateien oder Quellcode.
+- Inhalte aus externen Wissensbasen, docs/, Business-Dateien oder Quellcode.
 ```
 
 Der Core ist als Binary-basierter Workflow in anderen Projekten wiederverwendbar.

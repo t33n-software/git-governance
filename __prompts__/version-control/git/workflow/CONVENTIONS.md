@@ -29,7 +29,7 @@ relative to the adapter file. It must not use:
 ```text
 - absolute Windows, Linux or macOS paths;
 - a user home directory;
-- a separately checked-out AI-Base-Rules project;
+- a separately checked-out external rules or knowledge-base project;
 - docs/, business files or source code as workflow-policy dependencies;
 - an external RAG location.
 ```

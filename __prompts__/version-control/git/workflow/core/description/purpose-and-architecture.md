@@ -42,7 +42,7 @@ release, hotfix delivery, propagation, and final evidence.
 The core is self-contained. It does not require:
 
 ```text
-- an AI-Base-Rules checkout;
+- an external knowledge-base checkout;
 - this repository's docs directory;
 - project business files;
 - a Go module or cmd directory;
