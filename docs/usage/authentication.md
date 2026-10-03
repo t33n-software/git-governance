@@ -296,6 +296,14 @@ The command performs this sequence:
    authorization header, and refresh token are never written to preferences,
    logs, JSON output, errors, or command arguments.
 
+When GitHub rejects the Device Authorization start, the CLI surfaces the
+provider's own diagnostic reason — for example
+`device_flow_disabled — Device Flow must be explicitly enabled for this App` —
+in the non-sensitive diagnostic field of the structured error. The reason is
+length-bounded and never carries tokens or authorization headers, so the
+remediation (for example enabling Device Flow in the GitHub App settings) is
+visible without additional probing.
+
 Check the non-sensitive result afterwards:
 
 ```powershell

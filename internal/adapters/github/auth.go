@@ -1120,7 +1120,7 @@ func (service *AuthService) oauthFormRequest(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return oauthHTTPProblem(response.StatusCode)
+		return oauthHTTPProblem(response)
 	}
 	if err := decodeOAuthResponse(response.Body, target); err != nil {
 		return err
@@ -1153,7 +1153,7 @@ func (service *AuthService) githubAPIRequest(
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return oauthHTTPProblem(response.StatusCode)
+		return oauthHTTPProblem(response)
 	}
 	return decodeOAuthResponse(response.Body, target)
 }
@@ -1390,16 +1390,93 @@ func oauthNetworkProblem(cause error) error {
 	}, cause)
 }
 
-func oauthHTTPProblem(status int) error {
+// oauthHTTPProblem classifies a non-success auth HTTP response and surfaces
+// the provider's own failure reason in the non-sensitive diagnostic field.
+// No redaction occurs: the request is secret-free by construction and the
+// credential is header-isolated, so the provider diagnostic text cannot carry
+// secrets. Canonical rationale:
+// docs/conventions/hosting-platforms/github/workflows/provider-error-diagnostics.md
+func oauthHTTPProblem(response *http.Response) error {
+	status := 0
+	if response != nil {
+		status = response.StatusCode
+	}
 	return problem.New(problem.Details{
 		Code:        problem.CodeConfigurationInvalid,
 		Category:    problem.CategoryConfig,
 		Field:       "GitHub App authentication",
 		Actual:      http.StatusText(status),
+		Diagnostic:  oauthErrorDiagnostic(response),
 		Expected:    "a successful GitHub App response",
 		Rule:        "GitHub App authentication must complete without an HTTP authorization error",
 		Remediation: "check the GitHub App installation, client ID, and account authorization",
 	})
+}
+
+// oauthErrorDiagnostic projects the provider's own failure reason from a
+// non-success auth HTTP response: the OAuth error body (`error` joined with
+// `error_description`), the REST error envelope (`message` joined with
+// `errors[].message`), or the raw text for non-JSON bodies, length-bounded.
+// No redaction occurs: the channel is secret-free by construction. Canonical
+// rationale:
+// docs/conventions/hosting-platforms/github/workflows/provider-error-diagnostics.md
+func oauthErrorDiagnostic(response *http.Response) string {
+	if response == nil || response.Body == nil {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, lifecycleDiagnosticMaxBytes+1))
+	if err != nil {
+		return ""
+	}
+	truncated := len(body) > lifecycleDiagnosticMaxBytes
+	if truncated {
+		body = body[:lifecycleDiagnosticMaxBytes]
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return ""
+	}
+	var envelope struct {
+		Message string `json:"message"`
+		Errors  []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err == nil {
+		if envelope.Error != "" || envelope.ErrorDescription != "" {
+			parts := make([]string, 0, 2)
+			if reason := strings.TrimSpace(envelope.Error); reason != "" {
+				parts = append(parts, reason)
+			}
+			if description := strings.TrimSpace(envelope.ErrorDescription); description != "" {
+				parts = append(parts, description)
+			}
+			if len(parts) == 0 {
+				return ""
+			}
+			text = strings.Join(parts, " — ")
+		} else {
+			messages := make([]string, 0, len(envelope.Errors)+1)
+			if message := strings.TrimSpace(envelope.Message); message != "" {
+				messages = append(messages, message)
+			}
+			for _, entry := range envelope.Errors {
+				if message := strings.TrimSpace(entry.Message); message != "" {
+					messages = append(messages, message)
+				}
+			}
+			if len(messages) == 0 {
+				return ""
+			}
+			text = strings.Join(messages, "; ")
+		}
+	}
+	if truncated {
+		text += " …[truncated]"
+	}
+	return text
 }
 
 func waitProblem(cause error) error {
