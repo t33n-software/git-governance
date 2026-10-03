@@ -87,6 +87,11 @@ type BootstrapRequest struct {
 	StagePaths []string
 	Push       bool
 	DryRun     bool
+	// MutationTimeout caps the derived genesis mutation budget as an explicit
+	// caller upper bound. Zero derives the budget from the proven preflight
+	// corpus size alone, so the caller never needs a timeout for large
+	// content sets.
+	MutationTimeout time.Duration
 }
 
 // BootstrapPreflight carries the proven read-only preflight facts into the
@@ -166,7 +171,14 @@ func (service *BootstrapService) Bootstrap(ctx context.Context, request Bootstra
 		return BootstrapResult{Plan: plan, DryRun: true}, nil
 	}
 
-	revision, installation, err := service.runGenesisMutation(ctx, repository, request, capabilities, message)
+	revision, installation, err := service.runGenesisMutation(
+		ctx,
+		scopeMutationGit(service.git, resolveGenesisMutationBudget(preflight.ContentFiles, request.MutationTimeout)),
+		capabilities,
+		repository,
+		request,
+		message,
+	)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
@@ -385,18 +397,21 @@ func (service *BootstrapService) runBootstrapPreflight(
 
 // runGenesisMutation is the single bound transaction of the birth: stage the
 // explicit content set, create the signed genesis commit on main, create
-// develop from the same revision, and install the hook boundary.
+// develop from the same revision, and install the hook boundary. The staged
+// surface carries the derived mutation budget; the hook installation stays on
+// the preflight surface because it is corpus-independent.
 func (service *BootstrapService) runGenesisMutation(
 	ctx context.Context,
+	git port.GitRepository,
+	capabilities bootstrapCapabilities,
 	repository port.RepositoryIdentity,
 	request BootstrapRequest,
-	capabilities bootstrapCapabilities,
 	message commitmsg.Message,
 ) (string, port.HookInstallation, error) {
-	if err := service.git.Stage(ctx, repository, request.StagePaths); err != nil {
+	if err := git.Stage(ctx, repository, request.StagePaths); err != nil {
 		return "", port.HookInstallation{}, err
 	}
-	staged, err := service.git.HasStagedChanges(ctx, repository)
+	staged, err := git.HasStagedChanges(ctx, repository)
 	if err != nil {
 		return "", port.HookInstallation{}, err
 	}
@@ -410,7 +425,7 @@ func (service *BootstrapService) runGenesisMutation(
 			Remediation: "review the repository state and retry the bootstrap",
 		})
 	}
-	if err := service.git.Commit(ctx, repository, message); err != nil {
+	if err := git.Commit(ctx, repository, message); err != nil {
 		return "", port.HookInstallation{}, err
 	}
 	revision, err := capabilities.revisions.ResolveRevision(ctx, repository, "HEAD")
@@ -420,7 +435,7 @@ func (service *BootstrapService) runGenesisMutation(
 	// mustMain is the product's fixed production-line taxonomy and therefore a
 	// canonical local branch name. NewLocalBase cannot reject that invariant.
 	developBase, _ := branch.NewLocalBase(mustMain())
-	if err := service.git.CreateBranch(ctx, repository, mustDevelop(), developBase, false); err != nil {
+	if err := git.CreateBranch(ctx, repository, mustDevelop(), developBase, false); err != nil {
 		return "", port.HookInstallation{}, err
 	}
 	installation, err := capabilities.installer.InstallHooks(ctx, repository)
@@ -570,6 +585,51 @@ func bootstrapPlan(
 		})
 	}
 	return plan
+}
+
+// The genesis mutation budget derives from the proven preflight corpus size
+// instead of a flat caller default: the base ceiling covers the commit, the
+// branch creation, and the hook installation; the per-file allowance covers
+// the linear staging cost of the explicit content set. The ceiling keeps the
+// budget a bounded-execution guarantee for every corpus size.
+const (
+	genesisBaseBudget       = 60 * time.Second
+	genesisPerFileAllowance = 10 * time.Millisecond
+	genesisMaxBudget        = 30 * time.Minute
+)
+
+// deriveGenesisMutationBudget derives the per-process budget of the genesis
+// mutation from the proven content-file count of the preflight.
+func deriveGenesisMutationBudget(contentFiles int) time.Duration {
+	if contentFiles < 0 {
+		contentFiles = 0
+	}
+	budget := genesisBaseBudget + time.Duration(contentFiles)*genesisPerFileAllowance
+	if budget > genesisMaxBudget {
+		budget = genesisMaxBudget
+	}
+	return budget
+}
+
+// resolveGenesisMutationBudget binds the effective mutation budget: the
+// derived budget is the primary protection, and an explicitly supplied caller
+// timeout caps it as an upper bound. Zero keeps the derived budget.
+func resolveGenesisMutationBudget(contentFiles int, explicitTimeout time.Duration) time.Duration {
+	budget := deriveGenesisMutationBudget(contentFiles)
+	if explicitTimeout > 0 && explicitTimeout < budget {
+		return explicitTimeout
+	}
+	return budget
+}
+
+// scopeMutationGit binds the mutation-phase Git surface: when the adapter
+// carries the operation-timeout capability, the derived budget applies to a
+// scoped surface; otherwise the configured surface runs unchanged.
+func scopeMutationGit(git port.GitRepository, budget time.Duration) port.GitRepository {
+	if scoper, ok := git.(port.OperationTimeoutScoper); ok {
+		return scoper.WithOperationTimeout(budget)
+	}
+	return git
 }
 
 func bootstrapRepository(repository port.RepositoryIdentity) (port.RepositoryIdentity, error) {

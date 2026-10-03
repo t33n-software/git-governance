@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
@@ -162,6 +163,32 @@ func TestBootstrapCommandCompletesTheLocalGenesis(t *testing.T) {
 	}
 	if len(git.pushed) != 0 {
 		t.Fatalf("the local genesis must not publish: pushed %v", git.pushed)
+	}
+	if len(git.operationTimeouts) != 1 {
+		t.Fatalf("the genesis mutation budget was not applied: %v", git.operationTimeouts)
+	}
+	if git.operationTimeouts[0] <= 5*time.Second {
+		t.Fatalf("the derived mutation budget collapsed to the flat default: %v", git.operationTimeouts[0])
+	}
+}
+
+func TestBootstrapCommandCapsTheDerivedBudgetWithTheExplicitTimeout(t *testing.T) {
+	t.Parallel()
+
+	git := bootstrapCommandGit(t)
+	command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(git))
+	output := &bytes.Buffer{}
+	command.SetOut(output)
+	command.SetErr(output)
+	command.SetArgs([]string{
+		"--interactive", "never", "--output", "json", "--yes", "--timeout", "5s",
+		"workflow", "bootstrap", "--key", "ABC", "--ticket", "1", "--stage", ".",
+	})
+	if err := command.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(git.operationTimeouts) != 1 || git.operationTimeouts[0] != 5*time.Second {
+		t.Fatalf("the explicit timeout cap did not reach the genesis mutation: %v", git.operationTimeouts)
 	}
 }
 

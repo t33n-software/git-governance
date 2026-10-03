@@ -59,6 +59,22 @@ type environmentFakeRunner struct {
 	environments [][]string
 }
 
+// deadlineRunner records the per-process budget every invocation receives
+// through its context deadline.
+type deadlineRunner struct {
+	remaining []time.Duration
+}
+
+func (runner *deadlineRunner) run(ctx context.Context, _ string, _ io.Reader, _ ...string) processResult {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		runner.remaining = append(runner.remaining, time.Until(deadline))
+		return processResult{stdout: "git version test"}
+	}
+	runner.remaining = append(runner.remaining, -1)
+	return processResult{stdout: "git version test"}
+}
+
 func (runner *environmentFakeRunner) runWithEnvironment(
 	ctx context.Context,
 	directory string,
@@ -68,6 +84,39 @@ func (runner *environmentFakeRunner) runWithEnvironment(
 ) processResult {
 	runner.environments = append(runner.environments, append([]string(nil), environment...))
 	return runner.fakeRunner.run(ctx, directory, stdin, arguments...)
+}
+
+func TestRepositoryWithOperationTimeoutScopesThePerProcessBudget(t *testing.T) {
+	t.Parallel()
+
+	runner := &deadlineRunner{}
+	repository := &Repository{runner: runner, timeout: time.Second}
+	scoped := repository.WithOperationTimeout(90 * time.Second)
+	if _, err := scoped.Version(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.Version(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defensive := repository.WithOperationTimeout(0)
+	if _, err := defensive.Version(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.remaining) != 3 {
+		t.Fatalf("recorded budgets = %v", runner.remaining)
+	}
+	if runner.remaining[0] < 80*time.Second {
+		t.Fatalf("the scoped budget = %v, want roughly 90s", runner.remaining[0])
+	}
+	if repository.timeout != time.Second {
+		t.Fatalf("the shared adapter mutated its timeout: %v", repository.timeout)
+	}
+	if runner.remaining[1] > 2*time.Second {
+		t.Fatalf("the original budget = %v, want roughly 1s", runner.remaining[1])
+	}
+	if runner.remaining[2] > 2*time.Second {
+		t.Fatalf("the defensive budget = %v, want roughly 1s", runner.remaining[2])
+	}
 }
 
 func TestRepositoryReadOperations(t *testing.T) {
