@@ -62,6 +62,7 @@ const (
 	CodeBreakingChangeInvalid        Code = "BREAKING_CHANGE_INVALID"
 	CodeCommitBodyRequired           Code = "COMMIT_BODY_REQUIRED"
 	CodeWorktreeNotClean             Code = "WORKTREE_NOT_CLEAN"
+	CodeWorktreeRequired             Code = "WORKTREE_REQUIRED"
 	CodeRepositoryNotFound           Code = "REPOSITORY_NOT_FOUND"
 	CodeRepositoryHasNoCommits       Code = "REPOSITORY_HAS_NO_COMMITS"
 	CodeRepositoryAlreadyBorn        Code = "REPOSITORY_ALREADY_BORN"

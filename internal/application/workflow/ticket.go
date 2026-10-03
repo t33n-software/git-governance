@@ -104,7 +104,7 @@ func (service *TicketService) StartTicket(ctx context.Context, request StartTick
 		)
 	}
 
-	if err := service.acceptDetachedTaskWorktree(ctx, request.Repository); err != nil {
+	if err := service.requireTaskWorktree(ctx, request.Repository); err != nil {
 		return StartTicketResult{}, err
 	}
 

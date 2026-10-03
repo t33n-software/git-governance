@@ -472,7 +472,7 @@ func TestStartTicketAcceptsFreshDetachedTaskWorktree(t *testing.T) {
 		}
 	})
 
-	t.Run("blocks a detached primary checkout", func(t *testing.T) {
+	t.Run("blocks ticket work outside a linked task worktree", func(t *testing.T) {
 		t.Parallel()
 		git := &detachedTaskWorktreeGit{fakeWorktreeGit: &fakeWorktreeGit{
 			fakeGitRepository: &fakeGitRepository{hasCommits: true, clean: true},
@@ -480,20 +480,21 @@ func TestStartTicketAcceptsFreshDetachedTaskWorktree(t *testing.T) {
 		}}
 		service := newTicketServiceWithGit(git, nil, nil)
 		_, err := service.StartTicket(context.Background(), request())
-		assertProblemCode(t, err, problem.CodeBranchNameInvalid)
+		assertProblemCode(t, err, problem.CodeWorktreeRequired)
 		if countCall(git.calls, "create-branch") != 0 {
 			t.Fatalf("a blocked context must never create a branch: %v", git.calls)
 		}
 	})
 
-	t.Run("blocks a detached context when no worktree capability is composed", func(t *testing.T) {
+	t.Run("keeps the unenforced legacy behavior when no worktree capability is composed", func(t *testing.T) {
 		t.Parallel()
 		git := &detachedPrimaryGit{fakeGitRepository: &fakeGitRepository{hasCommits: true, clean: true}}
 		service := newTicketServiceWithGit(git, nil, nil)
-		_, err := service.StartTicket(context.Background(), request())
-		assertProblemCode(t, err, problem.CodeBranchNameInvalid)
-		if countCall(git.calls, "create-branch") != 0 {
-			t.Fatalf("a blocked context must never create a branch: %v", git.calls)
+		if _, err := service.StartTicket(context.Background(), request()); err != nil {
+			t.Fatal(err)
+		}
+		if countCall(git.calls, "create-branch") != 1 {
+			t.Fatalf("a composition without the worktree capability keeps the legacy behavior: %v", git.calls)
 		}
 	})
 
@@ -531,9 +532,12 @@ func TestStartTicketAcceptsFreshDetachedTaskWorktree(t *testing.T) {
 
 	t.Run("propagates a non-detached current-branch failure", func(t *testing.T) {
 		t.Parallel()
-		git := &integrationLineReturnGit{
-			fakeGitRepository: &fakeGitRepository{hasCommits: true, clean: true},
-			currentErr:        errors.New("current branch unavailable"),
+		git := &worktreeFormGit{
+			fakeWorktreeGit: &fakeWorktreeGit{
+				fakeGitRepository: &fakeGitRepository{hasCommits: true, clean: true},
+				linked:            true,
+			},
+			currentErr: errors.New("current branch unavailable"),
 		}
 		service := newTicketServiceWithGit(git, nil, nil)
 		_, err := service.StartTicket(context.Background(), request())
@@ -542,15 +546,38 @@ func TestStartTicketAcceptsFreshDetachedTaskWorktree(t *testing.T) {
 		}
 	})
 
-	t.Run("keeps the checked-out branch context unchanged", func(t *testing.T) {
+	t.Run("requires the worktree even for a checked-out branch", func(t *testing.T) {
 		t.Parallel()
 		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{hasCommits: true, clean: true}}
+		service := newTicketServiceWithGit(git, nil, nil)
+		_, err := service.StartTicket(context.Background(), request())
+		assertProblemCode(t, err, problem.CodeWorktreeRequired)
+		if countCall(git.calls, "linked-worktree") != 1 {
+			t.Fatalf("the enforcement must verify the worktree form: %v", git.calls)
+		}
+		if countCall(git.calls, "create-branch") != 0 {
+			t.Fatalf("a blocked context must never create a branch: %v", git.calls)
+		}
+	})
+
+	t.Run("accepts a checked-out branch inside a linked task worktree", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeFormGit{
+			fakeWorktreeGit: &fakeWorktreeGit{
+				fakeGitRepository: &fakeGitRepository{hasCommits: true, clean: true},
+				linked:            true,
+			},
+			current: mustBranch("feature/GOV-129-add-export"),
+		}
 		service := newTicketServiceWithGit(git, nil, nil)
 		if _, err := service.StartTicket(context.Background(), request()); err != nil {
 			t.Fatal(err)
 		}
-		if countCall(git.calls, "linked-worktree") != 0 {
-			t.Fatalf("a checked-out branch must skip the worktree-form acceptance: %v", git.calls)
+		if countCall(git.calls, "current-branch") != 1 {
+			t.Fatalf("the continuing form must resolve the checked-out branch: %v", git.calls)
+		}
+		if countCall(git.calls, "create-branch") != 1 {
+			t.Fatalf("the continuing form must proceed to branch creation: %v", git.calls)
 		}
 	})
 }

@@ -225,27 +225,28 @@ func worktreePath(root string, id ticket.ID) string {
 	return filepath.Join(filepath.Dir(root), filepath.Base(root)+"-"+id.String())
 }
 
-// acceptDetachedTaskWorktree enforces the branch-context matrix at ticket
-// start. A fresh detached task worktree is a legitimate pre-start context for
-// every actor when it is a linked worktree with a clean working tree; every
-// other detached context stays blocked. Compositions whose Git adapter does
-// not offer the worktree capability keep the unchanged behavior.
-func (service *TicketService) acceptDetachedTaskWorktree(ctx context.Context, repository port.RepositoryIdentity) error {
-	if _, err := service.git.CurrentBranch(ctx, repository); err == nil {
-		return nil
-	} else if classified, ok := problem.As(err); !ok || classified.Code != problem.CodeBranchNameInvalid {
-		return err
-	}
+// requireTaskWorktree enforces the task-binding law at ticket start: ticket
+// work happens inside a linked task worktree. A fresh detached task worktree
+// is the legitimate pre-start form and must be clean; a checked-out branch
+// inside the worktree is the continuing form. Compositions whose Git adapter
+// carries no worktree capability keep the unenforced legacy behavior; the
+// shipped composition always carries the capability.
+func (service *TicketService) requireTaskWorktree(ctx context.Context, repository port.RepositoryIdentity) error {
 	manager, ok := service.git.(port.WorktreeManager)
 	if !ok {
-		return detachedTaskWorktreeBlocked()
+		return nil
 	}
 	linked, err := manager.LinkedWorktree(ctx, repository)
 	if err != nil {
 		return err
 	}
 	if !linked {
-		return detachedTaskWorktreeBlocked()
+		return taskWorktreeRequired()
+	}
+	if _, err := service.git.CurrentBranch(ctx, repository); err == nil {
+		return nil
+	} else if classified, ok := problem.As(err); !ok || classified.Code != problem.CodeBranchNameInvalid {
+		return err
 	}
 	clean, err := service.git.IsWorktreeClean(ctx, repository)
 	if err != nil {
@@ -265,17 +266,17 @@ func (service *TicketService) acceptDetachedTaskWorktree(ctx context.Context, re
 	return nil
 }
 
-// detachedTaskWorktreeBlocked is the fail-closed record for a detached HEAD
-// that is not a fresh task worktree.
-func detachedTaskWorktreeBlocked() error {
+// taskWorktreeRequired is the fail-closed record for ticket work outside a
+// linked task worktree.
+func taskWorktreeRequired() error {
 	return problem.New(problem.Details{
-		Code:        problem.CodeBranchNameInvalid,
-		Category:    problem.CategoryRepository,
-		Field:       "current branch",
-		Expected:    "a checked-out canonical branch or a fresh detached task worktree",
-		Rule:        "a detached HEAD is a valid ticket-start context only inside a fresh task worktree",
+		Code:        problem.CodeWorktreeRequired,
+		Category:    problem.CategoryGovernance,
+		Field:       "worktree",
+		Expected:    "a linked task worktree bound to the ticket",
+		Rule:        "the task-binding law hosts every ticket work inside its task worktree; the primary checkout never hosts ticket branch work",
 		Example:     "workflow worktree start",
-		Remediation: "acquire a task worktree with workflow worktree start or switch to a canonical branch",
+		Remediation: "acquire a task worktree with workflow worktree start, then run ticket start inside it",
 	})
 }
 
