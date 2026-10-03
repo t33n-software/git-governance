@@ -324,6 +324,46 @@ Sources:
 
 A self-updater would duplicate signature verification, proxy, rollback, channel choice, and package manager ownership. It is only re-evaluated upon a later proven offline or fleet need.
 
+### 9.1 Install and update script standard
+
+The decision record for this section is
+[ADR-0009](../architecture/ADR-0009-CHANNEL-OWNED-DELIVERY-AND-UPDATE-MODEL.md).
+
+Install and update are one idempotent mechanism: the update is the install
+re-run against a newer pinned version, executed by the installing channel.
+
+The scripts follow a verification-first standard:
+
+- resolve the version from an explicit pin or a verified-latest resolution
+  against the release channel's verification data, never blindly;
+- download the release artifact plus its SHA-256 checksum manifest and
+  signature, and verify fail-closed before any mutation; the release manifest
+  is the single verification truth, and no second checksum scheme exists;
+- write the binary to a temporary path, run an executable smoke test, replace
+  the target atomically, and preserve the previous version for a controlled
+  rollback (see atomic installation below);
+- detect fetcher availability instead of assuming it: POSIX scripts detect
+  `curl` and then `wget` and fail closed with actionable guidance (a
+  package-manager hint plus the manual path); Windows scripts use the native
+  `Invoke-WebRequest`/`Invoke-RestMethod` cmdlets. Declaring an additional
+  fetcher as a mandatory consumer dependency is forbidden;
+- install into a directory already on the `PATH` where possible; otherwise
+  report the required `PATH` state, provide a sourceable snippet, and
+  recommend a new terminal (see `PATH` behavior above). Shell profiles are
+  never edited without an explicit user request;
+- document a manual zero-dependency download path as the fallback.
+
+Documented one-liner bootstrap forms are convenience entries over the
+verification-first script, never a bypass of its verification.
+
+Version-currency reporting stays out of the hook paths: hooks remain offline
+in this version. An opt-in, fail-open currency report — a `doctor` extension
+candidate — may report the current release and display the installing
+channel's canonical update command. Deprecation awareness for this
+offline-isolated tool class comes from build-time support-window markers
+carried in the binary, never from runtime network calls. Notifications never
+auto-execute anything and are never the security boundary.
+
 ## 10. Atomic installation and rollback
 
 Package managers must handle upgrade and rollback according to their platform. Direct installers:

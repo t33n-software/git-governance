@@ -68,5 +68,22 @@ required at login or at publication time.
 The complete prerequisite, secret-store, broker, logout, and Git transport
 readiness contract is in [GitHub App authentication](usage/authentication.md).
 
+## Install a released build
+
+Consumers do not build from source. Install and update through the same
+channel:
+
+1. Download the release artifact for your platform from the release channel.
+2. Verify its SHA-256 checksum and signature against the release manifest.
+3. Place the binary in a directory already on your `PATH`.
+4. Verify with `git-governance --version` and `git-governance doctor`.
+
+Updates are the same channel re-run against a newer pinned version; there is
+no automatic self-update. The delivery and update model is recorded in
+[ADR-0009](architecture/ADR-0009-CHANNEL-OWNED-DELIVERY-AND-UPDATE-MODEL.md),
+and the complete installation design — including the verification-first
+script standard and the package-manager target level — is in
+[installation and release](operations/installation-and-release.md).
+
 Release installers and package-manager manifests are added by the release
 pipeline. They are not yet published by this repository.
