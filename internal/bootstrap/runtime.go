@@ -78,6 +78,7 @@ type services struct {
 	scratch            *branchapp.ScratchMerger
 	commits            *commitapp.Service
 	tickets            *workflow.TicketService
+	worktrees          *workflow.WorktreeService
 	releases           *workflow.ReleaseService
 	bootstrap          *workflow.BootstrapService
 	allocation         *ticketalloc.Service
@@ -290,6 +291,7 @@ func (application *application) services() services {
 			}),
 		lifecycle:   lifecycle,
 		allocation:  allocation,
+		worktrees:   workflow.NewWorktreeService(git),
 		preferences: policy.NewPreferencesService(store),
 		doctor:      policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
 		githubAuth:  githubAuth,

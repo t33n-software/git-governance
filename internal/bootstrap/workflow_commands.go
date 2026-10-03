@@ -30,6 +30,7 @@ func newWorkflowCommand(application *application) *cobra.Command {
 		newReleaseWorkflowCommand(application),
 		newCleanupWorkflowCommand(application),
 		newBootstrapWorkflowCommand(application),
+		newWorktreeCommand(application),
 	)
 	return command
 }

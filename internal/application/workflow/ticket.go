@@ -104,6 +104,10 @@ func (service *TicketService) StartTicket(ctx context.Context, request StartTick
 		)
 	}
 
+	if err := service.acceptDetachedTaskWorktree(ctx, request.Repository); err != nil {
+		return StartTicketResult{}, err
+	}
+
 	switchToOfficial := true
 	official, err := service.branches.Create(ctx, branchapp.CreateRequest{
 		Repository: request.Repository,

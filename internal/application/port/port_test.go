@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
@@ -70,5 +71,35 @@ func TestCredentialCapabilitySurface(t *testing.T) {
 	}, ErrCapabilitySessionMissing)
 	if !errors.Is(wrapped, ErrCapabilitySessionMissing) {
 		t.Fatal("the capability-missing sentinel must stay errors.Is-distinguishable through its problem wrapper")
+	}
+}
+
+func TestWorktreeBranchLocation(t *testing.T) {
+	t.Parallel()
+
+	name, err := branch.ParseName("feature/GOV-130-add-export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []WorktreeEntry{
+		{Path: "C:/repo", Branch: "develop"},
+		{Path: "C:/repo-GOV-129", Detached: true, Branch: "feature/GOV-129-add-export"},
+		{Path: "C:/repo-GOV-130", Branch: "feature/GOV-130-add-export"},
+		{Path: "C:/bare", Bare: true, Branch: "feature/GOV-130-add-export"},
+	}
+	path, found := WorktreeBranchLocation(entries, name)
+	if !found || path != "C:/repo-GOV-130" {
+		t.Fatalf("WorktreeBranchLocation() = (%q, %v), want the linked worktree path", path, found)
+	}
+
+	missing, err := branch.ParseName("feature/GOV-131-add-export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, found := WorktreeBranchLocation(entries, missing); found || path != "" {
+		t.Fatalf("WorktreeBranchLocation() for an unlisted branch = (%q, %v), want no location", path, found)
+	}
+	if path, found := WorktreeBranchLocation(nil, name); found || path != "" {
+		t.Fatalf("WorktreeBranchLocation() for an empty inventory = (%q, %v), want no location", path, found)
 	}
 }

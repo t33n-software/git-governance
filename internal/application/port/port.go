@@ -257,6 +257,47 @@ type BranchReferenceFastForwarder interface {
 	) (FastForwardOutcome, error)
 }
 
+// WorktreeEntry describes one worktree of the Git worktree inventory.
+type WorktreeEntry struct {
+	// Path is the absolute worktree directory.
+	Path string `json:"path"`
+	// Head is the commit object the worktree currently resolves, when known.
+	Head string `json:"head"`
+	// Branch is the checked-out canonical branch name; empty when the
+	// worktree is detached or bare.
+	Branch string `json:"branch"`
+	// Detached reports a worktree whose HEAD points at a commit instead of a
+	// branch.
+	Detached bool `json:"detached"`
+	// Bare reports a bare worktree without a working tree.
+	Bare bool `json:"bare"`
+}
+
+// WorktreeManager is an optional capability for adapters that can manage task
+// worktrees: the porcelain inventory, the detached acquisition of a new
+// worktree from a fetched remote-tracking base, the fail-closed removal of a
+// clean worktree, and the linked-worktree form of the running checkout.
+// Keeping the capability separate avoids forcing unrelated Git adapters and
+// test fakes to implement worktree mutations they never invoke.
+type WorktreeManager interface {
+	WorktreeList(ctx context.Context, repository RepositoryIdentity) ([]WorktreeEntry, error)
+	WorktreeAddDetached(ctx context.Context, repository RepositoryIdentity, path string, base branch.TargetBase) error
+	WorktreeRemove(ctx context.Context, repository RepositoryIdentity, path string) error
+	LinkedWorktree(ctx context.Context, repository RepositoryIdentity) (bool, error)
+}
+
+// WorktreeBranchLocation reports the worktree path where the branch is
+// currently checked out, derived from the porcelain worktree inventory. A
+// detached or bare worktree never carries a branch.
+func WorktreeBranchLocation(entries []WorktreeEntry, name branch.BranchName) (string, bool) {
+	for _, entry := range entries {
+		if !entry.Detached && !entry.Bare && entry.Branch == name.String() {
+			return entry.Path, true
+		}
+	}
+	return "", false
+}
+
 // KeyPolicy validates a syntactically valid key against the active local
 // policy. The first implementation only checks syntax; a bundle adapter can
 // add repository authorization later.
