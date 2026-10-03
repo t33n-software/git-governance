@@ -912,7 +912,7 @@ func TestCommandHelpersCurrentOrSpecifiedAndReadCommitMessage(t *testing.T) {
 		}
 	})
 
-	t.Run("reads inline and bounded file message input safely", func(t *testing.T) {
+	t.Run("reads the bounded file message input safely", func(t *testing.T) {
 		tempDir := t.TempDir()
 		messagePath := filepath.Join(tempDir, "message.txt")
 		message := "feat(ABC-123): add export\n"
@@ -920,40 +920,47 @@ func TestCommandHelpersCurrentOrSpecifiedAndReadCommitMessage(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		actual, err := readCommitMessage(filepath.Join(tempDir, "missing.txt"), "feat(ABC-123): inline")
-		if err != nil || actual != "feat(ABC-123): inline" {
-			t.Fatalf("inline readCommitMessage() = (%q, %v)", actual, err)
-		}
-
-		actual, err = readCommitMessage(messagePath, "")
+		actual, err := readCommitMessage(messagePath)
 		if err != nil || actual != message {
 			t.Fatalf("file readCommitMessage() = (%q, %v)", actual, err)
 		}
 
-		_, err = readCommitMessage("", "")
+		_, err = readCommitMessage("")
 		assertCommandHelperProblem(t, err, problem.CodeInvalidInput, problem.CategoryUsage, "commit message")
 
 		missingPath := filepath.Join(tempDir, "missing.txt")
-		_, err = readCommitMessage(missingPath, "")
+		_, err = readCommitMessage(missingPath)
 		assertCommandHelperProblem(t, err, problem.CodeConfigurationUnavailable, problem.CategoryUsage, "message file")
 		if !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("missing message error = %v, want not exist", err)
 		}
 
 		oversizedPath := filepath.Join(tempDir, "oversized.txt")
-		if err := os.WriteFile(oversizedPath, bytes.Repeat([]byte("x"), maxCommitMessageBytes+1), 0o600); err != nil {
+		if err := os.WriteFile(oversizedPath, bytes.Repeat([]byte("x"), maxMessageFileBytes+1), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		_, err = readCommitMessage(oversizedPath, "")
+		_, err = readCommitMessage(oversizedPath)
 		assertCommandHelperProblem(t, err, problem.CodeCommitHeaderInvalid, problem.CategoryUsage, "message file")
 
 		directoryPath := filepath.Join(tempDir, "message-directory")
 		if err := os.Mkdir(directoryPath, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		_, err = readCommitMessage(directoryPath, "")
+		_, err = readCommitMessage(directoryPath)
 		assertCommandHelperProblem(t, err, problem.CodeConfigurationUnavailable, problem.CategoryUsage, "message file")
 	})
+}
+
+// writeMessageFile writes one absolute-path message file for the file-based
+// transport invocations: the file-based flags resolve the content from an
+// existing plain UTF-8 file instead of an inline string.
+func writeMessageFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "message.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func newCommandHelperOptions() *appOptions {

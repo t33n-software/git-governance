@@ -29,7 +29,7 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 		typeRaw             string
 		ticketRaw           string
 		subject             string
-		body                string
+		bodyFile            string
 		breaking            bool
 		breakingDescription string
 		footerSpecs         []string
@@ -42,6 +42,10 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 		Short: "Create a governed commit from explicit staged paths",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -116,7 +120,7 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 	registerCommitTypeFlag(command, &typeRaw, "")
 	registerTicketIDFlag(command, &ticketRaw, "compatibility check; the current branch is authoritative")
 	registerSubjectFlag(command, &subject, "subject", "")
-	registerBodyFlag(command, &body, "body", "mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")
+	registerBodyFileFlag(command, &bodyFile, "body-file", "mandatory for breaking changes, hotfix-lane commits, release-stabilization branches, and the scratch squash transfer")
 	command.Flags().BoolVar(&breaking, "breaking", false, "mark an incompatible public contract change")
 	registerBreakingDescriptionFlag(command, &breakingDescription, "breaking-description", "")
 	registerFooterFlag(command, &footerSpecs, "footer", "")
@@ -129,7 +133,6 @@ func newCommitCreateCommand(application *application) *cobra.Command {
 func newCommitValidateCommand(application *application) *cobra.Command {
 	var (
 		messageFile string
-		messageRaw  string
 		branchRaw   string
 	)
 	command := &cobra.Command{
@@ -145,7 +148,7 @@ func newCommitValidateCommand(application *application) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			raw, err := readCommitMessage(messageFile, messageRaw)
+			raw, err := readCommitMessage(messageFile)
 			if err != nil {
 				return err
 			}
@@ -173,7 +176,6 @@ func newCommitValidateCommand(application *application) *cobra.Command {
 		},
 	}
 	registerCommitMessageFileFlag(command, &messageFile)
-	registerCommitMessageFlag(command, &messageRaw)
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "branch name; defaults to the current branch")
 	return command
 }

@@ -67,8 +67,8 @@ mandatory for breaking changes, hotfix-lane commits, release-stabilization
 commits, and the scratch squash transfer. The canonical contracts live in
 [Commit subject contract](../conventions/commits/subject-contract.md) and
 [Commit family selection](../conventions/commits/family-selection.md).
-`commit validate --message` and `--message-file` remain full-message
-validation inputs because hooks validate the exact message that Git supplies.
+`commit validate --message-file` remains the full-message
+validation input because hooks validate the exact message that Git supplies.
 
 Add a breaking change:
 
@@ -76,11 +76,15 @@ Add a breaking change:
 git governance --yes commit create `
   --type feat `
   --subject "replace export contract" `
-  --body "## Motivation`n`nThe export contract changed incompatibly." `
+  --body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
   --breaking `
   --breaking-description "Clients must read the new resource envelope." `
   --stage internal/domain/commitmsg/message.go
 ```
+
+The commit body crosses the CLI boundary through a message file: an absolute
+path to an existing plain UTF-8 text file of at most 1 MiB (relative paths are
+rejected); the content is carried verbatim.
 
 Validate a message file, for example from a hook:
 

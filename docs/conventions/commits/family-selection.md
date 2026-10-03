@@ -73,7 +73,7 @@ self-explanatory, and the omission is reported as justified.
 ## 5. Single Input Representation
 
 Commit creation speaks structured values only: `--type`, `--subject`,
-`--body`, `--footer`, `--breaking`, and `--breaking-description`. The project
+`--body-file`, `--footer`, `--breaking`, and `--breaking-description`. The project
 deliberately defines no second input level on which a complete pre-assembled
 message could be supplied; the envelope can therefore never be authored by
 callers at all. Raw complete messages exist only at the verification boundary

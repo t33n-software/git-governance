@@ -704,8 +704,8 @@ func TestReleasePromotionAndBackmergeRequireTheMandatoryDescription(t *testing.T
 func TestReleasePromotionAndBackmergeAttachInputsToPublisherFailures(t *testing.T) {
 	publishErr := errors.New("publisher unavailable")
 	for _, arguments := range [][]string{
-		{"workflow", "release", "promote", "--release", "release/2.8.0", "--create-pull-request", "--yes", "--body", "Summary: Promote release 2.8.0 into main."},
-		{"workflow", "release", "backmerge", "--release", "release/2.8.0", "--create-pull-request", "--yes", "--body", "Summary: Backmerge release 2.8.0 into develop."},
+		{"workflow", "release", "promote", "--release", "release/2.8.0", "--create-pull-request", "--yes", "--body-file", writeMessageFile(t, "Summary: Promote release 2.8.0 into main.")},
+		{"workflow", "release", "backmerge", "--release", "release/2.8.0", "--create-pull-request", "--yes", "--body-file", writeMessageFile(t, "Summary: Backmerge release 2.8.0 into develop.")},
 	} {
 		arguments := arguments
 		t.Run(strings.Join(arguments[2:3], "-"), func(t *testing.T) {

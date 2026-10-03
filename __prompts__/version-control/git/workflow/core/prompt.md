@@ -1095,11 +1095,43 @@ Jede nicht beantwortbare Frage ist entweder über die Matrix aus [6.4.3]
 begründet nicht zutreffend oder blockiert den Nachweis. Erst bei
 vollständig bestandenem Gate setzt der Agent `commit_content_verified`.
 
+#### 6.4.6 Nachrichten-Transport über temporäre Dateien
+
+Die Nachrichtendatei eines mehrzeiligen Nachrichtenteils entsteht im
+temporären Bereich des jeweiligen Betriebssystems — niemals im Repository
+(kein Staging-Rauschen, kein Git-Zustandskontakt). Die Disziplin ist
+verbindlich:
+
+```text
+1. Namensform: <zweck>-<uuid>.txt mit einer intern je Nachrichteneinheit
+   generierten UUID; ticketbasierte Namen werden nicht verwendet, damit
+   parallele Agents und gleichzeitige Commit- und Publikationsbedarfe
+   nicht kollidieren.
+2. Such- und Orientierungsverbot: im temporären Bereich wird nicht
+   gesucht, nicht gelistet und sich nicht an Beständen orientiert — er
+   ist niemals eine Informations-, Orientierungs- oder
+   Infrastruktur-Quelle.
+3. Prüfen-dann-Schreiben: vor dem Schreiben wird proaktiv geprüft, dass
+   die Zieldatei nicht existiert; erst danach wird geschrieben.
+4. Tool-Priorität: Existenzprüfung und Schreiben laufen mit den
+   Kontext-Tools in dieser Reihenfolge; die Shell ist ausschließlich
+   der Fallback.
+5. Einmal-Nutzung: die Datei wird frisch je Nachricht erstellt, von
+   genau einer Endpunkt-Invocation konsumiert und niemals gecacht oder
+   wiederverwendet.
+6. Der Content-Vertrag bleibt [6.4]: die Datei ändert nichts daran, was
+   die Nachricht tragen muss.
+```
+
 Der Transport — welche Argumente Betreff, Body, Footer und Breaking-Angaben
 tragen — wird ausschließlich aus der unmittelbar vorher gelesenen
-`commit create`-Hilfe abgeleitet. Bietet die aktuelle Hilfe keinen
-Body-Transport, ist der Zustand `BLOCKED` mit benannter Lücke; es gibt
-keinen Roh-Git- oder Editor-Ersatz.
+`commit create`-Hilfe abgeleitet. Mehrzeilige Nachrichtenteile (der Body)
+werden über eine Nachrichtendatei überführt: das Help-Flag trägt einen
+absoluten Pfad zu einer existierenden Plain-UTF-8-Textdatei von höchstens
+1 MiB, und der Dateiinhalt wird verbatim als Body übernommen. Skalare
+Angaben (Betreff, Footer, Breaking-Description) bleiben Flag-Argumente.
+Bietet die aktuelle Hilfe keinen Body-Transport, ist der Zustand `BLOCKED`
+mit benannter Lücke; es gibt keinen Roh-Git- oder Editor-Ersatz.
 
 ## [7] KONFLIKT- UND SICHERHEITSPROTOKOLL
 [INTENT: ANWEISUNG]
@@ -1187,7 +1219,9 @@ deterministisch bleiben.
 Der Agent komponiert die Beschreibung vor der Publikation aus dem
 Acceptance Ledger und der validierten Commit-Serie und setzt
 `pr_description_verified`. Der Transport erfolgt ausschließlich über die
-unmittelbar vorher gelesene Hilfe des jeweiligen Publish-Endpunkts. Bietet
+unmittelbar vorher gelesene Hilfe des jeweiligen Publish-Endpunkts: die
+Beschreibung wird als Nachrichtendatei über einen absoluten Pfad-Flag
+überführt, und die Erstellungsdisziplin der Datei folgt [6.4.6]. Bietet
 die aktuelle Binary keinen Transport für eine PR-Beschreibung, meldet der
 Agent die Lücke als benannten Blocker (`BLOCKED` für den Body-Transport) und
 weicht weder auf eine externe PR-CLI noch auf rohe Provider-Aufrufe oder
@@ -1321,6 +1355,9 @@ Der Agent darf niemals:
   Integrationsebene aus [8.1] erzeugen;
 - eine PR-Beschreibung über eine externe PR-CLI, rohe Provider-Aufrufe oder
   manuelle Webedits transportieren, wenn die Binary keinen Transport anbietet;
+- im temporären Bereich nach Dateien zu suchen, ihn zu listen oder sich an
+  seinen Beständen zu orientieren — der temporäre Bereich ist niemals eine
+  Informations-, Orientierungs- oder Infrastruktur-Quelle;
 - die Workflow-Initialisierung für einen Turn starten, den das
   Turn-Intent-Gate als Frage gebunden hat;
 - im Question-Mode eine Mutation, ein Staging, einen Commit, eine

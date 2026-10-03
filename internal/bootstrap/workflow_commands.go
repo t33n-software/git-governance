@@ -224,11 +224,11 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 		scratchTargetRaw         string
 		scratchFamilyRaw         string
 		scratchSubjectRaw        string
-		scratchBodyRaw           string
+		scratchBodyFileRaw       string
 		scratchFootersRaw        []string
 		scratchBreakingRaw       bool
 		scratchBreakingImpactRaw string
-		bodyRaw                  string
+		bodyFile                 string
 		push                     bool
 		createPullRequest        bool
 		draft                    bool
@@ -239,6 +239,14 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 		Short: "Validate, synchronize, optionally push, and prepare a ticket pull request",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			scratchBody, err := resolveMessageFile(scratchBodyFileRaw, "commit-body-file")
+			if err != nil {
+				return err
+			}
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -273,7 +281,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 					target,
 					scratchFamilyRaw,
 					scratchSubjectRaw,
-					scratchBodyRaw,
+					scratchBody,
 					scratchBreakingRaw,
 					scratchBreakingImpactRaw,
 					scratchFootersRaw,
@@ -284,8 +292,8 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 				scratchMessage = &message
 				inputs.add("squash commit family", message.Header().Type().String())
 				inputs.add("squash commit description", message.Header().Subject())
-			} else if scratchTargetRaw != "" || scratchFamilyRaw != "" || scratchSubjectRaw != "" || scratchBodyRaw != "" || len(scratchFootersRaw) > 0 || scratchBreakingRaw || scratchBreakingImpactRaw != "" {
-				return invalidOption("scratch transfer", "configured", "--target, --type, --subject, --commit-body, --commit-footer, --commit-breaking, and --commit-breaking-description are only supported when publishing from scratch")
+			} else if scratchTargetRaw != "" || scratchFamilyRaw != "" || scratchSubjectRaw != "" || scratchBodyFileRaw != "" || len(scratchFootersRaw) > 0 || scratchBreakingRaw || scratchBreakingImpactRaw != "" {
+				return invalidOption("scratch transfer", "configured", "--target, --type, --subject, --commit-body-file, --commit-footer, --commit-breaking, and --commit-breaking-description are only supported when publishing from scratch")
 			}
 			base, err := parseBase(baseRaw, repository.Remote)
 			if err != nil {
@@ -297,7 +305,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 			if resume && application.options.dryRun {
 				return invalidOption("resume", "true", "a non-dry-run invocation")
 			}
-			if err := application.validatePullRequestPublication(services, push, createPullRequest, bodyRaw); err != nil {
+			if err := application.validatePullRequestPublication(services, push, createPullRequest, body); err != nil {
 				return err
 			}
 			label := "Publish ticket workflow"
@@ -338,7 +346,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 						Branch:     scratchMerge.Target,
 						Base:       base,
 						Draft:      draft,
-						Body:       bodyRaw,
+						Body:       body,
 					})
 					if err == nil {
 						result.ScratchMerge = &scratchMerge
@@ -349,7 +357,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 						Branch:     name,
 						Base:       base,
 						Draft:      draft,
-						Body:       bodyRaw,
+						Body:       body,
 					})
 				}
 			} else {
@@ -360,7 +368,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 					ScratchTarget:  scratchTarget,
 					ScratchMessage: scratchMessage,
 					Draft:          draft,
-					Body:           bodyRaw,
+					Body:           body,
 					DryRun:         application.options.dryRun,
 				})
 			}
@@ -382,7 +390,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 						Branch:     *scratchTarget,
 						Base:       base,
 						Draft:      draft,
-						Body:       bodyRaw,
+						Body:       body,
 						DryRun:     application.options.dryRun,
 					})
 					if err == nil {
@@ -473,11 +481,11 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 	registerBranchReferenceFlag(command, &scratchTargetRaw, "target", "optional local official target when publishing from scratch")
 	registerCommitTypeFlag(command, &scratchFamilyRaw, "for a scratch squash transfer")
 	registerSubjectFlag(command, &scratchSubjectRaw, "subject", "for a scratch squash transfer")
-	registerBodyFlag(command, &scratchBodyRaw, "commit-body", "for a scratch squash transfer (mandatory, documents the discarded experiment paths)")
+	registerBodyFileFlag(command, &scratchBodyFileRaw, "commit-body-file", "for a scratch squash transfer (mandatory, documents the discarded experiment paths)")
 	registerFooterFlag(command, &scratchFootersRaw, "commit-footer", "for a scratch squash transfer")
 	command.Flags().BoolVar(&scratchBreakingRaw, "commit-breaking", false, "mark an incompatible public contract change in the scratch squash transfer commit")
 	registerBreakingDescriptionFlag(command, &scratchBreakingImpactRaw, "commit-breaking-description", "for the scratch squash transfer commit")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -892,7 +900,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 	var (
 		branchRaw         string
 		affectedRaw       string
-		bodyRaw           string
+		bodyFile          string
 		push              bool
 		createPullRequest bool
 		draft             bool
@@ -903,6 +911,10 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 		Short: "Validate, publish, and prepare a pull request for a hotfix",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -927,7 +939,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 			if resume && application.options.dryRun {
 				return invalidOption("resume", "true", "a non-dry-run invocation")
 			}
-			if err := application.validatePullRequestPublication(services, push, createPullRequest, bodyRaw); err != nil {
+			if err := application.validatePullRequestPublication(services, push, createPullRequest, body); err != nil {
 				return err
 			}
 			label := "Publish hotfix"
@@ -950,7 +962,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 					Branch:     name,
 					Base:       &base,
 					Draft:      draft,
-					Body:       bodyRaw,
+					Body:       body,
 				})
 			} else {
 				result, err = services.tickets.PublishTicket(command.Context(), workflow.PublishTicketRequest{
@@ -958,7 +970,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 					Branch:     name,
 					Base:       &base,
 					Draft:      draft,
-					Body:       bodyRaw,
+					Body:       body,
 					DryRun:     application.options.dryRun,
 				})
 			}
@@ -1001,7 +1013,7 @@ func newHotfixPublishCommand(application *application) *cobra.Command {
 	}
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "hotfix branch; defaults to the current branch")
 	registerAffectedLineFlag(command, &affectedRaw)
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the hotfix branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -1016,7 +1028,7 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 		commitID          string
 		slugRaw           string
 		branchRaw         string
-		bodyRaw           string
+		bodyFile          string
 		push              bool
 		createPullRequest bool
 		draft             bool
@@ -1027,6 +1039,10 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 		Short: "Forward-port or backport one reviewed hotfix commit",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -1034,7 +1050,7 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 			if resume && application.options.dryRun {
 				return invalidOption("resume", "true", "a non-dry-run invocation")
 			}
-			if err := application.validatePullRequestPublication(services, push, createPullRequest, bodyRaw); err != nil {
+			if err := application.validatePullRequestPublication(services, push, createPullRequest, body); err != nil {
 				return err
 			}
 			if resume && sourceRaw == "" {
@@ -1075,7 +1091,7 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 					TargetLine: target,
 					Branch:     propagationBranch,
 					Draft:      draft,
-					Body:       bodyRaw,
+					Body:       body,
 				})
 				if err != nil {
 					return err
@@ -1140,7 +1156,7 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 				CommitID:   commitID,
 				Slug:       slug,
 				Draft:      draft,
-				Body:       bodyRaw,
+				Body:       body,
 				DryRun:     application.options.dryRun,
 			})
 			if err != nil {
@@ -1185,7 +1201,7 @@ func newHotfixPropagateCommand(application *application) *cobra.Command {
 	registerCommitSHAFlag(command, &commitID)
 	registerSlugFlag(command, &slugRaw, "slug", "for the propagation branch (optional)")
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "generated propagation branch; required with --resume")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the propagation branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -2047,7 +2063,7 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 	var (
 		branchRaw         string
 		releaseRaw        string
-		bodyRaw           string
+		bodyFile          string
 		push              bool
 		createPullRequest bool
 		draft             bool
@@ -2058,6 +2074,10 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 		Short: "Validate and prepare a stabilization pull request for its release line",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -2089,7 +2109,7 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 			if resume && application.options.dryRun {
 				return invalidOption("resume", "true", "a non-dry-run invocation")
 			}
-			if err := application.validatePullRequestPublication(services, push, createPullRequest, bodyRaw); err != nil {
+			if err := application.validatePullRequestPublication(services, push, createPullRequest, body); err != nil {
 				return err
 			}
 			label := "Publish release stabilization"
@@ -2113,7 +2133,7 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 					Base:            &base,
 					WorkflowManaged: true,
 					Draft:           draft,
-					Body:            bodyRaw,
+					Body:            body,
 				})
 			} else {
 				result, err = services.tickets.PublishTicket(command.Context(), workflow.PublishTicketRequest{
@@ -2122,7 +2142,7 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 					Base:            &base,
 					WorkflowManaged: true,
 					Draft:           draft,
-					Body:            bodyRaw,
+					Body:            body,
 					DryRun:          application.options.dryRun,
 				})
 			}
@@ -2164,7 +2184,7 @@ func newReleasePublishStabilizationCommand(application *application) *cobra.Comm
 	}
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "stabilization branch; defaults to the current branch")
 	registerReleaseLineFlag(command, &releaseRaw, "target")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the stabilization branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -2176,7 +2196,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 	var (
 		branchRaw         string
 		releaseRaw        string
-		bodyRaw           string
+		bodyFile          string
 		push              bool
 		createPullRequest bool
 		draft             bool
@@ -2187,6 +2207,10 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 		Short: "Align a release-preparation branch with main before promotion",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -2209,7 +2233,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				return err
 			}
 			inputs.add("release line", release.String())
-			if err := application.validatePullRequestPublication(services, push, createPullRequest, bodyRaw); err != nil {
+			if err := application.validatePullRequestPublication(services, push, createPullRequest, body); err != nil {
 				return err
 			}
 			if err := application.confirmMutation(
@@ -2227,7 +2251,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 				CreatePullRequest: createPullRequest,
 				Draft:             draft,
 				Resume:            resume,
-				Body:              bodyRaw,
+				Body:              body,
 				DryRun:            application.options.dryRun,
 			})
 			if err != nil {
@@ -2259,7 +2283,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 	}
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "release-preparation branch; defaults to the current branch")
 	registerReleaseLineFlag(command, &releaseRaw, "target")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the aligned release-preparation branch")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the release stabilization pull request after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
@@ -2270,7 +2294,7 @@ func newReleaseAlignPromotionBaseCommand(application *application) *cobra.Comman
 func newReleasePromotionCommand(application *application) *cobra.Command {
 	var (
 		releaseRaw        string
-		bodyRaw           string
+		bodyFile          string
 		createPullRequest bool
 		draft             bool
 	)
@@ -2279,6 +2303,10 @@ func newReleasePromotionCommand(application *application) *cobra.Command {
 		Short: "Prepare the release/<semver> to main pull request",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -2293,14 +2321,14 @@ func newReleasePromotionCommand(application *application) *cobra.Command {
 				return err
 			}
 			inputs.add("release branch", release.String())
-			if err := validatePullRequestBody(createPullRequest, bodyRaw); err != nil {
+			if err := validatePullRequestBody(createPullRequest, body); err != nil {
 				return err
 			}
 			result, err := services.releases.PrepareReleasePromotion(command.Context(), workflow.PrepareReleasePromotionRequest{
 				Repository: repository,
 				Release:    release,
 				Draft:      draft,
-				Body:       bodyRaw,
+				Body:       body,
 				DryRun:     application.options.dryRun,
 			})
 			if err != nil {
@@ -2343,7 +2371,7 @@ func newReleasePromotionCommand(application *application) *cobra.Command {
 		}),
 	}
 	registerReleaseLineFlag(command, &releaseRaw, "")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
 	return command
@@ -2351,7 +2379,7 @@ func newReleasePromotionCommand(application *application) *cobra.Command {
 
 func newReleaseBackmergeCommand(application *application) *cobra.Command {
 	var releaseRaw string
-	var bodyRaw string
+	var bodyFile string
 	var createPullRequest bool
 	var draft bool
 	command := &cobra.Command{
@@ -2359,6 +2387,10 @@ func newReleaseBackmergeCommand(application *application) *cobra.Command {
 		Short: "Verify release delivery and conditionally prepare a develop backmerge",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -2373,14 +2405,14 @@ func newReleaseBackmergeCommand(application *application) *cobra.Command {
 				return err
 			}
 			inputs.add("release branch", release.String())
-			if err := validatePullRequestBody(createPullRequest, bodyRaw); err != nil {
+			if err := validatePullRequestBody(createPullRequest, body); err != nil {
 				return err
 			}
 			result, err := services.releases.AssessReleaseBackmerge(command.Context(), workflow.AssessReleaseBackmergeRequest{
 				Repository: repository,
 				Release:    release,
 				Draft:      draft,
-				Body:       bodyRaw,
+				Body:       body,
 				DryRun:     application.options.dryRun,
 			})
 			if err != nil {
@@ -2439,7 +2471,7 @@ func newReleaseBackmergeCommand(application *application) *cobra.Command {
 		}),
 	}
 	registerReleaseLineFlag(command, &releaseRaw, "delivered")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")
 	return command
@@ -2449,7 +2481,7 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 	var (
 		branchRaw         string
 		releaseRaw        string
-		bodyRaw           string
+		bodyFile          string
 		push              bool
 		createPullRequest bool
 		draft             bool
@@ -2461,6 +2493,10 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 		Short: "Align a release-preparation branch with develop before reconciliation",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
+			body, err := resolveMessageFile(bodyFile, "body-file")
+			if err != nil {
+				return err
+			}
 			repository, err := application.discover(command.Context(), services)
 			if err != nil {
 				return err
@@ -2483,7 +2519,7 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 				return err
 			}
 			inputs.add("release line", release.String())
-			if err := application.validatePullRequestPublication(services, push, createPullRequest, bodyRaw); err != nil {
+			if err := application.validatePullRequestPublication(services, push, createPullRequest, body); err != nil {
 				return err
 			}
 			if err := application.confirmMutation(
@@ -2504,7 +2540,7 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 					Draft:             draft,
 					Resume:            resume,
 					Prepared:          prepared,
-					Body:              bodyRaw,
+					Body:              body,
 					DryRun:            application.options.dryRun,
 				},
 			)
@@ -2540,7 +2576,7 @@ func newReleaseAlignReconciliationBaseCommand(application *application) *cobra.C
 	}
 	registerBranchReferenceFlag(command, &branchRaw, "branch", "reconciliation-preparation branch; defaults to the current branch")
 	registerReleaseLineFlag(command, &releaseRaw, "delivered")
-	command.Flags().StringVar(&bodyRaw, "body", "", "pull request description; mandatory with --create-pull-request")
+	registerPullRequestBodyFileFlag(command, &bodyFile, "mandatory with --create-pull-request")
 	command.Flags().BoolVar(&push, "push", false, "push the preparation branch after validation")
 	command.Flags().BoolVar(&createPullRequest, "create-pull-request", false, "create the pull request through the configured provider after pushing")
 	command.Flags().BoolVar(&draft, "draft", false, "mark the pull request intent as a draft")

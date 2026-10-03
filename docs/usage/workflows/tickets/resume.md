@@ -18,7 +18,7 @@ is ambiguous:
 git governance --interactive never --output json --yes workflow ticket publish `
   --type feat `
   --subject "add export button" `
-  --commit-body "## Motivation`n`nDocuments the discarded experiment paths." `
+  --commit-body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
   --resume `
   --push
 ```

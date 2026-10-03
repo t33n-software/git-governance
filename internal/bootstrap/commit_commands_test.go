@@ -108,7 +108,7 @@ func TestCommitCreateCommandBuildsBreakingMessageAndReportsJSON(t *testing.T) {
 		"--type", "feat",
 		"--ticket", "ABC-123",
 		"--subject", "add export",
-		"--body", "Exports are now available to clients.",
+		"--body-file", writeMessageFile(t, "Exports are now available to clients."),
 		"--footer", "Refs=#123",
 		"--footer", "Reviewed-by=Maintainer",
 		"--breaking",
@@ -288,7 +288,7 @@ func TestCommitCreateEnforcesTheBodyDuty(t *testing.T) {
 		application.options.yes = true
 		_, err = executeBootstrapCommand(t, newCommitCreateCommand(application),
 			"--type", "fix", "--subject", "reject expired session tokens",
-			"--body", "## Motivation\n\nExpired tokens were accepted when the clock skew exceeded the leeway.",
+			"--body-file", writeMessageFile(t, "## Motivation\n\nExpired tokens were accepted when the clock skew exceeded the leeway."),
 			"--stage", "README.md")
 		if err != nil {
 			t.Fatalf("hotfix commit with body error = %v", err)
@@ -358,7 +358,7 @@ func TestCommitCreateEnforcesTheBodyDuty(t *testing.T) {
 	})
 }
 
-func TestCommitValidateCommandParsesMessagesAndRespectsFlagPrecedence(t *testing.T) {
+func TestCommitValidateCommandParsesMessagesAndHonorsTheExplicitBranch(t *testing.T) {
 	messagePath := filepath.Join(t.TempDir(), "message.txt")
 	messageFromFile := "feat(ABC-123)!: add export\n\nExports are available to clients.\n\nBREAKING CHANGE: Clients must use the export endpoint."
 	if err := os.WriteFile(messagePath, []byte(messageFromFile), 0o600); err != nil {
@@ -387,19 +387,18 @@ func TestCommitValidateCommandParsesMessagesAndRespectsFlagPrecedence(t *testing
 		`"breaking":"true"`,
 	)
 
-	precedenceGit := newCommitCommandGit(t, "feature/ABC-123-add-export")
-	precedenceApplication := newCommitCommandApplication(precedenceGit, nil)
-	precedenceOutput, err := executeBootstrapCommand(t, newCommitValidateCommand(precedenceApplication),
-		"--message-file", filepath.Join(t.TempDir(), "does-not-exist.txt"),
-		"--message", "feat(ABC-123): use inline input",
+	implicitGit := newCommitCommandGit(t, "feature/ABC-123-add-export")
+	implicitApplication := newCommitCommandApplication(implicitGit, nil)
+	implicitOutput, err := executeBootstrapCommand(t, newCommitValidateCommand(implicitApplication),
+		"--message-file", writeMessageFile(t, "feat(ABC-123): use inline input"),
 	)
 	if err != nil {
-		t.Fatalf("inline message validation error = %v", err)
+		t.Fatalf("implicit branch validation error = %v", err)
 	}
-	if precedenceGit.currentCalls != 1 {
-		t.Fatalf("implicit branch calls = %d, want 1", precedenceGit.currentCalls)
+	if implicitGit.currentCalls != 1 {
+		t.Fatalf("implicit branch calls = %d, want 1", implicitGit.currentCalls)
 	}
-	assertCommitOutputContains(t, precedenceOutput, "Commit message is valid.")
+	assertCommitOutputContains(t, implicitOutput, "Commit message is valid.")
 }
 
 func TestCommitValidateCommandFailureContracts(t *testing.T) {
@@ -441,18 +440,18 @@ func TestCommitValidateCommandFailureContracts(t *testing.T) {
 		},
 		{
 			name:     "rejects malformed messages",
-			args:     []string{"--branch", "feature/ABC-123-add-export", "--message", "not a commit message"},
+			args:     []string{"--branch", "feature/ABC-123-add-export", "--message-file", writeMessageFile(t, "not a commit message")},
 			wantCode: problem.CodeCommitHeaderInvalid,
 		},
 		{
 			name:     "returns commit validation errors",
 			current:  "main",
-			args:     []string{"--message", "feat(ABC-123): add export"},
+			args:     []string{"--message-file", writeMessageFile(t, "feat(ABC-123): add export")},
 			wantCode: problem.CodeSharedLineMutationForbidden,
 		},
 		{
 			name: "preserves Git reference validation errors",
-			args: []string{"--branch", "feature/ABC-123-add-export", "--message", "feat(ABC-123): add export"},
+			args: []string{"--branch", "feature/ABC-123-add-export", "--message-file", writeMessageFile(t, "feat(ABC-123): add export")},
 			configure: func(git *commitCommandGit) {
 				git.validateErr = validateErr
 			},
