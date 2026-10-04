@@ -10,148 +10,35 @@
 |-------|-------|
 | Scope Root | `__prompts__/version-control/git/workflow` |
 | Versioning Standard | `Semantic Versioning 2.0.0` |
-| Current Version | `1.3.0` |
+| Current Version | `1.4.0` |
 | Semver Class | `minor` |
 | Breaking Change | `no` for the complete workflow bundle |
 | Commit Scope | `workflow-adapter` |
-| Ticket Scope | `GOV-129` |
-| Current HEAD Commit Hash | `5256c1abf06941d68b6c5ddebfcd1a3760b30075` (pre-finalization evidence; the new version entry is intentionally not committed yet) |
+| Ticket Scope | `GOV-131` |
+| Current HEAD Commit Hash | `fee9cfa1d56a04e2377d99ef61ba338002b63626` (pre-finalization evidence; the new version entry is intentionally not committed yet) |
 
 ---
 
-## 2. Version Ledger
+## 2. Version Ledger Summary
 [INTENT: REFERENCE]
 
-| Version | Date | Class | Breaking | Commit Type | HEAD Commit Hash | Summary | Commit Subject |
-|---------|------|-------|----------|-------------|------------------|---------|----------------|
-| `1.3.0` | `2026-10-03` | minor | no | `feat` | `5256c1abf06941d68b6c5ddebfcd1a3760b30075` (pre-finalization evidence) | Bound the task-bound worktree convention across the workflow contracts: actor-agnostic worktree rule, endpoint register, publish-return special case, and the merged legacy-name generalization. | pending (finalization deferred) |
-| `1.2.0` | `2026-08-16` | minor | no | `feat` | pending (finalization deferred) | Hardened the adapter into a fully gated DWCEA bootstrap: binding activation contract, fine-grained state machine, explicit proof ledger, pre-action embargo, invalidation rules, bootstrap symbol discipline and an extended prohibition and completion contract. | pending (finalization deferred) |
-| `1.1.0` | `2026-08-08` | minor | no | `feat` | `562b705e8cbd15295010a0aa0ed64faa7118990e` | Split the portable binary workflow core from this repository's Go-source adapter; added complete adapter and core metadata plus Help-first drift controls. | `feat(GOV-42): separate portable workflow core` |
-| `1.0.0` | `2026-08-07` | patch | no | `docs` | `9ee1a308355ccf8f14ae2467b15faba33947ca67` | Canonicalized the governed workflow prompt and retained the stable Cursor rule entrypoint. | `docs(GOV-35): centralize canonical rule prompts` |
+| Version Family | Path | Highest Version | Notes |
+|----------------|------|-----------------|-------|
+| `v1` | `changelog/v1.md` | `1.4.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
 
 ---
 
-## 3. Current Version Entry
-[INTENT: SPECIFICATION]
+## 3. Changelog Index
+[INTENT: REFERENCE]
 
-### 3.1 Version `1.3.0`
-[INTENT: SPECIFICATION]
-
-**Classification**
-
-| Field | Value |
-|-------|-------|
-| Semver Class | `minor` |
-| Breaking Change | `no` |
-| Rationale | The adapter and core keep every prior workflow capability and authority; the version binds the task-bound worktree convention into the workflow topology and adopts the merged legacy-name generalization. The retired raw worktree-acquisition form was bound as a transitional convention and is replaced by the governed lifecycle endpoints it anticipated. |
-
-**Change Units**
-
-| ID | Category | Breaking | Summary | Affected Files | Description Alignment |
-|----|----------|----------|---------|----------------|----------------------|
-| CHG-301 | `contract` | no | Bound the actor-agnostic worktree rule: a fresh detached task worktree is a legitimate pre-start context for every actor executing ticket work, acquired through the governed `workflow worktree start` endpoint; every other detached or unknown state stays blocked. | `core/prompt.md` | `DESCRIPTION.md` sections 5 and 6 updated |
-| CHG-302 | `runtime` | no | Added the worktree lifecycle endpoint register entries (`workflow worktree start` E1, `workflow worktree list` RO, `workflow worktree remove` E1) and extended the execution-level workflow family enumeration accordingly. | `core/prompt.md` | `DESCRIPTION.md` section 6 updated |
-| CHG-303 | `runtime` | no | Added the publish-return worktree special case: a linked task worktree checkout does not participate in the governed return to the integration line and reports its form honestly without questioning the publication. | `core/prompt.md` | `DESCRIPTION.md` section 5 updated |
-| CHG-304 | `naming` | no | Adopted the merged legacy-name generalization across the adapter non-duplication list, the adapter conventions, the core purpose description, and the workflow description index; semantics identical. | `prompt.md`, `CONVENTIONS.md`, `core/description/purpose-and-architecture.md`, `DESCRIPTION.md` | `DESCRIPTION.md` section 5 updated |
-
-**Migration / Consumer Impact**
-
-No migration required. The worktree convention and its endpoints are additive; consumers without the convention keep the generic endpoint register entries dormant through the help-first contract. Agents working in this repository acquire task worktrees through `workflow worktree start` instead of the retired raw acquisition form.
-
-**Commit Alignment**
-
-| Field | Value |
-|-------|-------|
-| Commit Subject | pending (finalization deferred by user instruction; metadata finalized without commit) |
-| Breaking Footer | none |
-| Current HEAD Commit Hash | `5256c1abf06941d68b6c5ddebfcd1a3760b30075` |
-
-### 3.2 Version `1.2.0`
-[INTENT: SPECIFICATION]
-
-**Classification**
-
-| Field | Value |
-|-------|-------|
-| Semver Class | `minor` |
-| Breaking Change | `no` |
-| Rationale | The adapter keeps its entire prior business logic: relative core loading, Go source-entrypoint binding, core delegation, non-duplication and the fail-closed entrypoint check are preserved in substance. The version adds the missing state-management and enforcement layers around them. |
-
-**Change Units**
-
-| ID | Category | Breaking | Summary | Affected Files | Description Alignment |
-|----|----------|----------|---------|----------------|----------------------|
-| CHG-201 | `contract` | no | Added the binding activation contract: presence of the adapter in the agent context activates it immediately, every git-affecting task must funnel through the adapter state chain into the core, and a skipped initialization is a reportable process violation instead of an alternative path. | `prompt.md` | `DESCRIPTION.md` sections 4 and 5 updated |
-| CHG-202 | `runtime` | no | Replaced the four-state sequence with the gated state machine `ADAPTER_ACTIVATED -> CORE_PATH_RESOLVED -> CORE_FULLY_LOADED -> CORE_CONTRACT_BOUND -> SOURCE_ENTRYPOINT_VERIFIED -> CORE_WORKFLOW_EXECUTING -> ADAPTER_COMPLETE` plus explicit runtime surfaces. | `prompt.md` | `DESCRIPTION.md` section 4 updated |
-| CHG-203 | `runtime` | no | Added the minimum proof ledger (`adapter_presence_acknowledged` through `adapter_completion_reported`) with the rule that no transition may occur without its bound proof and no early proof substitutes for a later one. | `prompt.md` | `DESCRIPTION.md` section 5 updated |
-| CHG-204 | `contract` | no | Added the pre-action embargo: before `CORE_WORKFLOW_EXECUTING`, only resolving the relative core path, reading the core completely, running the entrypoint help check and emitting bootstrap status lines are permitted. | `prompt.md` | `DESCRIPTION.md` section 5 updated |
-| CHG-205 | `runtime` | no | Added invalidation and re-anchoring rules: a changed core file, a failed entrypoint after prior success, or a session/repository switch resets the affected state and forbids reuse of cached core content, help results, or entrypoint verifications. | `prompt.md` | `DESCRIPTION.md` section 4 updated |
-| CHG-206 | `output` | no | Added the adapter-local bootstrap symbol discipline (`🔌` until `CORE_WORKFLOW_EXECUTING`, afterwards the core symbol registry governs) and the adapter gate audit record. | `prompt.md` | `DESCRIPTION.md` section 5 updated |
-| CHG-207 | `contract` | no | Extended the prohibition list and the completion verification ledger, including the mandatory open report when an initialization had to be repeated after being skipped. | `prompt.md` | `DESCRIPTION.md` section 5 updated |
-| CHG-208 | `runtime` | no | Added the Cursor rule frontmatter block (`description`, `alwaysApply: true`) to the adapter head, repairing the missing rule-injection metadata of the symlinked entrypoint `.cursor/rules/governed-task-to-pr-workflow.mdc`; the target of a rule symlink carries no activation metadata without this block and is never injected into the agent context. | `prompt.md` | `DESCRIPTION.md` section 7 updated |
-
-**Migration / Consumer Impact**
-
-No migration required. The stable Cursor symlink continues to resolve to `prompt.md`; the adapter still loads the co-located relative core and binds only the Go source entrypoint. Agents experience stricter sequencing and proof discipline, not a changed workflow contract.
-
-**Commit Alignment**
-
-| Field | Value |
-|-------|-------|
-| Commit Subject | pending (finalization deferred by user instruction; metadata finalized without commit) |
-| Breaking Footer | none |
-| Current HEAD Commit Hash | `76324d8799b687854c854b0aad700beb85e004e1` |
-
-### 3.3 Version `1.1.0`
-[INTENT: SPECIFICATION]
-
-**Classification**
-
-| Field | Value |
-|-------|-------|
-| Semver Class | `minor` |
-| Breaking Change | `no` for consumers that retain the complete workflow directory |
-| Compatibility | The stable Cursor symlink continues to resolve to `prompt.md`; the adapter loads the co-located relative core. |
-
-**Change Units**
-
-| ID | Category | Breaking | Summary | Affected Surfaces |
-|----|----------|----------|---------|-------------------|
-| CHG-101 | architecture | no | Added a self-contained portable binary-oriented workflow core. | `core/prompt.md` |
-| CHG-102 | adapter | no | Converted `prompt.md` into a relative-core loader and Go source-entrypoint binder. | `prompt.md` |
-| CHG-103 | runtime | no | Replaced duplicated CLI option knowledge with per-endpoint Help-first discovery. | adapter and core prompts |
-| CHG-104 | governance | no | Added explicit state, proof, Scratch and current hotfix delivery capability boundaries to the portable core. | `core/prompt.md` |
-| CHG-105 | docs | no | Added adapter/core conventions, descriptions and version ledgers. | workflow metadata pair and `core/` metadata |
-
-**Consumer Impact**
-
-The complete `workflow/` directory is now the distributable prompt bundle.
-Consumers that previously copied only `prompt.md` must copy the co-located
-`core/` directory as well, because the source adapter intentionally avoids a
-second full workflow copy. The repository's Cursor entrypoint remains stable.
-
-**Commit Alignment**
-
-| Field | Value |
-|-------|-------|
-| Commit Subject | `feat(GOV-42): separate portable workflow core` |
-| Breaking Footer | none |
-| HEAD Commit Hash | `562b705e8cbd15295010a0aa0ed64faa7118990e` |
-
-### 3.4 Version `1.0.0`
-[INTENT: SPECIFICATION]
-
-The initial version placed the complete workflow directly in `prompt.md` and
-retained the Cursor entrypoint as a relative symbolic link. That stable
-entrypoint remains intact across all later versions.
-
-**Commit Alignment**
-
-| Field | Value |
-|-------|-------|
-| Commit Subject | `docs(GOV-35): centralize canonical rule prompts` |
-| Breaking Footer | none |
-| HEAD Commit Hash | `9ee1a308355ccf8f14ae2467b15faba33947ca67` |
+| # | Path | Scope |
+|---|------|-------|
+| 1 | `changelog/v1.md` | Major version family TOC |
+| 2 | `changelog/v1/v1-4-0.md` | Concrete version leaf for `1.4.0` |
+| 3 | `changelog/v1/v1-3-0.md` | Concrete version leaf for `1.3.0` |
+| 4 | `changelog/v1/v1-2-0.md` | Concrete version leaf for `1.2.0` |
+| 5 | `changelog/v1/v1-1-0.md` | Concrete version leaf for `1.1.0` |
+| 6 | `changelog/v1/v1-0-0.md` | Concrete version leaf for `1.0.0` |
 
 ---
 
@@ -171,11 +58,17 @@ major  = incompatible removal of a required workflow, authority or safety contra
 
 | # | Path | Relevance |
 |---|------|-----------|
-| 1 | `prompt.md` | Source-repository adapter |
-| 2 | `CONVENTIONS.md` | Adapter constraints |
-| 3 | `DESCRIPTION.md` | Adapter and core architecture |
-| 4 | `CHANGELOG.md` | This adapter ledger |
-| 5 | `core/prompt.md` | Portable binary workflow |
-| 6 | `core/CONVENTIONS.md` | Core conventions |
-| 7 | `core/DESCRIPTION.md` | Core architecture |
-| 8 | `core/CHANGELOG.md` | Core ledger |
+| 1 | `CHANGELOG.md` | Root TOC (this file) |
+| 2 | `changelog/v1.md` | Major-family TOC |
+| 3 | `changelog/v1/v1-4-0.md` | Concrete version leaf |
+| 4 | `changelog/v1/v1-3-0.md` | Concrete version leaf |
+| 5 | `changelog/v1/v1-2-0.md` | Concrete version leaf |
+| 6 | `changelog/v1/v1-1-0.md` | Concrete version leaf |
+| 7 | `changelog/v1/v1-0-0.md` | Concrete version leaf |
+| 8 | `prompt.md` | Source-repository adapter |
+| 9 | `CONVENTIONS.md` | Adapter constraints |
+| 10 | `DESCRIPTION.md` | Adapter and core architecture (root TOC) |
+| 11 | `core/prompt.md` | Portable binary workflow |
+| 12 | `core/CONVENTIONS.md` | Core conventions |
+| 13 | `core/DESCRIPTION.md` | Core architecture (root TOC) |
+| 14 | `core/CHANGELOG.md` | Core ledger (root TOC) |
