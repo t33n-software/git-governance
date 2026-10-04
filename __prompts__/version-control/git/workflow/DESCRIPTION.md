@@ -1,13 +1,21 @@
 # Description: Git-Governance Source-Repository Workflow Adapter
 [INTENT: CONTEXT]
 
-## 1. Purpose
+---
+
+## 1. Scope Overview
 [INTENT: CONTEXT]
 
 This directory provides the repository-local entrypoint for a complete
-`git-governance` agent workflow.
+`git-governance` agent workflow. It separates the portable workflow core
+from this repository's Go-source adapter and keeps the metadata surfaces as
+modular navigation hubs.
 
-It deliberately separates:
+This surface is the modularized description root. It behaves as the
+navigation hub for the metadata-owned detail package `description/`; every
+semantic unit family lives in exactly one child file.
+
+Active package topology:
 
 ```text
 workflow/
@@ -15,7 +23,17 @@ workflow/
 │   -> thin adapter for this Go source repository
 ├── CONVENTIONS.md
 ├── DESCRIPTION.md
+│   -> root TOC (this file)
+├── description/
+│   ├── purpose-and-separation.md
+│   ├── adapter-activation.md
+│   ├── guarantees-and-endpoint-coverage.md
+│   └── entrypoint-and-portability.md
 ├── CHANGELOG.md
+│   -> root TOC of the version ledger
+├── changelog/
+│   ├── v1.md
+│   └── v1/ (concrete version leaves)
 ├── core/
 │   ├── prompt.md
 │   │   -> complete portable binary-oriented workflow
@@ -33,195 +51,71 @@ The adapter is the stable target of the Cursor rule symlink. It fully loads
 the relative core and maps the core's logical binary invocation to this
 repository's source entrypoint.
 
-## 2. Why the Separation Exists
-[INTENT: CONTEXT]
+---
 
-The original workflow prompt contained two different concerns:
-
-```text
-portable git-governance workflow architecture
-and
-this repository's Go-source invocation
-```
-
-That coupling would force every downstream binary user to carry a `go run`
-and `cmd/git-governance` assumption. It also makes a source checkout and an
-installed release binary appear to be the same runtime environment.
-
-The new architecture resolves that conflict:
-
-| Layer | Responsibility | Deliberately excludes |
-|---|---|---|
-| `core/prompt.md` | Complete agent workflow, state, proof gates, Help-first endpoint discovery, branch, Scratch, release and hotfix decisions | Go source layout, fixed CLI flags, project documentation |
-| `prompt.md` | Activation contract, relative core loading and Go source-entrypoint binding | Generic workflow policy and CLI option duplication |
-| Running CLI | Current flags, values, validators, errors and actual capabilities | Agent workflow architecture |
-
-## 3. Architectural Decision Matrix
+## 2. Information Register Summary
 [INTENT: REFERENCE]
 
-| Decision | Portability | Drift resistance | Workflow completeness | Isolation | Result |
-|---|---:|---:|---:|---:|---|
-| One source-repository prompt with Go commands | low | low | medium | low | Rejected |
-| A core that copies current CLI flags and regexes | high | low | high | medium | Rejected |
-| A binary-oriented core with per-endpoint Help-first discovery | high | high | high | high | Selected |
-| A thin relative source adapter | high | high | high | high | Selected |
-| Scratch for every non-trivial task | low | medium | low | low | Rejected |
-| Scratch only after a weighted uncertainty threshold | high | high | high | high | Selected |
+| ID Family | Meaning | Detail Surface |
+|-----------|---------|----------------|
+| PUR-* | Purpose and package topology of the workflow entrypoint | `description/purpose-and-separation.md` |
+| SEP-* | Why the core/adapter separation exists | `description/purpose-and-separation.md` |
+| DEC-* | Architectural decision matrix of the workflow design | `description/purpose-and-separation.md` |
+| ACT-* | Adapter activation and runtime mechanics | `description/adapter-activation.md` |
+| GUA-* | Architectural guarantees of the combined adapter and core | `description/guarantees-and-endpoint-coverage.md` |
+| COV-* | Current endpoint coverage classes | `description/guarantees-and-endpoint-coverage.md` |
+| PRT-* | Cursor entrypoint, portability and file index | `description/entrypoint-and-portability.md` |
 
-The selected design gives the current binary authority over evolving technical
-details while retaining an explicit, complete agent workflow for every
-branching, commit, release, hotfix and delivery transition.
+---
 
-## 4. How the Adapter Works
-[INTENT: SPECIFICATION]
-
-The adapter is an executable contract, not passive reference material. Its
-presence in the agent's context (as an injected rule, an attached file, or
-read content) activates it immediately and bindingly for the running session.
-
-1. The agent acknowledges the adapter activation as its first visible step.
-2. It resolves `core/prompt.md` relative to this file.
-3. It reads the core completely before any workflow action and binds the
-   content as `CORE_WORKFLOW_CONTRACT`.
-4. It verifies the Go source entrypoint through the core's Help-first
-   sequence.
-5. Only then does it delegate to the core, which governs every further
-   decision.
-
-The exact gated state chain is:
-
-```text
-ADAPTER_ACTIVATED
--> CORE_PATH_RESOLVED
--> CORE_FULLY_LOADED
--> CORE_CONTRACT_BOUND
--> SOURCE_ENTRYPOINT_VERIFIED
--> CORE_WORKFLOW_EXECUTING
--> ADAPTER_COMPLETE
-```
-
-Each transition requires its bound proof surface. Before
-`CORE_WORKFLOW_EXECUTING`, a pre-action embargo permits only the bootstrap
-operations themselves: resolving the relative core path, reading the core
-completely, verifying the source entrypoint, and emitting bootstrap status
-lines. Task analysis, file search beyond the core path, edits, staging,
-commits, branch operations, and raw Git are all embargoed until the core is
-the active control plane.
-
-Whenever the core specifies:
-
-```text
-git-governance <endpoint> ...
-```
-
-the adapter runs:
-
-```text
-go run -mod=readonly ./cmd/git-governance <endpoint> ...
-```
-
-The adapter never adds hardcoded flags, values or argument shapes. Each
-invocation derives those details from the immediately preceding current
-`--help` output. A changed core file, a failed entrypoint after prior
-success, or a session or repository switch invalidates the bound state and
-forces the earliest affected state to be rebuilt; cached core content, help
-results, or entrypoint verifications are never reused after invalidation.
-
-## 5. Architectural Guarantees
-[INTENT: SPECIFICATION]
-
-The combined adapter and core guarantee:
-
-```text
-- the adapter activates on presence and funnels every git-affecting task
-  through its gated state chain into the core;
-- a skipped initialization is reported as a process violation and repeated,
-  never silently continued;
-- the portable workflow has no dependency on external knowledge bases, docs/ or business files;
-- this source repository retains its source-based execution binding;
-- the current CLI help remains the authority for command syntax;
-- branch and commit conventions are obtained from the live policy and validators;
-- regular ticket, hotfix, release, support and conflict paths are all explicit;
-- shared lines are guarded by the core's mutation embargo before any edit;
-- task-bound worktree isolation is actor-agnostic: ticket work acquires its
-  detached worktree through the governed `workflow worktree start` endpoint,
-  and the first mutation inside the worktree is the governed ticket start;
-- Scratch is selected through a decision matrix instead of created by default;
-- current GOV-42 main-hotfix delivery endpoints and controller boundaries are represented;
-- unavailable binary or protected-controller capability fails closed;
-- no raw Git, static-token or provider-CLI workaround replaces a governed path;
-- the adapter adds no core policy and no core-area symbols of its own beyond
-  the bootstrap symbol `🔌` used until the core becomes the control plane.
-```
-
-## 6. Current Endpoint Coverage
+## 3. Description Index
 [INTENT: REFERENCE]
 
-The portable core requires Help-first discovery for the current CLI's:
+| # | Path | Scope | Reason |
+|---|------|-------|--------|
+| 1 | `description/purpose-and-separation.md` | Purpose and separation | What the entrypoint provides, why the core/adapter separation exists, and which architecture the decision matrix selected |
+| 2 | `description/adapter-activation.md` | Adapter activation | The binding activation contract, the gated state chain, the pre-action embargo, the invocation binding and the invalidation rules |
+| 3 | `description/guarantees-and-endpoint-coverage.md` | Guarantees and coverage | The combined adapter/core guarantees and the endpoint coverage classes of the portable core |
+| 4 | `description/entrypoint-and-portability.md` | Entrypoint and portability | The stable Cursor symlink, the frontmatter injection contract and the file index |
 
-```text
-branch, commit, policy, doctor, validation and authentication endpoints
-ticket start and publication workflows
-worktree acquisition, inventory and removal lifecycle workflows
-hotfix record, delivery, single-commit and manifest propagation workflows
-release request, cut, stabilization, alignment, promotion, backmerge and support workflows
-Scratch cleanup and controlled transfer paths
-```
+---
 
-The prompt does not reproduce the current option list. The live binary reports
-the current option, value and validation contract at the moment each endpoint
-is needed.
+## 4. Conventions and Constraints
+[INTENT: CONSTRAINT]
 
-## 7. Cursor Entry Point and Portability
+- The adapter never duplicates core policy; the core never freezes binary flags, value formats, or technical limits.
+- Metadata describes only implemented prompt behavior and never portrays an unimplemented binary endpoint, controller, or infrastructure component as available.
+- Every material adapter or core contract change is recorded in `CHANGELOG.md` or `core/CHANGELOG.md` with a semantic version, a compatibility assessment, and the affected surfaces.
+- The root metadata surfaces are navigation hubs; semantic detail lives in exactly one child file of `description/` or `changelog/`.
+
+---
+
+## 5. Path Index
 [INTENT: REFERENCE]
 
-The stable Cursor entrypoint remains:
+| # | Path | Relevance |
+|---|------|-----------|
+| 1 | `DESCRIPTION.md` | Root TOC (this file) |
+| 2 | `description/purpose-and-separation.md` | Detail surface |
+| 3 | `description/adapter-activation.md` | Detail surface |
+| 4 | `description/guarantees-and-endpoint-coverage.md` | Detail surface |
+| 5 | `description/entrypoint-and-portability.md` | Detail surface |
+| 6 | `CHANGELOG.md` | Version ledger root TOC |
+| 7 | `prompt.md` | Source-repository adapter |
+| 8 | `core/prompt.md` | Complete portable workflow |
+| 9 | `core/DESCRIPTION.md` | Core description root TOC |
+| 10 | `core/CHANGELOG.md` | Core version ledger root TOC |
 
-```text
-.cursor/rules/governed-task-to-pr-workflow.mdc
-```
+---
 
-It is a relative Git symlink to:
-
-```text
-../../__prompts__/version-control/git/workflow/prompt.md
-```
-
-That target remains portable across Windows, Linux and macOS checkouts. The
-adapter then resolves the core using its own relative path, so neither layer
-depends on a machine-specific absolute path.
-
-The adapter file carries the Cursor rule frontmatter block (`description` and
-`alwaysApply`) at its head. This block is the repository-local injection
-contract of the rule entrypoint: without it, a symlinked rule target resolves
-to content that carries no activation metadata and is never injected into the
-agent context. The frontmatter belongs to the adapter layer because the
-adapter is the repository-specific entrypoint; the portable core deliberately
-carries no tool-specific injection metadata.
-
-## 8. File Index
-[INTENT: REFERENCE]
-
-| Path | Role |
-|---|---|
-| `prompt.md` | This Go-source adapter |
-| `CONVENTIONS.md` | Adapter-only constraints |
-| `DESCRIPTION.md` | This architecture explanation |
-| `CHANGELOG.md` | Adapter version ledger |
-| `core/prompt.md` | Complete portable workflow |
-| `core/CONVENTIONS.md` | Portable core conventions |
-| `core/DESCRIPTION.md` | Portable core architecture |
-| `core/CHANGELOG.md` | Portable core history |
-| `prompt-affectedness-guard/prompt.md` | CLI-surface drift guard for the adapter and the core |
-| `.cursor/rules/governed-task-to-pr-workflow.mdc` | Stable relative Cursor symlink to this adapter |
-| `.cursor/rules/workflow-prompt-affectedness-guard.mdc` | Stable relative Cursor symlink to the drift guard |
-
-## 9. Execution Context for LLM Agents
+## 6. Execution Context for LLM Agents
 [INTENT: CONTEXT]
 
 Treat `prompt.md` as a loader and source-execution adapter with a binding
-activation contract. Read `core/prompt.md` completely before acting. Do not
-use the adapter's small size as permission to omit core workflow gates. Do not
+activation contract. Read `core/prompt.md` completely before acting. Use
+this root as the map into the `description/` detail surfaces and read the
+detail surface that owns the semantic family being changed. Do not use the
+adapter's small size as permission to omit core workflow gates. Do not
 consult external documentation to reconstruct CLI syntax: use the current
 binary's `--help`. If the adapter was present but its initialization was
 skipped, stop, report the process violation, and run the full state chain
