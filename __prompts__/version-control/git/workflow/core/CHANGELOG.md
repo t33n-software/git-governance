@@ -10,12 +10,12 @@
 ||-------|-------|
 || Scope Root | `__prompts__/version-control/git/workflow/core` |
 || Versioning Standard | `Semantic Versioning 2.0.0` |
-|| Current Version | `2.2.0` |
+|| Current Version | `2.3.0` |
 || Semver Class | `minor` |
 || Breaking Change | `no` |
 || Commit Scope | `workflow-core` |
 || Ticket Scope | `GOV-132` |
-|| Current HEAD Commit Hash | `27fe4379efa60ab841cecac906c2e12d1ff65d5f` (pre-finalization evidence; the new version entry is intentionally not committed yet) |
+|| Current HEAD Commit Hash | `10adf13254d2a1e366859bf6e9c09b9cc1752f73` (pre-finalization evidence; the new version entry is intentionally not committed yet) |
 
 ---
 
@@ -24,7 +24,7 @@
 
 || Version Family | Path | Highest Version | Notes |
 ||----------------|------|-----------------|-------|
-|| `v2` | `changelog/v2.md` | `2.2.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
+|| `v2` | `changelog/v2.md` | `2.3.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
 || `v1` | `changelog/v1.md` | `1.8.0` | Major-family TOC; concrete version leaves descend only through semver-owned child paths |
 
 ---
@@ -35,9 +35,10 @@
 || # | Path | Scope |
 ||---|------|-------|
 || 1 | `changelog/v2.md` | Major version family TOC |
-|| 2 | `changelog/v2/v2-2-0.md` | Concrete version leaf for `2.2.0` |
-|| 3 | `changelog/v2/v2-1-0.md` | Concrete version leaf for `2.1.0` |
-|| 4 | `changelog/v2/v2-0-0.md` | Concrete version leaf for `2.0.0` |
+|| 2 | `changelog/v2/v2-3-0.md` | Concrete version leaf for `2.3.0` |
+|| 3 | `changelog/v2/v2-2-0.md` | Concrete version leaf for `2.2.0` |
+|| 4 | `changelog/v2/v2-1-0.md` | Concrete version leaf for `2.1.0` |
+|| 5 | `changelog/v2/v2-0-0.md` | Concrete version leaf for `2.0.0` |
 || 5 | `changelog/v1.md` | Major version family TOC |
 || 6 | `changelog/v1/v1-8-0.md` | Concrete version leaf for `1.8.0` |
 || 7 | `changelog/v1/v1-7-0.md` | Concrete version leaf for `1.7.0` |
@@ -69,9 +70,10 @@ major  = incompatible workflow-state, authority or safety-contract change
 ||---|------|-----------|
 || 1 | `CHANGELOG.md` | Root TOC |
 || 2 | `changelog/v2.md` | Major-family TOC |
-|| 3 | `changelog/v2/v2-2-0.md` | Concrete version leaf |
-|| 4 | `changelog/v2/v2-1-0.md` | Concrete version leaf |
-|| 5 | `changelog/v2/v2-0-0.md` | Concrete version leaf |
+|| 3 | `changelog/v2/v2-3-0.md` | Concrete version leaf |
+|| 4 | `changelog/v2/v2-2-0.md` | Concrete version leaf |
+|| 5 | `changelog/v2/v2-1-0.md` | Concrete version leaf |
+|| 6 | `changelog/v2/v2-0-0.md` | Concrete version leaf |
 || 6 | `changelog/v1.md` | Major-family TOC |
 || 7 | `changelog/v1/v1-8-0.md` | Concrete version leaf |
 || 8 | `changelog/v1/v1-7-0.md` | Concrete version leaf |
