@@ -596,23 +596,24 @@ func (*prePushGit) InspectPushUpdate(context.Context, port.RepositoryIdentity, b
 var _ port.GitRepository = (*prePushGit)(nil)
 
 type commandGit struct {
-	current          branch.BranchName
-	messages         []string
-	workflowBases    map[string]branch.TargetBase
-	workflowBaseErr  error
-	remoteURL        string
-	remoteURLErr     error
-	discoverErr      error
-	signingConfig    port.SigningConfiguration
-	signingProofErr  error
-	hasCommits       bool
-	anyRef           bool
-	existingBranches map[string]bool
-	stagedQueue      []bool
-	pushErr          error
-	pushed           []branch.BranchName
-	fetchErr         error
-	subjectsErr      error
+	current           branch.BranchName
+	messages          []string
+	workflowBases     map[string]branch.TargetBase
+	workflowBaseErr   error
+	remoteURL         string
+	remoteURLErr      error
+	discoverErr       error
+	signingConfig     port.SigningConfiguration
+	signingProofErr   error
+	hasCommits        bool
+	anyRef            bool
+	existingBranches  map[string]bool
+	stagedQueue       []bool
+	pushErr           error
+	pushed            []branch.BranchName
+	fetchErr          error
+	subjectsErr       error
+	operationTimeouts []time.Duration
 }
 
 func newCommandGit(t *testing.T, current string, messages []string) *commandGit {
@@ -818,6 +819,13 @@ func (*commandGit) Commit(context.Context, port.RepositoryIdentity, commitmsg.Me
 func (git *commandGit) Push(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName, _ bool) error {
 	git.pushed = append(git.pushed, name)
 	return git.pushErr
+}
+
+// WithOperationTimeout records the mutation budget the application applies to
+// the genesis mutation surface and returns the same fake.
+func (git *commandGit) WithOperationTimeout(timeout time.Duration) port.GitRepository {
+	git.operationTimeouts = append(git.operationTimeouts, timeout)
+	return git
 }
 
 // PreviewStage resolves a fixed content-set preview for the governed

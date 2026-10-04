@@ -88,6 +88,19 @@ func New(options Options) *Repository {
 	}
 }
 
+// WithOperationTimeout returns a repository copy whose external Git processes
+// run under the supplied per-process timeout. The application derives the
+// genesis mutation budget from the proven preflight corpus size; the copy
+// carries that budget without mutating the shared adapter instance. A
+// non-positive timeout keeps the configured budget.
+func (repository *Repository) WithOperationTimeout(timeout time.Duration) port.GitRepository {
+	scoped := *repository
+	if timeout > 0 {
+		scoped.timeout = timeout
+	}
+	return &scoped
+}
+
 // Discover resolves a working directory to its Git top-level directory.
 func (repository *Repository) Discover(ctx context.Context, directory string) (port.RepositoryIdentity, error) {
 	result := repository.invoke(ctx, directory, nil, "rev-parse", "--show-toplevel")
@@ -480,6 +493,7 @@ func (repository *Repository) CommitSubjects(ctx context.Context, identity port.
 
 var _ port.RemoteBranchLister = (*Repository)(nil)
 var _ port.CommitSubjectLister = (*Repository)(nil)
+var _ port.OperationTimeoutScoper = (*Repository)(nil)
 
 // Fetch updates remote-tracking references while pruning deleted remote refs.
 func (repository *Repository) Fetch(ctx context.Context, identity port.RepositoryIdentity) error {

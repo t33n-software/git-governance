@@ -1564,12 +1564,20 @@ func newBootstrapWorkflowCommand(application *application) *cobra.Command {
 			); err != nil {
 				return err
 			}
+			// The global --timeout stays an explicit upper bound: when the
+			// caller passes it, it caps the derived genesis mutation budget;
+			// otherwise the budget derives from the preflight corpus size.
+			var mutationTimeout time.Duration
+			if command.Flags().Changed("timeout") {
+				mutationTimeout = application.options.timeout
+			}
 			result, err := services.bootstrap.Bootstrap(command.Context(), workflow.BootstrapRequest{
-				Repository: repository,
-				Ticket:     id,
-				StagePaths: stagePaths,
-				Push:       push,
-				DryRun:     application.options.dryRun,
+				Repository:      repository,
+				Ticket:          id,
+				StagePaths:      stagePaths,
+				Push:            push,
+				DryRun:          application.options.dryRun,
+				MutationTimeout: mutationTimeout,
 			})
 			if err != nil {
 				return err

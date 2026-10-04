@@ -271,6 +271,125 @@ func mustTicketID(raw string) ticket.ID {
 	return value
 }
 
+// scopedBudgetGit wraps the bootstrap fake with the operation-timeout
+// capability so tests can observe the budget the service applies to the
+// genesis mutation surface.
+type scopedBudgetGit struct {
+	*bootstrapGit
+	budgets []time.Duration
+}
+
+func (fake *scopedBudgetGit) WithOperationTimeout(timeout time.Duration) port.GitRepository {
+	fake.budgets = append(fake.budgets, timeout)
+	return fake
+}
+
+func TestDeriveGenesisMutationBudget(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		contentFiles int
+		explicit     time.Duration
+		expected     time.Duration
+	}{
+		{
+			name:         "a small corpus keeps the base ceiling",
+			contentFiles: 1,
+			explicit:     0,
+			expected:     genesisBaseBudget + genesisPerFileAllowance,
+		},
+		{
+			name:         "negative counts clamp to the base ceiling",
+			contentFiles: -5,
+			explicit:     0,
+			expected:     genesisBaseBudget,
+		},
+		{
+			name:         "the reproduced defect corpus derives its staging allowance",
+			contentFiles: 18410,
+			explicit:     0,
+			expected:     genesisBaseBudget + time.Duration(18410)*genesisPerFileAllowance,
+		},
+		{
+			name:         "huge corpora cap at the bounded ceiling",
+			contentFiles: 200000,
+			explicit:     0,
+			expected:     genesisMaxBudget,
+		},
+		{
+			name:         "an explicit caller timeout caps the derived budget",
+			contentFiles: 18410,
+			explicit:     30 * time.Second,
+			expected:     30 * time.Second,
+		},
+		{
+			name:         "an explicit caller timeout above the derivation keeps the derivation",
+			contentFiles: 18410,
+			explicit:     time.Hour,
+			expected:     genesisBaseBudget + time.Duration(18410)*genesisPerFileAllowance,
+		},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if got := resolveGenesisMutationBudget(testCase.contentFiles, testCase.explicit); got != testCase.expected {
+				t.Fatalf("resolveGenesisMutationBudget(%d, %v) = %v, want %v", testCase.contentFiles, testCase.explicit, got, testCase.expected)
+			}
+		})
+	}
+}
+
+func TestBootstrapScopesTheGenesisMutationBudget(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the derived budget applies to the mutation surface", func(t *testing.T) {
+		t.Parallel()
+		git := &scopedBudgetGit{bootstrapGit: newBootstrapGit()}
+		git.stagedQueue = []bool{false, true}
+		if _, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest()); err != nil {
+			t.Fatal(err)
+		}
+		expected := genesisBaseBudget + time.Duration(1)*genesisPerFileAllowance
+		if len(git.budgets) != 1 || git.budgets[0] != expected {
+			t.Fatalf("the genesis mutation budget = %v, want [%v]", git.budgets, expected)
+		}
+	})
+
+	t.Run("an explicit caller timeout caps the applied budget", func(t *testing.T) {
+		t.Parallel()
+		git := &scopedBudgetGit{bootstrapGit: newBootstrapGit()}
+		git.stagedQueue = []bool{false, true}
+		request := bootstrapRequest()
+		request.MutationTimeout = 30 * time.Second
+		if _, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), request); err != nil {
+			t.Fatal(err)
+		}
+		if len(git.budgets) != 1 || git.budgets[0] != 30*time.Second {
+			t.Fatalf("the capped genesis mutation budget = %v, want [30s]", git.budgets)
+		}
+	})
+
+	t.Run("the mutation still completes through the scoped surface", func(t *testing.T) {
+		t.Parallel()
+		git := &scopedBudgetGit{bootstrapGit: newBootstrapGit()}
+		git.stagedQueue = []bool{false, true}
+		result, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Record.Revision != bootstrapTestRevision {
+			t.Fatalf("genesis revision = %q", result.Record.Revision)
+		}
+		for _, call := range []string{"stage", "commit", "create-branch", "install-hooks"} {
+			if !strings.Contains(strings.Join(git.calls, ","), call) {
+				t.Fatalf("the scoped mutation missed %q: %v", call, git.calls)
+			}
+		}
+	})
+}
+
 func TestBootstrapDependencyGuards(t *testing.T) {
 	t.Parallel()
 

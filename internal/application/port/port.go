@@ -74,6 +74,16 @@ type GitRepository interface {
 	) (PushUpdateInspection, error)
 }
 
+// OperationTimeoutScoper is an optional capability for adapters that can scope
+// the per-process timeout of the returned Git surface. The governed repository
+// birth derives its mutation budget from the proven preflight corpus size;
+// this capability applies that budget to the genesis mutation without widening
+// the shared GitRepository contract for adapters and test fakes that never
+// scope a timeout.
+type OperationTimeoutScoper interface {
+	WithOperationTimeout(timeout time.Duration) GitRepository
+}
+
 // GitTransportAuthenticator is an optional diagnostic capability. It verifies
 // that the configured Git transport can authenticate and authorize a
 // non-interactive dry-run creation of the reserved probe reference without

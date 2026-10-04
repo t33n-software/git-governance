@@ -29,6 +29,13 @@ implicitly. The genesis commit carries the mandatory canonical body. A born
 repository is refused fail-closed with `REPOSITORY_ALREADY_BORN`, and the
 local genesis stays reversible until publication.
 
+The genesis mutation is budgeted internally: the per-process timeout of the
+staging, commit, and branch-creation steps derives from the proven
+content-file count of the preflight (a base ceiling plus a per-file
+allowance, bounded), so large content sets do not need a `--timeout`
+override. An explicitly supplied `--timeout` remains the upper bound that
+caps the derived budget.
+
 Publication is a separately confirmed step:
 
 ```powershell
