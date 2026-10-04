@@ -600,13 +600,28 @@ func worktreeBaseDrift(head string, baseRevision string) error {
 }
 
 // requireTaskWorktree enforces the task-binding law at ticket start: ticket
-// work happens inside a linked task worktree. A fresh detached task worktree
-// is the legitimate pre-start form and must be clean; a checked-out branch
-// inside the worktree is the continuing form. Compositions whose Git adapter
-// carries no worktree capability keep the unenforced legacy behavior; the
-// shipped composition always carries the capability.
+// work happens inside a linked task worktree acquired from the current
+// origin/develop revision. The shared lane-aware guard below carries the
+// state machine; this wrapper only binds the ticket lane's acquisition base.
 func (service *TicketService) requireTaskWorktree(ctx context.Context, repository port.RepositoryIdentity) error {
-	manager, ok := service.git.(port.WorktreeManager)
+	// mustDevelop and the upstream-validated remote cannot fail the base
+	// construction.
+	base, _ := branch.NewTargetBase(repository.Remote, mustDevelop())
+	return requireTaskWorktreeAtBase(ctx, service.git, repository, base)
+}
+
+// requireTaskWorktreeAtBase is the shared lane-aware task-binding guard: every
+// local working-branch lane hosts its work inside a linked task worktree
+// acquired from its own lane base — regular ticket work from the current
+// origin/develop revision, hotfix work from the affected protected line, and
+// release stabilization or preparation work from the frozen release line. A
+// fresh detached task worktree is the legitimate pre-start form and must be
+// clean at its acquired base revision; a checked-out branch inside the
+// worktree is the continuing form. Compositions whose Git adapter carries no
+// worktree capability keep the unenforced legacy behavior; the shipped
+// composition always carries the capability.
+func requireTaskWorktreeAtBase(ctx context.Context, git port.GitRepository, repository port.RepositoryIdentity, base branch.TargetBase) error {
+	manager, ok := git.(port.WorktreeManager)
 	if !ok {
 		return nil
 	}
@@ -617,12 +632,12 @@ func (service *TicketService) requireTaskWorktree(ctx context.Context, repositor
 	if !linked {
 		return taskWorktreeRequired()
 	}
-	if _, err := service.git.CurrentBranch(ctx, repository); err == nil {
+	if _, err := git.CurrentBranch(ctx, repository); err == nil {
 		return nil
 	} else if classified, ok := problem.As(err); !ok || classified.Code != problem.CodeBranchNameInvalid {
 		return err
 	}
-	clean, err := service.git.IsWorktreeClean(ctx, repository)
+	clean, err := git.IsWorktreeClean(ctx, repository)
 	if err != nil {
 		return err
 	}
@@ -639,11 +654,8 @@ func (service *TicketService) requireTaskWorktree(ctx context.Context, repositor
 	}
 	// The detached pre-start form is legitimate only at its acquired base
 	// revision. A HEAD that drifted between the worktree acquisition and the
-	// ticket start hides an ungoverned detached commit behind the clean
-	// state, so the guard re-measures both revisions fail-closed.
-	// mustDevelop and the upstream-validated remote cannot fail the base
-	// construction.
-	base, _ := branch.NewTargetBase(repository.Remote, mustDevelop())
+	// lane start hides an ungoverned detached commit behind the clean state,
+	// so the guard re-measures both revisions fail-closed.
 	head, baseRevision, err := manager.WorktreeHeadMatchesBase(ctx, repository, base)
 	if err != nil {
 		return err

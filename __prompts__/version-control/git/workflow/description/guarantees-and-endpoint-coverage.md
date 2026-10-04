@@ -46,9 +46,14 @@ The combined adapter and core guarantee:
 - branch and commit conventions are obtained from the live policy and validators;
 - regular ticket, hotfix, release, support and conflict paths are all explicit;
 - shared lines are guarded by the core's mutation embargo before any edit;
-- task-bound worktree isolation is actor-agnostic: ticket work acquires its
-  detached worktree through the governed `workflow worktree start` endpoint,
-  and the first mutation inside the worktree is the governed ticket start;
+- task-bound worktree isolation is actor-agnostic and lane-spanning: ticket,
+  hotfix, and release lane work acquires its detached worktree through the
+  governed `workflow worktree start` endpoint from the lane's own base, and
+  the first mutation inside the worktree is the governed lane dispatch;
+- the task-worktree requirement is programmatically enforced: every local
+  working-branch lane dispatch fails closed outside a linked task worktree,
+  while read-only, remote-dispatch, and birth endpoints and capability-less
+  server compositions stay outside the requirement;
 - Scratch is selected through a decision matrix instead of created by default;
 - current GOV-42 main-hotfix delivery endpoints and controller boundaries are represented;
 - unavailable binary or protected-controller capability fails closed;
