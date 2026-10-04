@@ -26,6 +26,7 @@ type fakeSurfaces struct {
 	subjects              []string
 	recordDocuments       []string
 	recordLocations       []string
+	worktrees             []port.WorktreeEntry
 	pullRequests          []port.PullRequestSummary
 	requestRecords        []port.ProtectedLineRequestRecord
 	permissions           map[string]string
@@ -34,6 +35,7 @@ type fakeSurfaces struct {
 	remoteErr             error
 	subjectsErr           error
 	recordsErr            error
+	worktreesErr          error
 	pullRequestsErr       error
 	requestRecordsErr     error
 	permissionsErr        error
@@ -81,6 +83,14 @@ func (fake *fakeSurfaces) ListHotfixReleaseRecords(context.Context, port.Reposit
 		records = append(records, port.HotfixReleaseRecord{Record: parsed, Location: location})
 	}
 	return records, nil
+}
+
+// WorktreeList serves the configurable task-worktree surface fixture.
+func (fake *fakeSurfaces) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	if fake.worktreesErr != nil {
+		return nil, fake.worktreesErr
+	}
+	return fake.worktrees, nil
 }
 
 func (fake *fakeSurfaces) RemoteURL(context.Context, port.RepositoryIdentity) (string, error) {
@@ -214,6 +224,7 @@ func TestInventoryDerivesAllocationFromEverySurface(t *testing.T) {
 		RemoteBranches:        surfaces,
 		CommitSubjects:        surfaces,
 		HotfixRecords:         surfaces,
+		Worktrees:             surfaces,
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,
@@ -229,6 +240,7 @@ func TestInventoryDerivesAllocationFromEverySurface(t *testing.T) {
 		SurfaceBranchRefs,
 		SurfaceCommitEnvelopes,
 		SurfaceHotfixRecords,
+		SurfaceWorktreeRegistry,
 		SurfacePullRequestTitles,
 		SurfaceProtectedLineRequests,
 	}
@@ -279,6 +291,7 @@ func TestInventoryProviderNoneNamesAbsentPlatformSurfaces(t *testing.T) {
 		RemoteBranches: surfaces,
 		CommitSubjects: surfaces,
 		HotfixRecords:  surfaces,
+		Worktrees:      surfaces,
 	})
 
 	allocation, err := service.Inventory(context.Background(), testRepository(), mustKey("ABC"))
@@ -311,6 +324,7 @@ func TestInventoryFailsClosedOnUnreadableSurfaces(t *testing.T) {
 		{name: "remote branch read failure", surfaces: &fakeSurfaces{remoteErr: failure}},
 		{name: "commit subject read failure", surfaces: &fakeSurfaces{subjectsErr: failure}},
 		{name: "hotfix record read failure", surfaces: &fakeSurfaces{recordsErr: failure}},
+		{name: "worktree read failure", surfaces: &fakeSurfaces{worktreesErr: failure}},
 		{name: "pull request read failure", surfaces: &fakeSurfaces{pullRequestsErr: failure}},
 		{name: "request record read failure", surfaces: &fakeSurfaces{requestRecordsErr: failure}},
 	}
@@ -356,6 +370,11 @@ func TestInventoryFailsClosedOnMissingCapabilities(t *testing.T) {
 			configure:  func(dependencies *Dependencies, _ *fakeSurfaces) { dependencies.HotfixRecords = nil },
 		},
 		{
+			name:       "missing worktree inventory capability",
+			capability: "worktree inventory listing",
+			configure:  func(dependencies *Dependencies, _ *fakeSurfaces) { dependencies.Worktrees = nil },
+		},
+		{
 			name:       "missing remote URL resolution",
 			capability: "remote URL resolution",
 			configure:  func(dependencies *Dependencies, _ *fakeSurfaces) { dependencies.RemoteURL = nil },
@@ -371,6 +390,7 @@ func TestInventoryFailsClosedOnMissingCapabilities(t *testing.T) {
 				RemoteBranches:        surfaces,
 				CommitSubjects:        surfaces,
 				HotfixRecords:         surfaces,
+				Worktrees:             surfaces,
 				RemoteURL:             surfaces.RemoteURL,
 				PullRequests:          surfaces,
 				ProtectedLineRequests: surfaces,
@@ -421,6 +441,72 @@ func TestValidateFreeBlocksNumbersHeldOnlyByRequestRecords(t *testing.T) {
 	}
 	if typed.Actual != "ABC-37" {
 		t.Fatalf("actual = %q", typed.Actual)
+	}
+}
+
+// TestValidateFreeBlocksNumbersHeldOnlyByTaskWorktrees is the pre-start
+// regression: a freshly acquired detached task worktree consumes its ticket
+// number through the path convention before any branch, commit, or pull
+// request exists, so a scan without the worktree surface would report the
+// number as free and a duplicate allocation could bind it.
+func TestValidateFreeBlocksNumbersHeldOnlyByTaskWorktrees(t *testing.T) {
+	t.Parallel()
+
+	surfaces := &fakeSurfaces{
+		worktrees: []port.WorktreeEntry{
+			{Path: "C:/work/git-governance-ABC-37", Detached: true},
+			{Path: "C:/work/git-governance-XYZ-9", Detached: true},
+			{Path: "C:/work/git-governance-main-current", Detached: true},
+			{Path: "C:/work/git-governance", Head: "abc"},
+		},
+	}
+	service := fullService(surfaces)
+	err := service.ValidateFree(context.Background(), testRepository(), mustID("ABC-37"))
+	assertProblemCode(t, err, problem.CodeTicketNumberAlreadyAllocated)
+	typed, ok := problem.As(err)
+	if !ok {
+		t.Fatal("collision must be a typed problem")
+	}
+	if !strings.Contains(typed.Context, SurfaceWorktreeRegistry) ||
+		!strings.Contains(typed.Context, "git-governance-ABC-37") {
+		t.Fatalf("collision context must carry the worktree holder evidence: %q", typed.Context)
+	}
+	if typed.Example != "ABC-38" {
+		t.Fatalf("example must be the next free number above the held 37: %q", typed.Example)
+	}
+}
+
+func TestTicketFromWorktreePath(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		path     string
+		expected ticket.ID
+		found    bool
+	}{
+		{"a sibling task worktree binds its ticket", "C:/work/git-governance-GOV-132", mustID("GOV-132"), true},
+		{"a repo basename without a ticket suffix is not a holder", "C:/work/git-governance", ticket.ID{}, false},
+		{"a basename without any separator is not a holder", "C:/work/repository", ticket.ID{}, false},
+		{"a foreign suffix is not a holder", "C:/work/git-governance-main-current", ticket.ID{}, false},
+		{"a lowercase derived key is not a holder", "C:/work/git-governance-132", ticket.ID{}, false},
+		{"a basename with a single separator is not a holder", "C:/work/repo-132", ticket.ID{}, false},
+		{"a lowercase key is not a holder", "C:/work/git-governance-gov-132", ticket.ID{}, false},
+		{"a leading-zero number is not a holder", "C:/work/git-governance-ABC-007", ticket.ID{}, false},
+		{"an eighteen-digit number binds", "C:/work/repo-ABC-123456789012345678", mustID("ABC-123456789012345678"), true},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			id, found := ticketFromWorktreePath(testCase.path)
+			if found != testCase.found {
+				t.Fatalf("ticketFromWorktreePath(%q) found = %t", testCase.path, found)
+			}
+			if found && id.String() != testCase.expected.String() {
+				t.Fatalf("ticketFromWorktreePath(%q) = %q; want %q", testCase.path, id.String(), testCase.expected.String())
+			}
+		})
 	}
 }
 
@@ -560,6 +646,7 @@ func TestInventoryReportsMixedPlatformCapabilities(t *testing.T) {
 		RemoteBranches: pullRequestOnly,
 		CommitSubjects: pullRequestOnly,
 		HotfixRecords:  pullRequestOnly,
+		Worktrees:      pullRequestOnly,
 		RemoteURL:      pullRequestOnly.RemoteURL,
 		PullRequests:   pullRequestOnly,
 		AppPermissions: pullRequestOnly,
@@ -584,6 +671,7 @@ func TestInventoryReportsMixedPlatformCapabilities(t *testing.T) {
 		RemoteBranches:        requestOnly,
 		CommitSubjects:        requestOnly,
 		HotfixRecords:         requestOnly,
+		Worktrees:             requestOnly,
 		RemoteURL:             requestOnly.RemoteURL,
 		ProtectedLineRequests: requestOnly,
 		AppPermissions:        requestOnly,
@@ -804,6 +892,7 @@ func TestInventoryProviderNoneSkipsPermissionDiscovery(t *testing.T) {
 		RemoteBranches: surfaces,
 		CommitSubjects: surfaces,
 		HotfixRecords:  surfaces,
+		Worktrees:      surfaces,
 		AppPermissions: surfaces,
 	})
 	if _, err := service.Inventory(context.Background(), testRepository(), mustKey("ABC")); err != nil {
@@ -834,6 +923,7 @@ func TestInventoryFailsClosedOnMissingPermissionDiscoveryCapability(t *testing.T
 		RemoteBranches:        surfaces,
 		CommitSubjects:        surfaces,
 		HotfixRecords:         surfaces,
+		Worktrees:             surfaces,
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,
@@ -852,6 +942,7 @@ func fullService(surfaces *fakeSurfaces) *Service {
 		RemoteBranches:        surfaces,
 		CommitSubjects:        surfaces,
 		HotfixRecords:         surfaces,
+		Worktrees:             surfaces,
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,

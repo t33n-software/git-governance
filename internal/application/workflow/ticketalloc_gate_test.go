@@ -42,6 +42,10 @@ func (fake *fakeAllocationSurfaces) ListHotfixReleaseRecords(context.Context, po
 	return nil, nil
 }
 
+func (fake *fakeAllocationSurfaces) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	return nil, nil
+}
+
 func (fake *fakeAllocationSurfaces) RemoteURL(context.Context, port.RepositoryIdentity) (string, error) {
 	return "https://example.invalid/governance.git", nil
 }
@@ -77,6 +81,7 @@ func newTestAllocation(surfaces *fakeAllocationSurfaces) *ticketalloc.Service {
 		RemoteBranches:        surfaces,
 		CommitSubjects:        surfaces,
 		HotfixRecords:         surfaces,
+		Worktrees:             surfaces,
 		RemoteURL:             surfaces.RemoteURL,
 		PullRequests:          surfaces,
 		ProtectedLineRequests: surfaces,

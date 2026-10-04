@@ -711,6 +711,10 @@ func (git *commandGit) LocalBranches(context.Context, port.RepositoryIdentity) (
 	return []branch.BranchName{git.current}, nil
 }
 
+func (*commandGit) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	return nil, nil
+}
+
 func (*commandGit) RemoteBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
 	return nil, nil
 }

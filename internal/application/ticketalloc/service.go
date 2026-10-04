@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"math/big"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ const (
 	SurfaceBranchRefs            = "branch refs"
 	SurfaceCommitEnvelopes       = "commit envelopes"
 	SurfaceHotfixRecords         = "hotfix release records"
+	SurfaceWorktreeRegistry      = "worktree registry"
 	SurfacePullRequestTitles     = "pull request titles"
 	SurfaceProtectedLineRequests = "protected-line request records"
 )
@@ -52,8 +54,14 @@ type Dependencies struct {
 	RemoteBranches port.RemoteBranchLister
 	CommitSubjects port.CommitSubjectLister
 	HotfixRecords  port.HotfixReleaseRecordLister
-	RemoteURL      func(context.Context, port.RepositoryIdentity) (string, error)
-	PullRequests   port.PullRequestInventoryLister
+	// Worktrees lists the local task worktrees whose registered
+	// acquisition consumes a ticket number before any branch, commit, or
+	// pull request exists. It is a Git-transport surface: a composition
+	// without it fails the inventory closed instead of silently treating
+	// the surface as empty.
+	Worktrees    port.WorktreeInventoryLister
+	RemoteURL    func(context.Context, port.RepositoryIdentity) (string, error)
+	PullRequests port.PullRequestInventoryLister
 	// ProtectedLineRequests lists the durable request records that consume
 	// ticket numbers without any pull request.
 	ProtectedLineRequests port.ProtectedLineRequestInventoryLister
@@ -177,6 +185,25 @@ func (service *Service) Inventory(ctx context.Context, repository port.Repositor
 	}
 	allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
 		Surface: SurfaceHotfixRecords,
+		State:   SurfaceScanned,
+	})
+
+	entries, err := service.worktrees(ctx, repository)
+	if err != nil {
+		return Allocation{}, err
+	}
+	for _, entry := range entries {
+		id, found := ticketFromWorktreePath(entry.Path)
+		if !found || id.Key().String() != key.String() {
+			continue
+		}
+		addHolder(allocation.Holders, id.Number().String(), Holder{
+			Surface: SurfaceWorktreeRegistry,
+			Locator: "task worktree " + filepath.Base(entry.Path),
+		})
+	}
+	allocation.Surfaces = append(allocation.Surfaces, SurfaceStatus{
+		Surface: SurfaceWorktreeRegistry,
 		State:   SurfaceScanned,
 	})
 
@@ -353,6 +380,33 @@ func ticketFromTitle(title string) (ticket.ID, bool) {
 	return id, true
 }
 
+// ticketFromWorktreePath derives the ticket binding of one task-worktree
+// path from its basename. The acquisition convention names sibling
+// directories `<repo>-<KEY>-<NUMBER>`, so a registered task worktree
+// consumes its number before any branch, commit, or pull request exists;
+// a basename without that grammar is not a task-worktree holder.
+func ticketFromWorktreePath(path string) (ticket.ID, bool) {
+	name := filepath.Base(path)
+	numberSeparator := strings.LastIndex(name, "-")
+	if numberSeparator < 0 {
+		return ticket.ID{}, false
+	}
+	prefix := name[:numberSeparator]
+	keySeparator := strings.LastIndex(prefix, "-")
+	if keySeparator < 0 {
+		return ticket.ID{}, false
+	}
+	key, err := ticket.ParseKey(prefix[keySeparator+1:])
+	if err != nil {
+		return ticket.ID{}, false
+	}
+	number, err := ticket.ParseNumber(name[numberSeparator+1:])
+	if err != nil {
+		return ticket.ID{}, false
+	}
+	return ticket.NewID(key, number), true
+}
+
 func recordBranchHolder(holders map[string][]Holder, key ticket.Key, name branch.BranchName, surface string) {
 	scopedTicket, found := name.Ticket()
 	if !found || scopedTicket.Key().String() != key.String() {
@@ -438,6 +492,13 @@ func (service *Service) hotfixRecords(ctx context.Context, repository port.Repos
 		return nil, unavailableCapabilityProblem("hotfix release record listing")
 	}
 	return service.dependencies.HotfixRecords.ListHotfixReleaseRecords(ctx, repository)
+}
+
+func (service *Service) worktrees(ctx context.Context, repository port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	if service.dependencies.Worktrees == nil {
+		return nil, unavailableCapabilityProblem("worktree inventory listing")
+	}
+	return service.dependencies.Worktrees.WorktreeList(ctx, repository)
 }
 
 func (service *Service) remoteURL(ctx context.Context, repository port.RepositoryIdentity) (string, error) {

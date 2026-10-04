@@ -23,8 +23,9 @@ Allocation truth is derived from exactly these surfaces:
 | 2 | Commit envelope history | Git objects, all refs | Git transport (always) | `type(KEY-NUMBER)[!]:` envelope (BGR-R003) |
 | 3 | Hotfix release records | `.git-governance/hotfix-release-records/<KEY>-<NUMBER>.json` | Git/file transport (always) | schema-validated record |
 | 4 | Genesis evidence record | repo evidence record (`workflow bootstrap`) | Git/file transport (always) | ticket-bound genesis envelope + record |
-| 5 | PR / MR titles (open AND closed) | hosting platform | provider capability port (`PullRequestProvider`) | `<KEY>-<NUMBER>: <slug>` |
-| 6 | Protected-line request records | hosting platform durable records | provider lifecycle port (`ReleaseLifecycleProvider`) | ticket-bound request record (REL-R019) |
+| 5 | Worktree registry | local sibling task worktrees (`../<repo>-<KEY>-<NUMBER>`) | Git transport (always) | path-basename grammar `<repo>-<KEY>-<NUMBER>` (worktree acquisition convention) |
+| 6 | PR / MR titles (open AND closed) | hosting platform | provider capability port (`PullRequestProvider`) | `<KEY>-<NUMBER>: <slug>` |
+| 7 | Protected-line request records | hosting platform durable records | provider lifecycle port (`ReleaseLifecycleProvider`) | ticket-bound request record (REL-R019) |
 
 Excluded surfaces (never allocation evidence, false-positive guard):
 pull-request bodies, commit bodies, tags.
@@ -54,8 +55,8 @@ A collision fails closed with `TICKET_NUMBER_ALREADY_ALLOCATED` (governance
 category, exit 3).
 
 ### TAL-R005: Hosting-platform-agnostic architecture
-Surfaces 1–4 are read through the Git transport and are platform-neutral by
-construction. Platform surfaces (5–6) are read exclusively through provider
+Surfaces 1–5 are read through the Git transport and are platform-neutral by
+construction. Platform surfaces (6–7) are read exclusively through provider
 capability ports — never through platform-native tooling hardwired into the
 core. A provider-less repository (`--pull-request-provider none`) runs the
 git-core surfaces and fails closed (named degraded mode) on the
@@ -80,8 +81,9 @@ allocation decision or proposal.
 
 ### TAL-R007: Inventory completeness
 The inventory covers the full PR/MR surface through pagination (never a
-fixed page window), the full branch-ref surface (local and remote), and the
-complete reachable commit-envelope history across all refs, parsed with the
+fixed page window), the full branch-ref surface (local and remote), the
+complete reachable commit-envelope history across all refs, and the
+complete local task-worktree inventory, parsed with the
 canonical domain grammars (never string matching). No silent truncation; a
 surface that cannot be read completely fails the inventory closed.
 

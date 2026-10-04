@@ -1591,6 +1591,10 @@ func (git *branchCommandGit) LocalBranches(context.Context, port.RepositoryIdent
 	return []branch.BranchName{git.current}, nil
 }
 
+func (*branchCommandGit) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	return nil, nil
+}
+
 func (git *branchCommandGit) FastForwardBranch(_ context.Context, _ port.RepositoryIdentity, name branch.BranchName, _ branch.TargetBase) (port.FastForwardOutcome, error) {
 	git.ffCalls = append(git.ffCalls, name.String())
 	if git.ffErr != nil {

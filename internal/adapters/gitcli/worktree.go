@@ -173,3 +173,4 @@ func (repository *Repository) LinkedWorktree(ctx context.Context, identity port.
 }
 
 var _ port.WorktreeManager = (*Repository)(nil)
+var _ port.WorktreeInventoryLister = (*Repository)(nil)
