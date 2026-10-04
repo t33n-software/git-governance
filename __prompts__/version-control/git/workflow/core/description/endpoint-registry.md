@@ -44,7 +44,8 @@ commit creation and validation
 read-only ticket-number allocation inventory (next-free number and holders
 before ticket intake)
 ticket start and publication
-task worktree acquisition, inventory and removal lifecycle
+task worktree acquisition, inventory, proven-completion prune and removal
+lifecycle
 hotfix start, record validation, delivery verification and propagation
 release request, cut, stabilization, alignment, promotion, backmerge and support
 authentication, diagnostics, policy inspection and pre-push validation
@@ -53,17 +54,20 @@ authentication, diagnostics, policy inspection and pre-push validation
 **Current State:**
 
 The registry coverage binds branch validation, synchronization, the governed
-synchronization resume, the on-demand shared-line refresh, and the read-only
-allocation inventory of ticket numbers, but did not bind the task worktree
-lifecycle endpoints.
+synchronization resume, the on-demand shared-line refresh, the read-only
+allocation inventory of ticket numbers, and the complete task worktree
+lifecycle: the `workflow worktree start`, `workflow worktree list`, `workflow
+worktree remove`, and `workflow worktree prune` registry rows cover the
+governed acquisition of a detached task worktree, the worktree inventory,
+the fail-closed worktree removal, and the evidence-based prune of
+proven-complete worktrees under hybrid completion evidence.
 
 **Target State:**
 
-The registry coverage binds the task worktree lifecycle: the `workflow
-worktree start`, `workflow worktree list`, and `workflow worktree remove`
-registry rows cover the governed acquisition of a detached task worktree,
-the worktree inventory, and the fail-closed worktree removal, with the
-register entries dormant until the binary help offers them.
+The register rows describe implemented binary endpoints; the enumeration of
+the allocation-inventory surfaces matches the implemented inventory,
+including the task-worktree registry that holds pre-start ticket numbers
+before any branch, commit, or pull request exists.
 
 **Affected Files:**
 
