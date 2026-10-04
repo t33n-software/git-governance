@@ -444,36 +444,62 @@ func TestValidateFreeBlocksNumbersHeldOnlyByRequestRecords(t *testing.T) {
 	}
 }
 
-// TestValidateFreeBlocksNumbersHeldOnlyByTaskWorktrees is the pre-start
-// regression: a freshly acquired detached task worktree consumes its ticket
-// number through the path convention before any branch, commit, or pull
-// request exists, so a scan without the worktree surface would report the
-// number as free and a duplicate allocation could bind it.
-func TestValidateFreeBlocksNumbersHeldOnlyByTaskWorktrees(t *testing.T) {
+// TestValidateFreeAcceptsNumbersHeldOnlyByTaskWorktrees is the pre-start
+// self-allocation regression: the governed acquisition of a task worktree
+// consumes the ticket number through the registry surface before any branch,
+// commit, or pull request exists, and the governed ticket start of the same
+// ticket must recognize its own allocation instead of colliding with it.
+// Every registry holder for a ticket derives from a path that parses to
+// exactly this ticket, so a registry-only holder set cannot hide a foreign
+// claim; any holder on another surface keeps the number occupied.
+func TestValidateFreeAcceptsNumbersHeldOnlyByTaskWorktrees(t *testing.T) {
 	t.Parallel()
 
-	surfaces := &fakeSurfaces{
-		worktrees: []port.WorktreeEntry{
-			{Path: "C:/work/git-governance-ABC-37", Detached: true},
-			{Path: "C:/work/git-governance-XYZ-9", Detached: true},
-			{Path: "C:/work/git-governance-main-current", Detached: true},
-			{Path: "C:/work/git-governance", Head: "abc"},
-		},
-	}
-	service := fullService(surfaces)
-	err := service.ValidateFree(context.Background(), testRepository(), mustID("ABC-37"))
-	assertProblemCode(t, err, problem.CodeTicketNumberAlreadyAllocated)
-	typed, ok := problem.As(err)
-	if !ok {
-		t.Fatal("collision must be a typed problem")
-	}
-	if !strings.Contains(typed.Context, SurfaceWorktreeRegistry) ||
-		!strings.Contains(typed.Context, "git-governance-ABC-37") {
-		t.Fatalf("collision context must carry the worktree holder evidence: %q", typed.Context)
-	}
-	if typed.Example != "ABC-38" {
-		t.Fatalf("example must be the next free number above the held 37: %q", typed.Example)
-	}
+	t.Run("accepts the pre-start self-allocation of the ticket", func(t *testing.T) {
+		t.Parallel()
+		surfaces := &fakeSurfaces{
+			worktrees: []port.WorktreeEntry{
+				{Path: "C:/work/git-governance-ABC-37", Detached: true},
+				{Path: "C:/work/git-governance-XYZ-9", Detached: true},
+				{Path: "C:/work/git-governance-main-current", Detached: true},
+				{Path: "C:/work/git-governance", Head: "abc"},
+			},
+		}
+		if err := fullService(surfaces).ValidateFree(context.Background(), testRepository(), mustID("ABC-37")); err != nil {
+			t.Fatalf("ValidateFree() error = %v; the pre-start self-allocation of the ticket's own worktree must stay free", err)
+		}
+	})
+
+	t.Run("blocks the number when a non-registry surface joins the holders", func(t *testing.T) {
+		t.Parallel()
+		surfaces := &fakeSurfaces{
+			localBranchNames: []string{"feature/ABC-37-mixed"},
+			worktrees:        []port.WorktreeEntry{{Path: "C:/work/git-governance-ABC-37", Detached: true}},
+		}
+		err := fullService(surfaces).ValidateFree(context.Background(), testRepository(), mustID("ABC-37"))
+		assertProblemCode(t, err, problem.CodeTicketNumberAlreadyAllocated)
+		typed, ok := problem.As(err)
+		if !ok {
+			t.Fatal("collision must be a typed problem")
+		}
+		if !strings.Contains(typed.Context, SurfaceWorktreeRegistry) ||
+			!strings.Contains(typed.Context, SurfaceBranchRefs) {
+			t.Fatalf("collision context must carry every holder surface: %q", typed.Context)
+		}
+		if typed.Example != "ABC-38" {
+			t.Fatalf("example must be the next free number above the held 37: %q", typed.Example)
+		}
+	})
+
+	t.Run("a deviating side-channel worktree holds nothing", func(t *testing.T) {
+		t.Parallel()
+		surfaces := &fakeSurfaces{
+			worktrees: []port.WorktreeEntry{{Path: "C:/work/git-governance-gov-37", Detached: true}},
+		}
+		if err := fullService(surfaces).ValidateFree(context.Background(), testRepository(), mustID("ABC-37")); err != nil {
+			t.Fatalf("ValidateFree() error = %v; a deviating path cannot bind the ticket grammar and must not hold the number", err)
+		}
+	})
 }
 
 func TestTicketFromWorktreePath(t *testing.T) {

@@ -81,6 +81,14 @@ git worktree add -b feature/ABC-123-slug ../wt origin/develop
 A single shared working tree for unrelated parallel tickets is equally
 rejected: the tool's gates then block collisions on the wrong isolation unit.
 
+## Name reservation
+
+The derived task-worktree name of a ticket is reserved: the governed
+acquisition matches it case-insensitively against the worktree inventory and
+names every collision fail-closed. Side-channel worktrees — worktrees created
+outside the governed lifecycle endpoints — are handled per the
+[name reservation convention](worktree-name-reservation.md).
+
 ## Tool enforcement relationship
 
 The binary's fail-closed gates already resolve worktree-correctly: worktree

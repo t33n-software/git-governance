@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -105,8 +106,8 @@ func (service *WorktreeService) StartWorktree(ctx context.Context, request Start
 	if err != nil {
 		return StartWorktreeResult{}, err
 	}
-	if registeredWorktree(entries, path) {
-		return StartWorktreeResult{}, worktreeConflict(path)
+	if colliding, occupied := registeredWorktreeEntry(entries, path); occupied {
+		return StartWorktreeResult{}, worktreeConflict(path, colliding, request.Ticket)
 	}
 	result := StartWorktreeResult{
 		Path:   path,
@@ -193,7 +194,8 @@ func (service *WorktreeService) RemoveWorktree(ctx context.Context, request Remo
 	if err != nil {
 		return RemoveWorktreeResult{}, err
 	}
-	if !registeredWorktree(entries, path) {
+	registered, found := registeredWorktreeEntry(entries, path)
+	if !found {
 		return RemoveWorktreeResult{}, problem.New(problem.Details{
 			Code:        problem.CodeInvalidInput,
 			Category:    problem.CategoryRepository,
@@ -206,17 +208,17 @@ func (service *WorktreeService) RemoveWorktree(ctx context.Context, request Remo
 		})
 	}
 	result := RemoveWorktreeResult{
-		Path:   path,
+		Path:   registered.Path,
 		Ticket: request.Ticket,
 		DryRun: request.DryRun,
 		Plan: []branchapp.PlanStep{
-			{Action: "worktree-remove", Detail: "git worktree remove " + path},
+			{Action: "worktree-remove", Detail: "git worktree remove " + registered.Path},
 		},
 	}
 	if request.DryRun {
 		return result, nil
 	}
-	if err := manager.WorktreeRemove(ctx, repository, path); err != nil {
+	if err := manager.WorktreeRemove(ctx, repository, registered.Path); err != nil {
 		return RemoveWorktreeResult{}, err
 	}
 	return result, nil
@@ -493,16 +495,19 @@ func (service *WorktreeService) worktreeManager() (port.WorktreeManager, error) 
 	return manager, nil
 }
 
-// registeredWorktree reports whether the derived task-worktree path is part
-// of the porcelain worktree inventory.
-func registeredWorktree(entries []port.WorktreeEntry, path string) bool {
+// registeredWorktreeEntry resolves the registered task-worktree entry of the
+// derived path case-insensitively against the porcelain worktree inventory.
+// The derived task-worktree name of a ticket is reserved by convention, not
+// by filesystem case rules, so the reservation semantics stay identical on
+// case-sensitive and case-insensitive filesystems.
+func registeredWorktreeEntry(entries []port.WorktreeEntry, path string) (port.WorktreeEntry, bool) {
 	cleaned := filepath.Clean(path)
 	for _, entry := range entries {
-		if filepath.Clean(entry.Path) == cleaned {
-			return true
+		if strings.EqualFold(filepath.Clean(entry.Path), cleaned) {
+			return entry, true
 		}
 	}
-	return false
+	return port.WorktreeEntry{}, false
 }
 
 // worktreePath derives the canonical task-worktree directory of one ticket
@@ -546,19 +551,35 @@ func worktreeAcquisitionBase(baseLine string) (branch.BranchName, error) {
 }
 
 // worktreeConflict is the fail-closed record of an occupied task-worktree
-// path: the derived worktree of the ticket is already registered, so the
-// acquisition refuses to mutate instead of failing with an opaque Git
-// diagnostic.
-func worktreeConflict(path string) error {
+// path. The derived task-worktree name of a ticket is reserved
+// case-insensitively, and the record classifies the occupying entry
+// honestly: a registered task worktree of the same ticket is the governed
+// pre-start form whose sanctioned continuation runs the ticket workflow
+// inside the existing worktree, while any other occupier — a deviating
+// side-channel worktree that does not parse to the ticket — is
+// actor-resolved hygiene the binary never touches.
+func worktreeConflict(path string, entry port.WorktreeEntry, id ticket.ID) error {
+	if parsed, isTask := ticketalloc.TicketFromWorktreePath(entry.Path); isTask && parsed.String() == id.String() {
+		return problem.New(problem.Details{
+			Code:        problem.CodeWorktreeConflict,
+			Category:    problem.CategoryRepository,
+			Field:       "worktree",
+			Actual:      "task worktree " + filepath.Base(entry.Path),
+			Expected:    "an unoccupied task-worktree path",
+			Rule:        "task worktrees are acquired once per ticket; the derived worktree of the ticket is already registered as its task worktree",
+			Example:     "workflow worktree list",
+			Remediation: "continue in the existing worktree by running the ticket workflow inside it",
+		})
+	}
 	return problem.New(problem.Details{
 		Code:        problem.CodeWorktreeConflict,
 		Category:    problem.CategoryRepository,
 		Field:       "worktree",
-		Actual:      path,
+		Actual:      "worktree " + filepath.Base(entry.Path),
 		Expected:    "an unoccupied task-worktree path",
-		Rule:        "task worktrees are acquired once per ticket; the derived worktree of the ticket already exists",
+		Rule:        "the derived task-worktree name of the ticket is reserved; the occupying entry is not a governed task worktree of this ticket",
 		Example:     "workflow worktree list",
-		Remediation: "continue in the existing worktree by running the ticket workflow inside it, or inventory the worktrees with workflow worktree list",
+		Remediation: "resolve the occupying worktree as the actor, then re-run workflow worktree start",
 	})
 }
 

@@ -334,10 +334,10 @@ func TestRemoveWorktree(t *testing.T) {
 			t.Fatal(err)
 		}
 		expectedPath := filepath.Join(filepath.Dir(testRepository().Root), "repo-GOV-129")
-		if result.Path != expectedPath || result.DryRun || len(result.Plan) != 1 {
+		if filepath.Clean(result.Path) != filepath.Clean(expectedPath) || result.DryRun || len(result.Plan) != 1 {
 			t.Fatalf("RemoveWorktree() = %#v", result)
 		}
-		if len(git.removedPaths) != 1 || git.removedPaths[0] != expectedPath {
+		if len(git.removedPaths) != 1 || filepath.Clean(git.removedPaths[0]) != filepath.Clean(expectedPath) {
 			t.Fatalf("worktree removals = %v", git.removedPaths)
 		}
 	})
@@ -361,6 +361,27 @@ func TestRemoveWorktree(t *testing.T) {
 		}
 		if len(git.removedPaths) != 0 {
 			t.Fatalf("a dry run must not remove the worktree: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("removes the real registered path of a case-variant worktree", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{}, entries: []port.WorktreeEntry{
+			{Path: "C:/REPO-GOV-129", Head: "def", Detached: true},
+		}}
+		service := NewWorktreeService(git)
+		result, err := service.RemoveWorktree(context.Background(), RemoveWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Path != "C:/REPO-GOV-129" {
+			t.Fatalf("RemoveWorktree() path = %q, want the real registered path", result.Path)
+		}
+		if len(git.removedPaths) != 1 || git.removedPaths[0] != "C:/REPO-GOV-129" {
+			t.Fatalf("worktree removals = %v; the removal must address the real registered path", git.removedPaths)
 		}
 	})
 
@@ -751,8 +772,71 @@ func TestStartWorktreeConflictPrecheck(t *testing.T) {
 			Ticket:     mustTicket("GOV-129"),
 		})
 		assertProblemCode(t, err, problem.CodeWorktreeConflict)
+		typed, ok := problem.As(err)
+		if !ok {
+			t.Fatal("the conflict must be a typed problem")
+		}
+		if !strings.Contains(typed.Rule, "already registered as its task worktree") ||
+			!strings.Contains(typed.Remediation, "continue in the existing worktree") {
+			t.Fatalf("the governed pre-start form must carry its bound classification: %#v", typed)
+		}
 		if len(git.addedPaths) != 0 {
 			t.Fatalf("a conflicted acquisition must not create a worktree: %v", git.addedPaths)
+		}
+	})
+
+	t.Run("classifies a case-variant registered task worktree as the governed form", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{},
+			entries: []port.WorktreeEntry{
+				{Path: "C:/REPO-GOV-129", Detached: true},
+			},
+		}
+		service := NewWorktreeService(git)
+		_, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+		})
+		assertProblemCode(t, err, problem.CodeWorktreeConflict)
+		typed, ok := problem.As(err)
+		if !ok {
+			t.Fatal("the conflict must be a typed problem")
+		}
+		if !strings.Contains(typed.Actual, "REPO-GOV-129") ||
+			!strings.Contains(typed.Remediation, "continue in the existing worktree") {
+			t.Fatalf("the case-variant entry of the same ticket must be classified as the governed form: %#v", typed)
+		}
+		if len(git.addedPaths) != 0 {
+			t.Fatalf("a reserved name must never acquire: %v", git.addedPaths)
+		}
+	})
+
+	t.Run("classifies a deviating side-channel worktree honestly", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{},
+			entries: []port.WorktreeEntry{
+				{Path: "C:/repo-gov-129", Detached: true},
+			},
+		}
+		service := NewWorktreeService(git)
+		_, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+		})
+		assertProblemCode(t, err, problem.CodeWorktreeConflict)
+		typed, ok := problem.As(err)
+		if !ok {
+			t.Fatal("the conflict must be a typed problem")
+		}
+		if !strings.Contains(typed.Actual, "repo-gov-129") ||
+			!strings.Contains(typed.Rule, "not a governed task worktree of this ticket") ||
+			!strings.Contains(typed.Remediation, "resolve the occupying worktree as the actor") {
+			t.Fatalf("the deviating entry must carry its honest classification: %#v", typed)
+		}
+		if len(git.addedPaths) != 0 {
+			t.Fatalf("a reserved name must never acquire: %v", git.addedPaths)
 		}
 	})
 

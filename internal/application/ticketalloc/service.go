@@ -312,15 +312,19 @@ func (service *Service) Inventory(ctx context.Context, repository port.Repositor
 }
 
 // ValidateFree fails closed with TICKET_NUMBER_ALREADY_ALLOCATED when the
-// requested ticket number is held on any governed surface. The collision
-// record carries the holder evidence and the next free number of the same key.
+// requested ticket number is occupied on any governed surface. A number held
+// only by the worktree registry is the legitimate pre-start self-allocation
+// of its own task-worktree acquisition and stays free for the governed
+// ticket start: every registry holder for a ticket derives from a path that
+// parses to exactly this ticket, so the holder set cannot hide a foreign
+// claim. The collision record carries the holder evidence and the next free
+// number of the same key.
 func (service *Service) ValidateFree(ctx context.Context, repository port.RepositoryIdentity, id ticket.ID) error {
 	allocation, err := service.Inventory(ctx, repository, id.Key())
 	if err != nil {
 		return err
 	}
-	holders := allocation.Holders[id.Number().String()]
-	if len(holders) == 0 {
+	if !ticketNumberOccupied(allocation.Holders[id.Number().String()]) {
 		return nil
 	}
 	return problem.New(problem.Details{
@@ -328,7 +332,7 @@ func (service *Service) ValidateFree(ctx context.Context, repository port.Reposi
 		Category: problem.CategoryGovernance,
 		Field:    "ticket number",
 		Actual:   id.String(),
-		Context:  holdersContext(holders),
+		Context:  holdersContext(allocation.Holders[id.Number().String()]),
 		Expected: "a ticket number not allocated on any governed surface",
 		Rule:     "every ticket number within a ticket-key namespace is allocated exactly once across all governed allocation surfaces",
 		Example:  id.Key().String() + "-" + allocation.NextFree,
@@ -439,6 +443,20 @@ func recordBranchHolder(holders map[string][]Holder, key ticket.Key, name branch
 
 func addHolder(holders map[string][]Holder, number string, holder Holder) {
 	holders[number] = append(holders[number], holder)
+}
+
+// ticketNumberOccupied reports whether a ticket number is occupied on a
+// governed surface. Holders on the worktree registry alone are the pre-start
+// self-allocation of the ticket's own task worktree; every holder on any
+// other surface is a genuine collision, and a mixed holder set stays a
+// collision so a foreign claim can never hide behind the registry surface.
+func ticketNumberOccupied(holders []Holder) bool {
+	for _, holder := range holders {
+		if holder.Surface != SurfaceWorktreeRegistry {
+			return true
+		}
+	}
+	return false
 }
 
 func holdersContext(holders []Holder) string {
