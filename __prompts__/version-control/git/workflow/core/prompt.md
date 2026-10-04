@@ -723,8 +723,9 @@ Die Vorschlagsbasis ist die gouvernete Inventur-Fähigkeit der Binary
 (Help-first re-anchored): das vollständige Flächeninventar über alle
 Allokationsflächen des gebundenen Projekts — Branch-Refs (lokal und remote),
 Commit-Envelope-Historie über alle Refs, Hotfix-Release-Records,
-Genesis-Record, PR-/MR-Titel (offen und geschlossen, vollständig paginiert)
-und Protected-Line-Request-Records. „Frei" ist erst nach vollständiger
+Task-Worktree-Registry (registrierte Task-Worktrees), PR-/MR-Titel
+(offen und geschlossen, vollständig paginiert) und
+Protected-Line-Request-Records. „Frei" ist erst nach vollständiger
 Inventur bewiesen; eine Fläche, die nicht vollständig lesbar ist, schließt
 die Inventur fail-closed. Ausschließliche Projektionsbasen — etwa ein
 PR-Titel-Scan, ein festes Seitenfenster oder eine Titel-only-Sicht — sind
@@ -866,6 +867,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `workflow worktree start` | E1 | Einen detached Task-Worktree für ein Ticket governet akquirieren und den Branch-Kontext daran binden | Erzeugt den Worktree aus der aktuellen `origin/develop`-Revision; keine Branch-Erzeugung; die erste Mutation im Worktree bleibt `workflow ticket start` |
 | `workflow worktree list` | RO | Lokale Task-Worktrees inventarisieren | Keine Mutation |
 | `workflow worktree remove` | E1 | Den Worktree eines abgeschlossenen Tickets entfernen | Löscht ausschließlich den Worktree; keine offiziellen oder Remote-Branches |
+| `workflow worktree prune` | E1 | Die Task-Worktrees entfernen, deren Completion-Evidenz bewiesen ist | Hybrid-Evidenz je Eintrag — gemergter neuester PR-Record, erfüllte Branch-Obligation auf der Remote-Fläche, sauberer Worktree, keine aktive Operation; nur bewiesen-vollständige Einträge werden entfernt; löscht ausschließlich Worktrees, keine Branches |
 
 ### 5.3 Hotfix-Arbeit
 
