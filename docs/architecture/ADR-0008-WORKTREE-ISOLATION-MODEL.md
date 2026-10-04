@@ -80,6 +80,9 @@ revision, and hides which task a tree belongs to.
 - The binary provides the worktree lifecycle endpoints and publish-return
   awareness for the worktree checkout shape; the fail-closed gates remain per
   worktree.
+- The derived task-worktree name of a ticket is reserved case-insensitively,
+  and every acquisition collision is named fail-closed per the name
+  reservation convention (`docs/conventions/worktrees/worktree-name-reservation.md`).
 - Raw Git remains forbidden for the complete worktree lifecycle; acquisition,
   branch creation, commits, and publication stay governed.
 - Cleanup discipline extends the governed branch cleanup with worktree
