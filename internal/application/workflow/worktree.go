@@ -3,24 +3,38 @@ package workflow
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/application/ticketalloc"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
 
 // WorktreeService owns the task-worktree lifecycle use cases: the governed
-// acquisition of a detached task worktree, its inventory, and its removal
-// after the ticket work is published.
+// acquisition of a detached task worktree, its inventory, its removal after
+// the ticket work is published, and the evidence-based prune of completed
+// worktrees.
 type WorktreeService struct {
 	git port.GitRepository
+	// pullRequests carries the provider inventory capability whose records
+	// prove the review outcome of a ticket. The prune fails closed without
+	// it: completion is never decided from the local plane alone.
+	pullRequests port.PullRequestInventoryLister
 }
 
 // NewWorktreeService creates the worktree workflow service.
 func NewWorktreeService(git port.GitRepository) *WorktreeService {
 	return &WorktreeService{git: git}
+}
+
+// WithPullRequestInventory binds the provider capability whose pull-request
+// records carry the review-outcome evidence of the worktree prune.
+func (service *WorktreeService) WithPullRequestInventory(lister port.PullRequestInventoryLister) *WorktreeService {
+	service.pullRequests = lister
+	return service
 }
 
 // StartWorktreeRequest describes the acquisition of one detached task
@@ -206,6 +220,263 @@ func (service *WorktreeService) RemoveWorktree(ctx context.Context, request Remo
 		return RemoveWorktreeResult{}, err
 	}
 	return result, nil
+}
+
+// Staleness classes of the prune inventory. The names follow the worktree
+// lifecycle convention: every task worktree is in exactly one class, and
+// only the stale-eligible class is a removal candidate.
+const (
+	pruneClassActive        = "active"
+	pruneClassPreStart      = "pre-start"
+	pruneClassPublishedOpen = "published-open"
+	pruneClassStaleEligible = "stale-eligible"
+	pruneClassAbandoned     = "abandoned"
+	pruneClassOutOfScope    = "out-of-scope"
+)
+
+// PruneWorktreesRequest identifies the repository whose completed task
+// worktrees are pruned.
+type PruneWorktreesRequest struct {
+	Repository port.RepositoryIdentity
+	DryRun     bool
+}
+
+// WorktreePruneEntry reports one worktree of the prune inventory with its
+// staleness classification and its removal outcome. The class follows the
+// worktree lifecycle convention; only a stale-eligible entry is a removal
+// candidate, and the reason carries the evidence basis of the decision.
+type WorktreePruneEntry struct {
+	Path     string `json:"path"`
+	Ticket   string `json:"ticket,omitempty"`
+	Branch   string `json:"branch,omitempty"`
+	Class    string `json:"class"`
+	PRState  string `json:"pullRequestState,omitempty"`
+	PRNumber string `json:"pullRequestNumber,omitempty"`
+	Reason   string `json:"reason"`
+	Removed  bool   `json:"removed"`
+}
+
+// PruneWorktreesResult reports the classified worktree inventory and the
+// executed removals of one prune dispatch.
+type PruneWorktreesResult struct {
+	Entries []WorktreePruneEntry
+	DryRun  bool
+	Plan    []branchapp.PlanStep
+}
+
+// PruneWorktrees discovers the task worktrees whose completion evidence is
+// proven and removes them under the same registered-and-clean guards as the
+// single-ticket removal. Completion is a hybrid conjunction measured per
+// worktree: the newest pull-request record of the ticket is merged, the
+// branch-cleanup obligation is satisfied on the remote branch surface, the
+// worktree is locally clean, and no governed operation holds it. Every other
+// staleness class stays in place with its named reason; the prune never
+// removes a worktree on a pure-remote or a pure-local decision.
+func (service *WorktreeService) PruneWorktrees(ctx context.Context, request PruneWorktreesRequest) (PruneWorktreesResult, error) {
+	manager, err := service.worktreeManager()
+	if err != nil {
+		return PruneWorktreesResult{}, err
+	}
+	remoteBranches, ok := service.git.(port.RemoteBranchLister)
+	if !ok {
+		return PruneWorktreesResult{}, worktreeCapabilityProblem("remote branch listing")
+	}
+	if service.pullRequests == nil {
+		return PruneWorktreesResult{}, worktreeCapabilityProblem("pull-request state evidence")
+	}
+	repository := normalizeRepositoryIdentity(request.Repository)
+	entries, err := manager.WorktreeList(ctx, repository)
+	if err != nil {
+		return PruneWorktreesResult{}, err
+	}
+	remoteURL, err := service.git.RemoteURL(ctx, repository)
+	if err != nil {
+		return PruneWorktreesResult{}, err
+	}
+	inventory, err := service.pullRequests.ListPullRequests(ctx, port.PullRequestInventoryQuery{
+		Repository: repository,
+		RemoteURL:  remoteURL,
+	})
+	if err != nil {
+		return PruneWorktreesResult{}, err
+	}
+	remoteRefs, err := remoteBranches.RemoteBranches(ctx, repository)
+	if err != nil {
+		return PruneWorktreesResult{}, err
+	}
+	result := PruneWorktreesResult{DryRun: request.DryRun}
+	for _, entry := range entries {
+		classified := service.classifyWorktree(ctx, repository, remoteRefs, inventory, entry)
+		if classified.Class == pruneClassStaleEligible {
+			result.Plan = append(result.Plan, branchapp.PlanStep{
+				Action: "worktree-remove",
+				Detail: "git worktree remove " + entry.Path,
+			})
+			if !request.DryRun {
+				if err := manager.WorktreeRemove(ctx, repository, entry.Path); err != nil {
+					classified.Reason = "removal refused: " + err.Error()
+				} else {
+					classified.Removed = true
+					classified.Reason = "removed under the registered-and-clean guards"
+				}
+			}
+		}
+		result.Entries = append(result.Entries, classified)
+	}
+	return result, nil
+}
+
+// classifyWorktree measures one worktree entry against the hybrid completion
+// evidence and binds exactly one staleness class with its evidence basis.
+func (service *WorktreeService) classifyWorktree(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	remoteRefs []branch.BranchName,
+	inventory []port.PullRequestSummary,
+	entry port.WorktreeEntry,
+) WorktreePruneEntry {
+	classified := WorktreePruneEntry{Path: entry.Path, Branch: entry.Branch}
+	if entry.Bare {
+		classified.Class = pruneClassOutOfScope
+		classified.Reason = "bare worktree without a working tree"
+		return classified
+	}
+	id, isTask := ticketalloc.TicketFromWorktreePath(entry.Path)
+	if !isTask {
+		classified.Class = pruneClassOutOfScope
+		classified.Reason = "the path does not match the task-worktree registry grammar"
+		return classified
+	}
+	classified.Ticket = id.String()
+	if entry.Detached {
+		clean, err := service.git.IsWorktreeClean(ctx, worktreeIdentity(repository, entry.Path))
+		switch {
+		case err != nil:
+			classified.Class = pruneClassActive
+			classified.Reason = "the local evidence of the worktree is unmeasurable: " + err.Error()
+		case clean:
+			classified.Class = pruneClassPreStart
+			classified.Reason = "fresh detached acquisition; the sanctioned first mutation is the governed ticket start"
+		default:
+			classified.Class = pruneClassActive
+			classified.Reason = "the detached worktree carries uncommitted state"
+		}
+		return classified
+	}
+	newest, found := newestPullRequestForTicket(inventory, id)
+	if !found {
+		classified.Class = pruneClassActive
+		classified.Reason = "no pull request records the review outcome of the ticket"
+		return classified
+	}
+	classified.PRState = string(newest.State)
+	classified.PRNumber = newest.Number
+	switch newest.State {
+	case port.PullRequestStateOpen:
+		classified.Class = pruneClassPublishedOpen
+		classified.Reason = "the pull request of the ticket is open; the worktree is the review continuation context"
+		return classified
+	case port.PullRequestStateClosed:
+		classified.Class = pruneClassAbandoned
+		classified.Reason = "the newest pull request of the ticket is closed without a merge; the boundary decision belongs to the actor"
+		return classified
+	}
+	if branchOnRemote(remoteRefs, entry.Branch) {
+		classified.Class = pruneClassActive
+		classified.Reason = "the branch-cleanup obligation is open: the ticket branch still exists on the remote surface"
+		return classified
+	}
+	clean, err := service.git.IsWorktreeClean(ctx, worktreeIdentity(repository, entry.Path))
+	if err != nil {
+		classified.Class = pruneClassActive
+		classified.Reason = "the local evidence of the worktree is unmeasurable: " + err.Error()
+		return classified
+	}
+	if !clean {
+		classified.Class = pruneClassActive
+		classified.Reason = "the worktree carries uncommitted state"
+		return classified
+	}
+	name, active, err := service.git.ActiveOperation(ctx, worktreeIdentity(repository, entry.Path))
+	if err != nil {
+		classified.Class = pruneClassActive
+		classified.Reason = "the local evidence of the worktree is unmeasurable: " + err.Error()
+		return classified
+	}
+	if active {
+		classified.Class = pruneClassActive
+		classified.Reason = "the governed operation " + name + " holds the worktree"
+		return classified
+	}
+	classified.Class = pruneClassStaleEligible
+	classified.Reason = "completion evidence proven: merged pull request, deleted remote branch, clean worktree, no active operation"
+	return classified
+}
+
+// newestPullRequestForTicket resolves the newest pull-request record of one
+// ticket from the complete provider surface. Records are matched through the
+// canonical title grammars, never through string containment; the highest
+// parsed record number carries the current review state of the ticket.
+func newestPullRequestForTicket(inventory []port.PullRequestSummary, id ticket.ID) (port.PullRequestSummary, bool) {
+	newest := port.PullRequestSummary{}
+	found := false
+	for _, summary := range inventory {
+		recordID, matches := ticketalloc.TicketFromTitle(summary.Title)
+		if !matches || recordID.String() != id.String() {
+			continue
+		}
+		if !found || pullRequestNumberNewer(summary.Number, newest.Number) {
+			newest = summary
+			found = true
+		}
+	}
+	return newest, found
+}
+
+// pullRequestNumberNewer compares two provider record numbers numerically; a
+// number that does not parse sorts below every parseable number.
+func pullRequestNumberNewer(candidate string, current string) bool {
+	candidateValue, candidateErr := strconv.Atoi(candidate)
+	currentValue, currentErr := strconv.Atoi(current)
+	if candidateErr != nil {
+		return false
+	}
+	if currentErr != nil {
+		return true
+	}
+	return candidateValue > currentValue
+}
+
+// branchOnRemote reports whether one canonical branch name still exists on
+// the fetched remote-tracking branch surface.
+func branchOnRemote(remoteRefs []branch.BranchName, name string) bool {
+	for _, ref := range remoteRefs {
+		if ref.String() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// worktreeIdentity binds one worktree path into a repository identity so the
+// per-worktree cleanliness and operation measurements run inside the target
+// worktree.
+func worktreeIdentity(repository port.RepositoryIdentity, path string) port.RepositoryIdentity {
+	return port.RepositoryIdentity{Root: path, Remote: repository.Remote}
+}
+
+// worktreeCapabilityProblem is the fail-closed record of a composition whose
+// adapter surface cannot measure the completion evidence of the prune.
+func worktreeCapabilityProblem(capability string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeConfigurationUnavailable,
+		Category:    problem.CategoryConfig,
+		Field:       "worktree lifecycle",
+		Actual:      capability,
+		Expected:    "the evidence capabilities of the worktree prune",
+		Rule:        "the prune measures the hybrid completion evidence per worktree and fails closed when one capability is missing",
+		Remediation: "fix the composition so the worktree workflow service receives the " + capability + " capability",
+	})
 }
 
 // worktreeManager resolves the optional worktree capability of the composed

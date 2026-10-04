@@ -15,13 +15,15 @@ import (
 // capability the worktree workflow commands consume.
 type worktreeCommandGit struct {
 	*commandGit
-	entries    []port.WorktreeEntry
-	linked     bool
-	linkedErr  error
-	listErr    error
-	addErr     error
-	addedPaths []string
-	removed    []string
+	entries        []port.WorktreeEntry
+	linked         bool
+	linkedErr      error
+	listErr        error
+	addErr         error
+	addedPaths     []string
+	removed        []string
+	remoteBranches []branch.BranchName
+	remoteErr      error
 }
 
 func (git *worktreeCommandGit) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
@@ -47,6 +49,34 @@ func (git *worktreeCommandGit) LinkedWorktree(context.Context, port.RepositoryId
 
 func (git *worktreeCommandGit) WorktreeHeadMatchesBase(context.Context, port.RepositoryIdentity, branch.TargetBase) (string, string, error) {
 	return "c46015869552bc0433fa2a5276713d74bfc73f87", "c46015869552bc0433fa2a5276713d74bfc73f87", nil
+}
+
+func (git *worktreeCommandGit) RemoteBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
+	return git.remoteBranches, git.remoteErr
+}
+
+// worktreeCommandPullRequests carries the provider records the prune
+// consumes through the publisher wiring of the runtime.
+type worktreeCommandPullRequests struct {
+	records []port.PullRequestSummary
+	err     error
+}
+
+func (fake *worktreeCommandPullRequests) ListPullRequests(context.Context, port.PullRequestInventoryQuery) ([]port.PullRequestSummary, error) {
+	return fake.records, fake.err
+}
+
+func (fake *worktreeCommandPullRequests) Publish(context.Context, port.PullRequestPublication) (port.PublishedPullRequest, error) {
+	return port.PublishedPullRequest{}, nil
+}
+
+// pruneCommandRuntime binds the prune evidence capabilities into the shared
+// command runtime: the remote branch surface through the Git fake and the
+// pull-request inventory through the publisher.
+func pruneCommandRuntime(git port.GitRepository, records []port.PullRequestSummary) Runtime {
+	runtime := commandRuntime(git)
+	runtime.Publisher = &worktreeCommandPullRequests{records: records}
+	return runtime
 }
 
 func TestWorktreeStartCommand(t *testing.T) {
@@ -346,6 +376,143 @@ func TestWorktreeRemoveCommand(t *testing.T) {
 		}
 		if len(git.removed) != 0 {
 			t.Fatalf("a rejected request must not remove a worktree: %v", git.removed)
+		}
+	})
+}
+
+func TestWorktreePruneCommand(t *testing.T) {
+	t.Parallel()
+
+	const taskPath = "C:/repo-GOV-129"
+	const taskBranch = "feature/GOV-129-add-export"
+	mergedRecord := port.PullRequestSummary{Number: "12", Title: "GOV-129: add-export", State: port.PullRequestStateMerged}
+
+	t.Run("prunes the proven-complete worktrees and reports the inventory", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{
+			commandGit: newCommandGit(t, "develop", nil),
+			entries: []port.WorktreeEntry{
+				{Path: "C:/repo", Head: "abc", Branch: "develop"},
+				{Path: taskPath, Head: "def", Branch: taskBranch},
+			},
+		}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, pruneCommandRuntime(git, []port.PullRequestSummary{mergedRecord}))
+		output, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--yes", "workflow", "worktree", "prune")
+		if err != nil {
+			t.Fatalf("worktree prune error = %v; output=%q", err, output)
+		}
+		for _, expected := range []string{
+			`"operation":"workflow.worktree.prune"`,
+			`"worktreeCount":"2"`,
+			`"removedCount":"1"`,
+			`"class":"stale-eligible"`,
+			`"class":"out-of-scope"`,
+			`"pullRequestState":"merged"`,
+			`"ticket":"GOV-129"`,
+			`"removed":true`,
+		} {
+			if !strings.Contains(output, expected) {
+				t.Fatalf("worktree prune output missing %q: %q", expected, output)
+			}
+		}
+		if len(git.removed) != 1 || git.removed[0] != taskPath {
+			t.Fatalf("worktree removals = %v", git.removed)
+		}
+	})
+
+	t.Run("keeps the published-open and abandoned worktrees", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{
+			commandGit: newCommandGit(t, "develop", nil),
+			entries: []port.WorktreeEntry{
+				{Path: taskPath, Head: "def", Branch: taskBranch},
+				{Path: "C:/repo-GOV-130", Head: "ghi", Branch: "docs/GOV-130-derive-the-genesis-timeout-budget"},
+			},
+		}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, pruneCommandRuntime(git, []port.PullRequestSummary{
+			{Number: "13", Title: "GOV-129: add-export", State: port.PullRequestStateOpen},
+			{Number: "9", Title: "docs(GOV-130): derive the genesis timeout budget", State: port.PullRequestStateClosed},
+		}))
+		output, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--yes", "workflow", "worktree", "prune")
+		if err != nil {
+			t.Fatalf("worktree prune error = %v; output=%q", err, output)
+		}
+		for _, expected := range []string{
+			`"class":"published-open"`,
+			`"class":"abandoned"`,
+			`"removedCount":"0"`,
+		} {
+			if !strings.Contains(output, expected) {
+				t.Fatalf("worktree prune output missing %q: %q", expected, output)
+			}
+		}
+		if len(git.removed) != 0 {
+			t.Fatalf("kept worktrees must never be removed: %v", git.removed)
+		}
+	})
+
+	t.Run("requires --yes for a non-interactive prune", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{
+			commandGit: newCommandGit(t, "develop", nil),
+			entries:    []port.WorktreeEntry{{Path: taskPath, Head: "def", Branch: taskBranch}},
+		}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, pruneCommandRuntime(git, []port.PullRequestSummary{mergedRecord}))
+		if _, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "workflow", "worktree", "prune"); err == nil {
+			t.Fatal("a non-interactive prune without --yes unexpectedly succeeded")
+		}
+		if len(git.removed) != 0 {
+			t.Fatalf("an unconfirmed prune must never mutate: %v", git.removed)
+		}
+	})
+
+	t.Run("plans the prune without mutating during dry-run", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{
+			commandGit: newCommandGit(t, "develop", nil),
+			entries:    []port.WorktreeEntry{{Path: taskPath, Head: "def", Branch: taskBranch}},
+		}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, pruneCommandRuntime(git, []port.PullRequestSummary{mergedRecord}))
+		output, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--dry-run", "workflow", "worktree", "prune")
+		if err != nil {
+			t.Fatalf("worktree prune error = %v; output=%q", err, output)
+		}
+		if !strings.Contains(output, `"dryRun":"true"`) {
+			t.Fatalf("dry-run output missing the dry-run marker: %q", output)
+		}
+		if !strings.Contains(output, `"class":"stale-eligible"`) || strings.Contains(output, `"removed":true`) {
+			t.Fatalf("the dry run must classify without removing: %q", output)
+		}
+		if len(git.removed) != 0 {
+			t.Fatalf("a dry run must not remove the worktree: %v", git.removed)
+		}
+	})
+
+	t.Run("fails closed without pull-request state evidence", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{
+			commandGit: newCommandGit(t, "develop", nil),
+			entries:    []port.WorktreeEntry{{Path: taskPath, Head: "def", Branch: taskBranch}},
+		}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(git))
+		if _, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--yes", "workflow", "worktree", "prune"); err == nil {
+			t.Fatal("a prune without provider evidence unexpectedly succeeded")
+		}
+		if len(git.removed) != 0 {
+			t.Fatalf("a blocked prune must never mutate: %v", git.removed)
+		}
+	})
+
+	t.Run("fails when the repository cannot be discovered", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{commandGit: newCommandGit(t, "develop", nil)}
+		git.discoverErr = errors.New("discover failed")
+		command := NewWithRuntime(BuildInfo{Version: "test"}, pruneCommandRuntime(git, []port.PullRequestSummary{mergedRecord}))
+		if _, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--yes", "workflow", "worktree", "prune"); err == nil {
+			t.Fatal("worktree prune unexpectedly succeeded with a discovery failure")
+		}
+		if len(git.removed) != 0 {
+			t.Fatalf("a failed discovery must never remove a worktree: %v", git.removed)
 		}
 	})
 }

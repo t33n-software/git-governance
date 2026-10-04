@@ -407,6 +407,25 @@ func ticketFromWorktreePath(path string) (ticket.ID, bool) {
 	return ticket.NewID(key, number), true
 }
 
+// TicketFromTitle parses the canonical ticket grammars of a pull-request
+// title for consumers outside the allocation inventory: the governed plain
+// form KEY-NUMBER: slug and the historical envelope form type(KEY-NUMBER):
+// subject. Parsing uses the canonical domain grammars; it never
+// string-matches.
+func TicketFromTitle(title string) (ticket.ID, bool) {
+	return ticketFromTitle(title)
+}
+
+// TicketFromWorktreePath derives the ticket binding of one task-worktree
+// path from its basename for consumers outside the allocation inventory.
+// The acquisition convention names sibling directories
+// `<repo>-<KEY>-<NUMBER>`, so a registered task worktree consumes its
+// number before any branch, commit, or pull request exists; a basename
+// without that grammar is not a task-worktree holder.
+func TicketFromWorktreePath(path string) (ticket.ID, bool) {
+	return ticketFromWorktreePath(path)
+}
+
 func recordBranchHolder(holders map[string][]Holder, key ticket.Key, name branch.BranchName, surface string) {
 	scopedTicket, found := name.Ticket()
 	if !found || scopedTicket.Key().String() != key.String() {

@@ -293,7 +293,7 @@ func (application *application) services() services {
 			}),
 		lifecycle:   lifecycle,
 		allocation:  allocation,
-		worktrees:   workflow.NewWorktreeService(git),
+		worktrees:   workflow.NewWorktreeService(git).WithPullRequestInventory(inventoryPullRequests),
 		preferences: policy.NewPreferencesService(store),
 		doctor:      policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
 		githubAuth:  githubAuth,
