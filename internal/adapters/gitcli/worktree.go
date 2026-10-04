@@ -2,6 +2,7 @@ package gitcli
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -131,10 +132,25 @@ func worktreeConflictProblem(path string) error {
 	})
 }
 
-// WorktreeRemove removes a task worktree fail-closed: the working tree of the
-// target worktree must be clean before the removal mutates anything.
+// WorktreeRemove removes a task worktree fail-closed. The removal addresses
+// the real registered path of the logical worktree name: the target is
+// resolved case-insensitively against the porcelain worktree inventory, so a
+// case-variant spelling of the same logical name stays addressable through
+// the governed endpoint. The working tree of the resolved target must be
+// clean before the removal mutates anything.
 func (repository *Repository) WorktreeRemove(ctx context.Context, identity port.RepositoryIdentity, path string) error {
-	status := repository.invoke(ctx, path, nil, "status", "--porcelain=v1", "--untracked-files=normal")
+	listing := repository.invoke(ctx, identity.Root, nil, "worktree", "list", "--porcelain")
+	if listing.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "resolve the registered task worktree", listing)
+	}
+	target := path
+	for _, entry := range parseWorktreeList(listing.stdout) {
+		if strings.EqualFold(filepath.Clean(entry.Path), filepath.Clean(path)) {
+			target = entry.Path
+			break
+		}
+	}
+	status := repository.invoke(ctx, target, nil, "status", "--porcelain=v1", "--untracked-files=normal")
 	if status.err != nil {
 		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "inspect the target worktree", status)
 	}
@@ -143,14 +159,14 @@ func (repository *Repository) WorktreeRemove(ctx context.Context, identity port.
 			Code:        problem.CodeWorktreeNotClean,
 			Category:    problem.CategoryRepository,
 			Field:       "worktree",
-			Actual:      path,
+			Actual:      target,
 			Expected:    "a clean target worktree before removal",
 			Rule:        "worktree removal must not discard uncommitted work",
 			Example:     "git status --porcelain returns no entries",
 			Remediation: "commit, publish, or clean the worktree before removing it",
 		})
 	}
-	result := repository.invoke(ctx, identity.Root, nil, "worktree", "remove", path)
+	result := repository.invoke(ctx, identity.Root, nil, "worktree", "remove", target)
 	if result.err != nil {
 		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "remove the task worktree", result)
 	}

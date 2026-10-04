@@ -256,32 +256,46 @@ func TestWorktreeRemove(t *testing.T) {
 
 	t.Run("removes a clean worktree", func(t *testing.T) {
 		t.Parallel()
-		runner := &fakeRunner{results: []processResult{{}, {}}}
+		runner := &fakeRunner{results: []processResult{{stdout: worktreePorcelainFixture}, {}, {}}}
 		repository := &Repository{runner: runner, timeout: time.Second}
 		if err := repository.WorktreeRemove(context.Background(), testIdentity(), "C:/repo-GOV-129"); err != nil {
 			t.Fatal(err)
 		}
-		if len(runner.calls) != 2 {
-			t.Fatalf("call count = %d, want 2", len(runner.calls))
+		if len(runner.calls) != 3 {
+			t.Fatalf("call count = %d, want 3", len(runner.calls))
 		}
-		assertCall(t, runner.calls[0], "C:/repo-GOV-129", "", "status", "--porcelain=v1", "--untracked-files=normal")
-		assertCall(t, runner.calls[1], "C:/repo", "", "worktree", "remove", "C:/repo-GOV-129")
+		assertCall(t, runner.calls[0], "C:/repo", "", "worktree", "list", "--porcelain")
+		assertCall(t, runner.calls[1], "C:/repo-GOV-129", "", "status", "--porcelain=v1", "--untracked-files=normal")
+		assertCall(t, runner.calls[2], "C:/repo", "", "worktree", "remove", "C:/repo-GOV-129")
+	})
+
+	t.Run("removes the real registered path of a case-variant target", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{
+			stdout: "worktree C:/repo\nbranch refs/heads/develop\n\nworktree C:/repo-gov-129\ndetached\n\n",
+		}, {}, {}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		if err := repository.WorktreeRemove(context.Background(), testIdentity(), "C:/repo-GOV-129"); err != nil {
+			t.Fatal(err)
+		}
+		assertCall(t, runner.calls[1], "C:/repo-gov-129", "", "status", "--porcelain=v1", "--untracked-files=normal")
+		assertCall(t, runner.calls[2], "C:/repo", "", "worktree", "remove", "C:/repo-gov-129")
 	})
 
 	t.Run("fails closed on an unclean target worktree", func(t *testing.T) {
 		t.Parallel()
-		runner := &fakeRunner{results: []processResult{{stdout: " M file.txt\n"}}}
+		runner := &fakeRunner{results: []processResult{{stdout: worktreePorcelainFixture}, {stdout: " M file.txt\n"}}}
 		repository := &Repository{runner: runner, timeout: time.Second}
 		err := repository.WorktreeRemove(context.Background(), testIdentity(), "C:/repo-GOV-129")
 		assertProblemCode(t, err, problem.CodeWorktreeNotClean)
-		if len(runner.calls) != 1 {
+		if len(runner.calls) != 2 {
 			t.Fatalf("an unclean worktree must never be removed: %v", runner.calls)
 		}
 	})
 
 	t.Run("maps a status failure on the target worktree", func(t *testing.T) {
 		t.Parallel()
-		runner := &fakeRunner{results: []processResult{{err: errors.New("status failed"), exitCode: 128}}}
+		runner := &fakeRunner{results: []processResult{{stdout: worktreePorcelainFixture}, {err: errors.New("status failed"), exitCode: 128}}}
 		repository := &Repository{runner: runner, timeout: time.Second}
 		err := repository.WorktreeRemove(context.Background(), testIdentity(), "C:/repo-GOV-129")
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
@@ -289,10 +303,21 @@ func TestWorktreeRemove(t *testing.T) {
 
 	t.Run("maps a removal failure", func(t *testing.T) {
 		t.Parallel()
-		runner := &fakeRunner{results: []processResult{{}, {err: errors.New("remove failed"), exitCode: 128}}}
+		runner := &fakeRunner{results: []processResult{{stdout: worktreePorcelainFixture}, {}, {err: errors.New("remove failed"), exitCode: 128}}}
 		repository := &Repository{runner: runner, timeout: time.Second}
 		err := repository.WorktreeRemove(context.Background(), testIdentity(), "C:/repo-GOV-129")
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("fails closed when the worktree inventory cannot be read", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{err: errors.New("list failed"), exitCode: 128}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		err := repository.WorktreeRemove(context.Background(), testIdentity(), "C:/repo-GOV-129")
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+		if len(runner.calls) != 1 {
+			t.Fatalf("an unreadable inventory must never touch a target: %v", runner.calls)
+		}
 	})
 }
 
