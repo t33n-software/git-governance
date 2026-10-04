@@ -85,6 +85,13 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 	if err != nil {
 		return AlignReleasePromotionBaseResult{}, err
 	}
+	releaseBase, err := branch.NewTargetBase(repository.Remote, request.Release)
+	if err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, releaseBase); err != nil {
+		return AlignReleasePromotionBaseResult{}, err
+	}
 	if _, err := service.branches.Validate(ctx, branchValidationRequest(repository, request.Branch)); err != nil {
 		return AlignReleasePromotionBaseResult{}, err
 	}
@@ -97,10 +104,6 @@ func (service *ReleaseService) AlignReleasePromotionBase(
 			"promotion-base alignment may mutate only the checked-out stabilization branch",
 			"switch to the requested release-preparation branch before retrying",
 		)
-	}
-	releaseBase, err := branch.NewTargetBase(repository.Remote, request.Release)
-	if err != nil {
-		return AlignReleasePromotionBaseResult{}, err
 	}
 	storedBase, found, err := service.git.WorkflowBase(ctx, repository, request.Branch)
 	if err != nil {

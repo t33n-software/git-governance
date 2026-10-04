@@ -169,6 +169,9 @@ func (service *ReleaseService) StartHotfix(ctx context.Context, request StartHot
 	if !request.DryRun && service.git == nil {
 		return branchapp.CreateResult{}, internalDependencyError("Git repository")
 	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, base); err != nil {
+		return branchapp.CreateResult{}, err
+	}
 	switchToBranch := true
 	result, err := service.branches.Create(ctx, branchapp.CreateRequest{
 		Repository:      repository,
@@ -776,6 +779,9 @@ func (service *ReleaseService) CreateReleaseStabilization(ctx context.Context, r
 	if !request.DryRun && service.git == nil {
 		return branchapp.CreateResult{}, internalDependencyError("Git repository")
 	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, base); err != nil {
+		return branchapp.CreateResult{}, err
+	}
 	result, err := service.branches.Create(ctx, branchapp.CreateRequest{
 		Repository:      repository,
 		Family:          family,
@@ -834,6 +840,13 @@ func (service *ReleaseService) PrepareReleasePromotion(ctx context.Context, requ
 	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
 	if err != nil {
+		return PrepareReleasePromotionResult{}, err
+	}
+	releaseBase, err := branch.NewTargetBase(repository.Remote, request.Release)
+	if err != nil {
+		return PrepareReleasePromotionResult{}, err
+	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, releaseBase); err != nil {
 		return PrepareReleasePromotionResult{}, err
 	}
 	version, _ := request.Release.ReleaseVersion()
@@ -927,6 +940,13 @@ func (service *ReleaseService) PrepareReleaseBackmerge(ctx context.Context, requ
 	}
 	repository, err := normalizeWorkflowRepository(request.Repository)
 	if err != nil {
+		return PrepareReleaseBackmergeResult{}, err
+	}
+	releaseBase, err := branch.NewTargetBase(repository.Remote, request.Release)
+	if err != nil {
+		return PrepareReleaseBackmergeResult{}, err
+	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, releaseBase); err != nil {
 		return PrepareReleaseBackmergeResult{}, err
 	}
 	pullRequest := releaseBackmergePullRequest(request.Release, request.Draft, request.Body)
@@ -1094,6 +1114,9 @@ func (service *ReleaseService) PropagateHotfix(ctx context.Context, request Prop
 	if err != nil {
 		return PropagateHotfixResult{}, err
 	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, base); err != nil {
+		return PropagateHotfixResult{}, err
+	}
 	switchToBranch := true
 	created, err := service.branches.Create(ctx, branchapp.CreateRequest{
 		Repository:      repository,
@@ -1205,6 +1228,9 @@ func (service *ReleaseService) PropagateHotfixManifest(
 	}
 	slug := resolveManifestPropagationSlug(request.Slug, request.TargetLine)
 	base, _ := branch.NewTargetBase(repository.Remote, request.TargetLine)
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, base); err != nil {
+		return PropagateHotfixManifestResult{}, err
+	}
 	sourceTicket, _ := request.Source.Ticket()
 	switchToBranch := true
 	created, err := service.branches.Create(ctx, branchapp.CreateRequest{

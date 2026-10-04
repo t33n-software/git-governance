@@ -90,6 +90,13 @@ func (service *ReleaseService) AlignReleaseReconciliationBase(
 	if err != nil {
 		return AlignReleaseReconciliationBaseResult{}, err
 	}
+	releaseBase, err := branch.NewTargetBase(repository.Remote, request.Release)
+	if err != nil {
+		return AlignReleaseReconciliationBaseResult{}, err
+	}
+	if err := requireTaskWorktreeAtBase(ctx, service.git, repository, releaseBase); err != nil {
+		return AlignReleaseReconciliationBaseResult{}, err
+	}
 	if _, err := service.branches.Validate(ctx, branchapp.ValidateRequest{
 		Repository: repository,
 		Name:       request.Branch,
@@ -105,10 +112,6 @@ func (service *ReleaseService) AlignReleaseReconciliationBase(
 			"reconciliation-base alignment may mutate only the checked-out preparation branch",
 			"switch to the requested reconciliation-preparation branch before retrying",
 		)
-	}
-	releaseBase, err := branch.NewTargetBase(repository.Remote, request.Release)
-	if err != nil {
-		return AlignReleaseReconciliationBaseResult{}, err
 	}
 	storedBase, found, err := service.git.WorkflowBase(ctx, repository, request.Branch)
 	if err != nil {
