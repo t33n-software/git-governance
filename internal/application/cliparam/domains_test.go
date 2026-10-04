@@ -191,6 +191,7 @@ func TestAllEnumeratesEveryCanonicalDescriptor(t *testing.T) {
 		"affected line",
 		"target line",
 		"declared target line",
+		"acquisition base line",
 		"ticket `key`",
 		"ticket `number`",
 		"ticket",
@@ -326,6 +327,25 @@ func TestDescriptorValuesAreDefensivelyIsolatedPerCall(t *testing.T) {
 	second := CommitType()
 	if second.Values[0] == "mutated" {
 		t.Fatalf("CommitType() returned a shared backing array: %v", second.Values)
+	}
+}
+
+func TestWorktreeAcquisitionBaseProjection(t *testing.T) {
+	t.Parallel()
+
+	domain := WorktreeAcquisitionBase()
+	if domain.Concept != "acquisition base line" || domain.Class != ClassShaped {
+		t.Fatalf("WorktreeAcquisitionBase() = %#v", domain)
+	}
+	help := domain.HelpText("")
+	for _, expected := range []string{"develop", "main", "release/<semver>", "support/<major.minor>", "working-family lines are rejected"} {
+		if !strings.Contains(help, expected) {
+			t.Fatalf("WorktreeAcquisitionBase().HelpText() = %q, want it to carry %q", help, expected)
+		}
+	}
+	completions := domain.Complete("rele")
+	if len(completions) == 0 || !strings.HasPrefix(completions[0], "release/") {
+		t.Fatalf("WorktreeAcquisitionBase().Complete(\"rele\") = %v, want the release/ prefix form", completions)
 	}
 }
 

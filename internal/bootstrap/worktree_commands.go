@@ -28,10 +28,11 @@ func newWorktreeStartCommand(application *application) *cobra.Command {
 	var (
 		keyRaw    string
 		numberRaw string
+		baseLine  string
 	)
 	command := &cobra.Command{
 		Use:   "start",
-		Short: "Acquire a detached task worktree for one ticket from the current develop revision of the selected remote",
+		Short: "Acquire a detached task worktree for one ticket from the current revision of the selected base line",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
 			repository, err := application.discover(command.Context(), services)
@@ -50,12 +51,16 @@ func newWorktreeStartCommand(application *application) *cobra.Command {
 			inputs.add("ticket number", number.String())
 			id := ticket.NewID(key, number)
 			inputs.add("worktree ticket", id.String())
-			if err := application.confirmMutation(command.Context(), "Acquire task worktree", "Fetch the selected remote and create the detached task worktree from its current develop revision?"); err != nil {
+			if baseLine != "" {
+				inputs.add("acquisition base", baseLine)
+			}
+			if err := application.confirmMutation(command.Context(), "Acquire task worktree", "Fetch the selected remote and create the detached task worktree from the current revision of the lane's base line?"); err != nil {
 				return err
 			}
 			result, err := services.worktrees.StartWorktree(command.Context(), workflow.StartWorktreeRequest{
 				Repository: repository,
 				Ticket:     id,
+				BaseLine:   baseLine,
 				DryRun:     application.options.dryRun,
 			})
 			if err != nil {
@@ -79,6 +84,7 @@ func newWorktreeStartCommand(application *application) *cobra.Command {
 	}
 	registerTicketKeyFlag(command, &keyRaw)
 	registerTicketNumberFlag(command, &numberRaw)
+	registerAcquisitionBaseFlag(command, &baseLine)
 	return command
 }
 

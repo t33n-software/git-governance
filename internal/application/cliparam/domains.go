@@ -259,6 +259,20 @@ func ManifestTargetLine() Domain {
 	}
 }
 
+// WorktreeAcquisitionBase is the shaped domain of the base line whose current
+// revision a task worktree is acquired from. The empty default binds the
+// develop integration line of regular ticket work; hotfix and stabilization
+// lanes declare their protected or frozen base line.
+func WorktreeAcquisitionBase() Domain {
+	return Domain{
+		Concept:  "acquisition base line",
+		Class:    ClassShaped,
+		Rule:     "develop, main, release/<semver>, or support/<major.minor>; the lane-to-base mapping binds ticket work to develop, hotfix work to the protected base line, and stabilization work to the frozen release line; working-family lines are rejected",
+		Example:  "main",
+		Prefixes: []string{"develop", "main", "release/", "support/"},
+	}
+}
+
 // TicketKey is the free-constrained domain of a ticket namespace, mirroring
 // the ticket domain validation rule.
 func TicketKey() Domain {
@@ -496,6 +510,7 @@ func All() []Domain {
 		AffectedLine(),
 		PropagationTargetLine(),
 		ManifestTargetLine(),
+		WorktreeAcquisitionBase(),
 		TicketKey(),
 		TicketNumber(),
 		TicketID(),

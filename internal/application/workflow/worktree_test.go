@@ -22,6 +22,9 @@ type fakeWorktreeGit struct {
 	removeErr    error
 	linked       bool
 	linkedErr    error
+	head         string
+	baseRevision string
+	headBaseErr  error
 	addedPaths   []string
 	addedBases   []branch.TargetBase
 	removedPaths []string
@@ -51,6 +54,14 @@ func (fake *fakeWorktreeGit) WorktreeRemove(_ context.Context, _ port.Repository
 func (fake *fakeWorktreeGit) LinkedWorktree(context.Context, port.RepositoryIdentity) (bool, error) {
 	fake.calls = append(fake.calls, "linked-worktree")
 	return fake.linked, fake.linkedErr
+}
+
+func (fake *fakeWorktreeGit) WorktreeHeadMatchesBase(_ context.Context, _ port.RepositoryIdentity, _ branch.TargetBase) (string, string, error) {
+	fake.calls = append(fake.calls, "worktree-head-matches-base")
+	if fake.headBaseErr != nil {
+		return "", "", fake.headBaseErr
+	}
+	return fake.head, fake.baseRevision, nil
 }
 
 // detachedTaskWorktreeGit reports the detached-HEAD classification the Git CLI
@@ -627,6 +638,228 @@ func TestReturnToIntegrationLineSkipsTaskWorktree(t *testing.T) {
 		}
 		if len(git.switchedTo) != 0 {
 			t.Fatalf("an unverified worktree form must never be switched: %v", git.switchedTo)
+		}
+	})
+}
+
+func TestStartWorktreeLaneAwareBase(t *testing.T) {
+	t.Parallel()
+
+	t.Run("acquires from an explicit protected main base", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{}}
+		service := NewWorktreeService(git)
+		result, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+			BaseLine:   "main",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Base.String() != "origin/main" {
+			t.Fatalf("StartWorktree() base = %q, want origin/main", result.Base.String())
+		}
+		if len(git.addedBases) != 1 || git.addedBases[0].String() != "origin/main" {
+			t.Fatalf("worktree additions = %v with bases %v", git.addedPaths, git.addedBases)
+		}
+		if result.Plan[1].Detail != "git worktree add --detach "+result.Path+" origin/main" {
+			t.Fatalf("the plan must bind the lane base: %q", result.Plan[1].Detail)
+		}
+	})
+
+	t.Run("acquires from an explicit frozen release base", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{}}
+		service := NewWorktreeService(git)
+		result, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+			BaseLine:   "release/1.2.0",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Base.String() != "origin/release/1.2.0" {
+			t.Fatalf("StartWorktree() base = %q, want origin/release/1.2.0", result.Base.String())
+		}
+	})
+
+	t.Run("acquires from an explicit protected support base", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{}}
+		service := NewWorktreeService(git)
+		result, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+			BaseLine:   "support/1.2",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Base.String() != "origin/support/1.2" {
+			t.Fatalf("StartWorktree() base = %q, want origin/support/1.2", result.Base.String())
+		}
+	})
+
+	t.Run("rejects a working-family base as a lane violation", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{}}
+		service := NewWorktreeService(git)
+		_, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+			BaseLine:   "feature/GOV-129-add-export",
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		if len(git.addedPaths) != 0 || countCall(git.calls, "worktree-list") != 0 {
+			t.Fatalf("a rejected base must not inventory or mutate: %v", git.calls)
+		}
+	})
+
+	t.Run("rejects a non-canonical base name", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{fakeGitRepository: &fakeGitRepository{}}
+		service := NewWorktreeService(git)
+		_, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+			BaseLine:   "not a branch",
+		})
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+		if len(git.addedPaths) != 0 || countCall(git.calls, "worktree-list") != 0 {
+			t.Fatalf("a rejected base must not inventory or mutate: %v", git.calls)
+		}
+	})
+}
+
+func TestStartWorktreeConflictPrecheck(t *testing.T) {
+	t.Parallel()
+
+	t.Run("fails closed when the derived worktree path is already registered", func(t *testing.T) {
+		t.Parallel()
+		existing := filepath.Join(filepath.Dir(testRepository().Root), "repo-GOV-129")
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{},
+			entries: []port.WorktreeEntry{
+				{Path: existing, Detached: true},
+			},
+		}
+		service := NewWorktreeService(git)
+		_, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+		})
+		assertProblemCode(t, err, problem.CodeWorktreeConflict)
+		if len(git.addedPaths) != 0 {
+			t.Fatalf("a conflicted acquisition must not create a worktree: %v", git.addedPaths)
+		}
+	})
+
+	t.Run("acquires when no registered worktree occupies the derived path", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{},
+			entries: []port.WorktreeEntry{
+				{Path: testRepository().Root, Branch: "develop"},
+			},
+		}
+		service := NewWorktreeService(git)
+		result, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(git.addedPaths) != 1 {
+			t.Fatalf("an unoccupied path must acquire the worktree: %v", git.addedPaths)
+		}
+		if result.Path == testRepository().Root {
+			t.Fatalf("StartWorktree() path = %q, want the derived sibling path", result.Path)
+		}
+	})
+
+	t.Run("propagates a registration inventory failure", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{},
+			listErr:           errors.New("inventory failed"),
+		}
+		service := NewWorktreeService(git)
+		_, err := service.StartWorktree(context.Background(), StartWorktreeRequest{
+			Repository: testRepository(),
+			Ticket:     mustTicket("GOV-129"),
+		})
+		if err == nil || !strings.Contains(err.Error(), "inventory failed") {
+			t.Fatalf("StartWorktree() error = %v, want the propagated inventory failure", err)
+		}
+	})
+}
+
+func TestRequireTaskWorktreeBaseGuard(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts a detached pre-start form at its acquired base revision", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			linked:            true,
+			head:              "c46015869552bc0433fa2a5276713d74bfc73f87",
+			baseRevision:      "c46015869552bc0433fa2a5276713d74bfc73f87",
+		}
+		detached := &detachedTaskWorktreeGit{fakeWorktreeGit: git}
+		guard := &TicketService{git: detached}
+		if err := guard.requireTaskWorktree(context.Background(), testRepository()); err != nil {
+			t.Fatal(err)
+		}
+		if countCall(detached.calls, "worktree-head-matches-base") != 1 {
+			t.Fatalf("the detached pre-start form must measure the base revisions: %v", detached.calls)
+		}
+	})
+
+	t.Run("fails closed on a drifted detached head", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			linked:            true,
+			head:              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			baseRevision:      "c46015869552bc0433fa2a5276713d74bfc73f87",
+		}
+		detached := &detachedTaskWorktreeGit{fakeWorktreeGit: git}
+		guard := &TicketService{git: detached}
+		err := guard.requireTaskWorktree(context.Background(), testRepository())
+		assertProblemCode(t, err, problem.CodeWorktreeBaseDrift)
+	})
+
+	t.Run("propagates a base-revision measurement failure", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			linked:            true,
+			headBaseErr:       errors.New("revision measurement failed"),
+		}
+		detached := &detachedTaskWorktreeGit{fakeWorktreeGit: git}
+		guard := &TicketService{git: detached}
+		err := guard.requireTaskWorktree(context.Background(), testRepository())
+		if err == nil || !strings.Contains(err.Error(), "revision measurement failed") {
+			t.Fatalf("requireTaskWorktree() error = %v, want the propagated measurement failure", err)
+		}
+	})
+
+	t.Run("does not measure the base in the continuing branch form", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			linked:            true,
+		}
+		guard := &TicketService{git: git}
+		err := guard.requireTaskWorktree(context.Background(), testRepository())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if countCall(git.calls, "worktree-head-matches-base") != 0 {
+			t.Fatalf("the continuing form must not run the base guard: %v", git.calls)
 		}
 	})
 }

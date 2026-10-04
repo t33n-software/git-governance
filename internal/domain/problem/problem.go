@@ -63,6 +63,8 @@ const (
 	CodeCommitBodyRequired           Code = "COMMIT_BODY_REQUIRED"
 	CodeWorktreeNotClean             Code = "WORKTREE_NOT_CLEAN"
 	CodeWorktreeRequired             Code = "WORKTREE_REQUIRED"
+	CodeWorktreeConflict             Code = "WORKTREE_CONFLICT"
+	CodeWorktreeBaseDrift            Code = "WORKTREE_BASE_DRIFT"
 	CodeRepositoryNotFound           Code = "REPOSITORY_NOT_FOUND"
 	CodeRepositoryHasNoCommits       Code = "REPOSITORY_HAS_NO_COMMITS"
 	CodeRepositoryAlreadyBorn        Code = "REPOSITORY_ALREADY_BORN"

@@ -294,6 +294,11 @@ type WorktreeManager interface {
 	WorktreeAddDetached(ctx context.Context, repository RepositoryIdentity, path string, base branch.TargetBase) error
 	WorktreeRemove(ctx context.Context, repository RepositoryIdentity, path string) error
 	LinkedWorktree(ctx context.Context, repository RepositoryIdentity) (bool, error)
+	// WorktreeHeadMatchesBase resolves the HEAD revision of the checkout and
+	// the revision of the acquired remote-tracking base as one measured
+	// evidence pair. The ticket-start guard compares the pair so the detached
+	// pre-start form stays legitimate only at its acquired base revision.
+	WorktreeHeadMatchesBase(ctx context.Context, repository RepositoryIdentity, base branch.TargetBase) (head string, baseRevision string, err error)
 }
 
 // WorktreeBranchLocation reports the worktree path where the branch is

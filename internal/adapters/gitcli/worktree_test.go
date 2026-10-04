@@ -174,6 +174,81 @@ func TestWorktreeAddDetached(t *testing.T) {
 		err := repository.WorktreeAddDetached(context.Background(), testIdentity(), "C:/repo-GOV-129", mustWorktreeBase("origin", "develop"))
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
 	})
+
+	t.Run("maps an already-existing worktree path to the named conflict", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{}, {
+			err:      errors.New("exit status 5"),
+			stderr:   "Preparing worktree (detached HEAD c460158)\nfatal: 'C:/repo-GOV-129' already exists",
+			exitCode: 128,
+		}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		err := repository.WorktreeAddDetached(context.Background(), testIdentity(), "C:/repo-GOV-129", mustWorktreeBase("origin", "develop"))
+		assertProblemCode(t, err, problem.CodeWorktreeConflict)
+	})
+}
+
+func TestWorktreeHeadMatchesBase(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolves the checkout and base revisions as one evidence pair", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: "c46015869552bc0433fa2a5276713d74bfc73f87\n"},
+			{stdout: "c46015869552bc0433fa2a5276713d74bfc73f87\n"},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		head, baseRevision, err := repository.WorktreeHeadMatchesBase(context.Background(), testIdentity(), mustWorktreeBase("origin", "develop"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if head != "c46015869552bc0433fa2a5276713d74bfc73f87" || baseRevision != head {
+			t.Fatalf("WorktreeHeadMatchesBase() = (%q, %q)", head, baseRevision)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "rev-parse", "HEAD")
+		assertCall(t, runner.calls[1], "C:/repo", "", "rev-parse", "origin/develop")
+	})
+
+	t.Run("reports a drifted pair without equalizing it", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"},
+			{stdout: "c46015869552bc0433fa2a5276713d74bfc73f87\n"},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		head, baseRevision, err := repository.WorktreeHeadMatchesBase(context.Background(), testIdentity(), mustWorktreeBase("origin", "develop"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if head == baseRevision {
+			t.Fatalf("WorktreeHeadMatchesBase() = (%q, %q), want the drifted pair", head, baseRevision)
+		}
+	})
+
+	t.Run("fails closed when the checkout revision cannot be resolved", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{err: errors.New("rev-parse failed"), exitCode: 128}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		if _, _, err := repository.WorktreeHeadMatchesBase(context.Background(), testIdentity(), mustWorktreeBase("origin", "develop")); err == nil {
+			t.Fatal("a failed HEAD resolution must fail closed")
+		} else {
+			assertProblemCode(t, err, problem.CodeGitCommandFailed)
+		}
+	})
+
+	t.Run("fails closed when the base revision cannot be resolved", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: "c46015869552bc0433fa2a5276713d74bfc73f87\n"},
+			{err: errors.New("rev-parse failed"), exitCode: 128},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		if _, _, err := repository.WorktreeHeadMatchesBase(context.Background(), testIdentity(), mustWorktreeBase("origin", "develop")); err == nil {
+			t.Fatal("a failed base resolution must fail closed")
+		} else {
+			assertProblemCode(t, err, problem.CodeGitCommandFailed)
+		}
+	})
 }
 
 func TestWorktreeRemove(t *testing.T) {
