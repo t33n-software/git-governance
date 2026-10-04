@@ -313,6 +313,15 @@ func WorktreeBranchLocation(entries []WorktreeEntry, name branch.BranchName) (st
 	return "", false
 }
 
+// WorktreeInventoryLister is an optional capability for adapters that can
+// enumerate the worktree inventory of a repository. The allocation inventory
+// reads the registered task-worktree surface through it; keeping the
+// capability separate avoids forcing unrelated Git adapters and test fakes
+// to implement worktree mutations they never invoke.
+type WorktreeInventoryLister interface {
+	WorktreeList(ctx context.Context, repository RepositoryIdentity) ([]WorktreeEntry, error)
+}
+
 // KeyPolicy validates a syntactically valid key against the active local
 // policy. The first implementation only checks syntax; a bundle adapter can
 // add repository authorization later.

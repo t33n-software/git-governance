@@ -226,6 +226,7 @@ func (application *application) services() services {
 	remoteBranches, _ := git.(port.RemoteBranchLister)
 	commitSubjects, _ := git.(port.CommitSubjectLister)
 	hotfixRecords, _ := application.runtime.HotfixRecords.(port.HotfixReleaseRecordLister)
+	worktreeLister, _ := git.(port.WorktreeInventoryLister)
 	inventoryPullRequests, _ := publisher.(port.PullRequestInventoryLister)
 	inventoryProtectedLineRequests, _ := publisher.(port.ProtectedLineRequestInventoryLister)
 	appPermissions, _ := publisher.(port.AppPermissionInspector)
@@ -234,6 +235,7 @@ func (application *application) services() services {
 		RemoteBranches:        remoteBranches,
 		CommitSubjects:        commitSubjects,
 		HotfixRecords:         hotfixRecords,
+		Worktrees:             worktreeLister,
 		RemoteURL:             git.RemoteURL,
 		PullRequests:          inventoryPullRequests,
 		ProtectedLineRequests: inventoryProtectedLineRequests,

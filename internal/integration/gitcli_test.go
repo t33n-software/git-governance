@@ -83,6 +83,7 @@ func TestGitCLIAdapterAgainstLocalRepositories(t *testing.T) {
 			RemoteBranches: adapter,
 			CommitSubjects: adapter,
 			HotfixRecords:  hotfixrecord.New(),
+			Worktrees:      adapter,
 		})).
 		Create(ctx, branchapp.CreateRequest{
 			Repository: identity,
