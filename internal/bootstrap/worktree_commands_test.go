@@ -45,6 +45,10 @@ func (git *worktreeCommandGit) LinkedWorktree(context.Context, port.RepositoryId
 	return git.linked, git.linkedErr
 }
 
+func (git *worktreeCommandGit) WorktreeHeadMatchesBase(context.Context, port.RepositoryIdentity, branch.TargetBase) (string, string, error) {
+	return "c46015869552bc0433fa2a5276713d74bfc73f87", "c46015869552bc0433fa2a5276713d74bfc73f87", nil
+}
+
 func TestWorktreeStartCommand(t *testing.T) {
 	t.Parallel()
 
@@ -144,6 +148,35 @@ func TestWorktreeStartCommand(t *testing.T) {
 		}
 		if len(git.addedPaths) != 0 {
 			t.Fatalf("an unconfirmed acquisition must never mutate: %v", git.addedPaths)
+		}
+	})
+
+	t.Run("acquires from the explicit protected base line of the lane", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{commandGit: newCommandGit(t, "develop", nil)}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(git))
+		output, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--yes", "workflow", "worktree", "start", "--key", "GOV", "--ticket", "129", "--base", "main")
+		if err != nil {
+			t.Fatalf("worktree start error = %v; output=%q", err, output)
+		}
+		if !strings.Contains(output, `"base":"origin/main"`) {
+			t.Fatalf("the report must carry the lane base: %q", output)
+		}
+		if len(git.addedPaths) != 1 {
+			t.Fatalf("the protected base acquisition must create the worktree: %v", git.addedPaths)
+		}
+	})
+
+	t.Run("rejects a working-family base as a lane violation", func(t *testing.T) {
+		t.Parallel()
+		git := &worktreeCommandGit{commandGit: newCommandGit(t, "develop", nil)}
+		command := NewWithRuntime(BuildInfo{Version: "test"}, commandRuntime(git))
+		output, err := executeBootstrapCommand(t, command, "--interactive", "never", "--output", "json", "--yes", "workflow", "worktree", "start", "--key", "GOV", "--ticket", "129", "--base", "feature/GOV-129-add-export")
+		if err == nil {
+			t.Fatalf("a working-family base unexpectedly succeeded: %q", output)
+		}
+		if len(git.addedPaths) != 0 {
+			t.Fatalf("a lane violation must never create a worktree: %v", git.addedPaths)
 		}
 	})
 }

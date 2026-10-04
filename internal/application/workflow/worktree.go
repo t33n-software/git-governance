@@ -28,7 +28,12 @@ func NewWorktreeService(git port.GitRepository) *WorktreeService {
 type StartWorktreeRequest struct {
 	Repository port.RepositoryIdentity
 	Ticket     ticket.ID
-	DryRun     bool
+	// BaseLine carries the protected base line of the lane whose work the
+	// worktree hosts: main, release/<semver>, or support/<major.minor> for
+	// hotfix and stabilization lanes. An empty value acquires from the
+	// develop integration line of regular ticket work.
+	BaseLine string
+	DryRun   bool
 }
 
 // StartWorktreeResult reports the acquired worktree path and the remote base
@@ -73,11 +78,22 @@ func (service *WorktreeService) StartWorktree(ctx context.Context, request Start
 			Remediation: "run the acquisition from the primary checkout",
 		})
 	}
-	base, err := branch.NewTargetBase(repository.Remote, mustDevelop())
+	baseName, err := worktreeAcquisitionBase(request.BaseLine)
+	if err != nil {
+		return StartWorktreeResult{}, err
+	}
+	base, err := branch.NewTargetBase(repository.Remote, baseName)
 	if err != nil {
 		return StartWorktreeResult{}, err
 	}
 	path := worktreePath(repository.Root, request.Ticket)
+	entries, err := manager.WorktreeList(ctx, repository)
+	if err != nil {
+		return StartWorktreeResult{}, err
+	}
+	if registeredWorktree(entries, path) {
+		return StartWorktreeResult{}, worktreeConflict(path)
+	}
 	result := StartWorktreeResult{
 		Path:   path,
 		Base:   base,
@@ -225,6 +241,72 @@ func worktreePath(root string, id ticket.ID) string {
 	return filepath.Join(filepath.Dir(root), filepath.Base(root)+"-"+id.String())
 }
 
+// worktreeAcquisitionBase resolves the acquisition base of the lane whose
+// work the worktree hosts. An empty base line is the regular ticket lane and
+// acquires from the develop integration line; an explicit base must be the
+// develop line itself or a protected line (main, release, support) per the
+// lane-to-base mapping convention.
+func worktreeAcquisitionBase(baseLine string) (branch.BranchName, error) {
+	if baseLine == "" {
+		return mustDevelop(), nil
+	}
+	parsed, err := branch.ParseName(baseLine)
+	if err != nil {
+		return branch.BranchName{}, invalidWorkflowInput(
+			"the worktree acquisition base must be a canonical branch name",
+			"provide the base line of the work lane: develop, main, release/<semver>, or support/<major.minor>",
+		)
+	}
+	switch parsed.Family() {
+	case branch.FamilyDevelop, branch.FamilyMain, branch.FamilyRelease, branch.FamilySupport:
+		return parsed, nil
+	default:
+		return branch.BranchName{}, problem.New(problem.Details{
+			Code:        problem.CodeInvalidInput,
+			Category:    problem.CategoryGovernance,
+			Field:       "base",
+			Actual:      baseLine,
+			Expected:    "the base line of a governed acquisition lane",
+			Rule:        "the acquisition base follows the lane-to-base mapping: develop for regular ticket work, the protected base line for hotfix work, the frozen release line for stabilization work",
+			Example:     "--base main",
+			Remediation: "acquire from the lane's own base line",
+		})
+	}
+}
+
+// worktreeConflict is the fail-closed record of an occupied task-worktree
+// path: the derived worktree of the ticket is already registered, so the
+// acquisition refuses to mutate instead of failing with an opaque Git
+// diagnostic.
+func worktreeConflict(path string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeWorktreeConflict,
+		Category:    problem.CategoryRepository,
+		Field:       "worktree",
+		Actual:      path,
+		Expected:    "an unoccupied task-worktree path",
+		Rule:        "task worktrees are acquired once per ticket; the derived worktree of the ticket already exists",
+		Example:     "workflow worktree list",
+		Remediation: "continue in the existing worktree by running the ticket workflow inside it, or inventory the worktrees with workflow worktree list",
+	})
+}
+
+// worktreeBaseDrift is the fail-closed record of a drifted detached pre-start
+// worktree: its HEAD no longer resolves to the acquired base revision, so the
+// pre-start form would hide an ungoverned detached commit.
+func worktreeBaseDrift(head string, baseRevision string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeWorktreeBaseDrift,
+		Category:    problem.CategoryRepository,
+		Field:       "worktree",
+		Actual:      "HEAD " + head,
+		Expected:    "the acquired base revision " + baseRevision,
+		Rule:        "the detached pre-start form is legitimate only at its acquired base revision; a drifted HEAD hides an ungoverned detached commit",
+		Example:     "workflow worktree start",
+		Remediation: "resolve the detached commit, then re-acquire a fresh worktree with workflow worktree start",
+	})
+}
+
 // requireTaskWorktree enforces the task-binding law at ticket start: ticket
 // work happens inside a linked task worktree. A fresh detached task worktree
 // is the legitimate pre-start form and must be clean; a checked-out branch
@@ -262,6 +344,20 @@ func (service *TicketService) requireTaskWorktree(ctx context.Context, repositor
 			Example:     "git status --porcelain returns no entries",
 			Remediation: "clean the worktree before starting the ticket workflow",
 		})
+	}
+	// The detached pre-start form is legitimate only at its acquired base
+	// revision. A HEAD that drifted between the worktree acquisition and the
+	// ticket start hides an ungoverned detached commit behind the clean
+	// state, so the guard re-measures both revisions fail-closed.
+	// mustDevelop and the upstream-validated remote cannot fail the base
+	// construction.
+	base, _ := branch.NewTargetBase(repository.Remote, mustDevelop())
+	head, baseRevision, err := manager.WorktreeHeadMatchesBase(ctx, repository, base)
+	if err != nil {
+		return err
+	}
+	if head != baseRevision {
+		return worktreeBaseDrift(head, baseRevision)
 	}
 	return nil
 }

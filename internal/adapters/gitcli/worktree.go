@@ -89,9 +89,46 @@ func (repository *Repository) WorktreeAddDetached(ctx context.Context, identity 
 	}
 	result := repository.invoke(ctx, identity.Root, nil, "worktree", "add", "--detach", path, base.String())
 	if result.err != nil {
+		if strings.Contains(result.stderr, "already exists") {
+			return worktreeConflictProblem(path)
+		}
 		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "create the detached task worktree", result)
 	}
 	return nil
+}
+
+// WorktreeHeadMatchesBase resolves the HEAD revision of the checkout and the
+// revision of the acquired remote-tracking base as one measured evidence
+// pair. Both revisions resolve from the running checkout: a linked worktree
+// resolves its own HEAD and the shared remote-tracking reference of the
+// repository.
+func (repository *Repository) WorktreeHeadMatchesBase(ctx context.Context, identity port.RepositoryIdentity, base branch.TargetBase) (string, string, error) {
+	head := repository.invoke(ctx, identity.Root, nil, "rev-parse", "HEAD")
+	if head.err != nil {
+		return "", "", repository.commandProblem(problem.CodeGitCommandFailed, identity, "resolve the checkout revision", head)
+	}
+	baseRevision := repository.invoke(ctx, identity.Root, nil, "rev-parse", base.String())
+	if baseRevision.err != nil {
+		return "", "", repository.commandProblem(problem.CodeGitCommandFailed, identity, "resolve the acquired base revision", baseRevision)
+	}
+	return strings.TrimSpace(head.stdout), strings.TrimSpace(baseRevision.stdout), nil
+}
+
+// worktreeConflictProblem is the named conflict record of an occupied
+// task-worktree path: the directory or worktree of the derived ticket path
+// already exists, so the acquisition refuses to mutate instead of failing
+// with an opaque Git diagnostic.
+func worktreeConflictProblem(path string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeWorktreeConflict,
+		Category:    problem.CategoryRepository,
+		Field:       "worktree",
+		Actual:      path,
+		Expected:    "an unoccupied task-worktree path",
+		Rule:        "task worktrees are acquired once per ticket; an existing worktree or directory at the derived path is a conflict",
+		Example:     "workflow worktree list",
+		Remediation: "continue in the existing worktree by running the ticket workflow inside it, or inventory the worktrees with workflow worktree list",
+	})
 }
 
 // WorktreeRemove removes a task worktree fail-closed: the working tree of the

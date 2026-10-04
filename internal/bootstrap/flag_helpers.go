@@ -207,6 +207,13 @@ func registerFooterFlag(command *cobra.Command, target *[]string, name, context 
 	registerValueDomainSliceFlag(command, target, name, cliparam.CommitFooter(), context)
 }
 
+// registerAcquisitionBaseFlag binds the task-worktree acquisition base flag
+// (shaped; the empty default binds the develop integration line of the
+// regular ticket lane).
+func registerAcquisitionBaseFlag(command *cobra.Command, target *string) {
+	registerValueDomainFlag(command, target, "base", "", cliparam.WorktreeAcquisitionBase(), "")
+}
+
 // registerBreakingDescriptionFlag binds a breaking change migration impact
 // flag under the given name (free-constrained).
 func registerBreakingDescriptionFlag(command *cobra.Command, target *string, name, context string) {
