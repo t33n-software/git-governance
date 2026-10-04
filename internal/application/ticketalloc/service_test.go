@@ -999,3 +999,38 @@ func assertProblemCode(t *testing.T, err error, code problem.Code) {
 		t.Fatalf("problem code = %q; want %q (details: %#v)", typed.Code, code, typed.Details)
 	}
 }
+
+// TestSurfaceParsersExported binds the exported surface parsers to the
+// canonical grammars: the worktree-registry path grammar and the
+// pull-request title grammars. Consumers outside the allocation inventory
+// reuse these parsers instead of re-deriving the grammar.
+func TestSurfaceParsersExported(t *testing.T) {
+	t.Parallel()
+
+	t.Run("binds the worktree-registry path grammar", func(t *testing.T) {
+		t.Parallel()
+		id, ok := TicketFromWorktreePath("C:/repo-GOV-129")
+		if !ok || id.String() != "GOV-129" {
+			t.Fatalf("TicketFromWorktreePath() = %v, %v", id, ok)
+		}
+		if _, ok := TicketFromWorktreePath("C:/repo-main-control"); ok {
+			t.Fatal("a path without the registry grammar must not bind a ticket")
+		}
+	})
+
+	t.Run("binds the pull-request title grammars", func(t *testing.T) {
+		t.Parallel()
+		for _, title := range []string{
+			"GOV-129: add-export",
+			"feat(GOV-129): add export button",
+		} {
+			id, ok := TicketFromTitle(title)
+			if !ok || id.String() != "GOV-129" {
+				t.Fatalf("TicketFromTitle(%q) = %v, %v", title, id, ok)
+			}
+		}
+		if _, ok := TicketFromTitle("unrelated GOV-129 mention"); ok {
+			t.Fatal("a title without the canonical grammar must not bind a ticket")
+		}
+	})
+}

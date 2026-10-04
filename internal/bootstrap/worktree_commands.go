@@ -20,6 +20,7 @@ func newWorktreeCommand(application *application) *cobra.Command {
 		newWorktreeStartCommand(application),
 		newWorktreeListCommand(application),
 		newWorktreeRemoveCommand(application),
+		newWorktreePruneCommand(application),
 	)
 	return command
 }
@@ -170,6 +171,48 @@ func newWorktreeRemoveCommand(application *application) *cobra.Command {
 	registerTicketKeyFlag(command, &keyRaw)
 	registerTicketNumberFlag(command, &numberRaw)
 	return command
+}
+
+// newWorktreePruneCommand discovers the task worktrees whose completion
+// evidence is proven and removes them under the registered-and-clean guards.
+func newWorktreePruneCommand(application *application) *cobra.Command {
+	return &cobra.Command{
+		Use:   "prune",
+		Short: "Remove the task worktrees whose completion evidence is proven",
+		RunE: func(command *cobra.Command, _ []string) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			if err := application.confirmMutation(command.Context(), "Prune task worktrees", "Remove every task worktree whose completion evidence is proven? Each candidate must be registered and clean."); err != nil {
+				return err
+			}
+			result, err := services.worktrees.PruneWorktrees(command.Context(), workflow.PruneWorktreesRequest{
+				Repository: repository,
+				DryRun:     application.options.dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			removed := 0
+			for _, entry := range result.Entries {
+				if entry.Removed {
+					removed++
+				}
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.worktree.prune",
+				Summary:   "Task worktree prune completed.",
+				Fields: map[string]string{
+					"worktreeCount": strconv.Itoa(len(result.Entries)),
+					"removedCount":  strconv.Itoa(removed),
+					"dryRun":        boolString(result.DryRun),
+				},
+				Data: result.Entries,
+			})
+		},
+	}
 }
 
 // worktreeEntrySummary renders one inventory entry as a single human-facing

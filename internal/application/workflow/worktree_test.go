@@ -863,3 +863,622 @@ func TestRequireTaskWorktreeBaseGuard(t *testing.T) {
 		}
 	})
 }
+
+// fakePruneGit extends the shared workflow fake with the complete worktree
+// capability plus the remote branch surface the prune measures, and records
+// every removal. The cleanliness of each worktree path is controllable
+// individually so per-entry evidence degradation stays testable.
+type fakePruneGit struct {
+	*fakeGitRepository
+	entries        []port.WorktreeEntry
+	listErr        error
+	cleanFor       map[string]bool
+	cleanErrFor    map[string]error
+	remoteBranches []branch.BranchName
+	remoteErr      error
+	removeErr      error
+	removedPaths   []string
+}
+
+func (fake *fakePruneGit) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	fake.calls = append(fake.calls, "worktree-list")
+	if fake.listErr != nil {
+		return nil, fake.listErr
+	}
+	return fake.entries, nil
+}
+
+func (fake *fakePruneGit) WorktreeAddDetached(context.Context, port.RepositoryIdentity, string, branch.TargetBase) error {
+	return nil
+}
+
+func (fake *fakePruneGit) WorktreeRemove(_ context.Context, _ port.RepositoryIdentity, path string) error {
+	fake.calls = append(fake.calls, "worktree-remove")
+	if fake.removeErr != nil {
+		return fake.removeErr
+	}
+	fake.removedPaths = append(fake.removedPaths, path)
+	return nil
+}
+
+func (fake *fakePruneGit) LinkedWorktree(context.Context, port.RepositoryIdentity) (bool, error) {
+	return false, nil
+}
+
+func (fake *fakePruneGit) WorktreeHeadMatchesBase(context.Context, port.RepositoryIdentity, branch.TargetBase) (string, string, error) {
+	return "", "", nil
+}
+
+func (fake *fakePruneGit) RemoteBranches(context.Context, port.RepositoryIdentity) ([]branch.BranchName, error) {
+	fake.calls = append(fake.calls, "remote-branches")
+	if fake.remoteErr != nil {
+		return nil, fake.remoteErr
+	}
+	return fake.remoteBranches, nil
+}
+
+func (fake *fakePruneGit) IsWorktreeClean(_ context.Context, identity port.RepositoryIdentity) (bool, error) {
+	fake.calls = append(fake.calls, "worktree-clean")
+	if err, bound := fake.cleanErrFor[identity.Root]; bound {
+		return false, err
+	}
+	if clean, bound := fake.cleanFor[identity.Root]; bound {
+		return clean, nil
+	}
+	return fake.clean, nil
+}
+
+// fakeWorktreeManagerOnlyGit carries the worktree capability without the
+// remote branch surface, modeling a composition whose adapter cannot measure
+// the branch-cleanup obligation of the prune.
+type fakeWorktreeManagerOnlyGit struct {
+	*fakeGitRepository
+	entries []port.WorktreeEntry
+	listErr error
+}
+
+func (fake *fakeWorktreeManagerOnlyGit) WorktreeList(context.Context, port.RepositoryIdentity) ([]port.WorktreeEntry, error) {
+	fake.calls = append(fake.calls, "worktree-list")
+	return fake.entries, fake.listErr
+}
+
+func (fake *fakeWorktreeManagerOnlyGit) WorktreeAddDetached(context.Context, port.RepositoryIdentity, string, branch.TargetBase) error {
+	return nil
+}
+
+func (fake *fakeWorktreeManagerOnlyGit) WorktreeRemove(context.Context, port.RepositoryIdentity, string) error {
+	return nil
+}
+
+func (fake *fakeWorktreeManagerOnlyGit) LinkedWorktree(context.Context, port.RepositoryIdentity) (bool, error) {
+	return false, nil
+}
+
+func (fake *fakeWorktreeManagerOnlyGit) WorktreeHeadMatchesBase(context.Context, port.RepositoryIdentity, branch.TargetBase) (string, string, error) {
+	return "", "", nil
+}
+
+// fakePullRequestInventory carries the provider records the prune matches
+// through the canonical title grammars.
+type fakePullRequestInventory struct {
+	records []port.PullRequestSummary
+	err     error
+}
+
+func (fake *fakePullRequestInventory) ListPullRequests(context.Context, port.PullRequestInventoryQuery) ([]port.PullRequestSummary, error) {
+	if fake.err != nil {
+		return nil, fake.err
+	}
+	return fake.records, nil
+}
+
+func TestPruneWorktrees(t *testing.T) {
+	t.Parallel()
+
+	const taskPath = "C:/repo-GOV-129"
+	const taskBranch = "feature/GOV-129-add-export"
+	primaryEntry := port.WorktreeEntry{Path: testRepository().Root, Head: "abc", Branch: "develop"}
+	taskEntry := port.WorktreeEntry{Path: taskPath, Head: "def", Branch: taskBranch}
+	mergedRecord := port.PullRequestSummary{Number: "12", Title: "GOV-129: add-export", State: port.PullRequestStateMerged}
+	envelopeRecord := func(state port.PullRequestState, number string) port.PullRequestSummary {
+		return port.PullRequestSummary{Number: number, Title: "feat(GOV-129): add export button", State: state}
+	}
+	service := func(git port.GitRepository, records []port.PullRequestSummary) *WorktreeService {
+		return NewWorktreeService(git).WithPullRequestInventory(&fakePullRequestInventory{records: records})
+	}
+	entryByPath := func(entries []WorktreePruneEntry, path string) WorktreePruneEntry {
+		for _, entry := range entries {
+			if entry.Path == path {
+				return entry
+			}
+		}
+		return WorktreePruneEntry{}
+	}
+
+	t.Run("removes the proven-complete worktree and keeps the others", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries: []port.WorktreeEntry{
+				primaryEntry,
+				taskEntry,
+				{Path: "C:/repo-GOV-131", Head: "ghi", Branch: "docs/GOV-131-modularize-workflow-metadata"},
+			},
+			remoteBranches: []branch.BranchName{},
+		}
+		result, err := service(git, []port.PullRequestSummary{
+			mergedRecord,
+			{Number: "13", Title: "docs(GOV-131): modularize workflow metadata", State: port.PullRequestStateOpen},
+		}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		removed := entryByPath(result.Entries, taskPath)
+		if removed.Class != pruneClassStaleEligible || !removed.Removed || removed.Ticket != "GOV-129" ||
+			removed.PRState != "merged" || removed.PRNumber != "12" {
+			t.Fatalf("the proven-complete entry = %#v", removed)
+		}
+		kept := entryByPath(result.Entries, "C:/repo-GOV-131")
+		if kept.Class != pruneClassPublishedOpen || kept.Removed || kept.PRState != "open" {
+			t.Fatalf("the published-open entry = %#v", kept)
+		}
+		primary := entryByPath(result.Entries, testRepository().Root)
+		if primary.Class != pruneClassOutOfScope || primary.Removed {
+			t.Fatalf("the primary checkout entry = %#v", primary)
+		}
+		if len(git.removedPaths) != 1 || git.removedPaths[0] != taskPath {
+			t.Fatalf("worktree removals = %v", git.removedPaths)
+		}
+		if countCall(git.calls, "worktree-remove") != 1 {
+			t.Fatalf("prune calls = %v", git.calls)
+		}
+	})
+
+	t.Run("keeps a worktree whose branch-cleanup obligation is open", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{taskEntry},
+			remoteBranches:    []branch.BranchName{mustBranch(taskBranch)},
+		}
+		result, err := service(git, []port.PullRequestSummary{mergedRecord}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassActive || entry.Removed ||
+			!strings.Contains(entry.Reason, "branch-cleanup obligation") {
+			t.Fatalf("the obligation-open entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("an obligation-open worktree must never be removed: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("keeps a worktree that carries uncommitted state", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{},
+			entries:           []port.WorktreeEntry{taskEntry},
+			cleanFor:          map[string]bool{taskPath: false},
+		}
+		result, err := service(git, []port.PullRequestSummary{mergedRecord}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassActive || entry.Removed ||
+			!strings.Contains(entry.Reason, "uncommitted state") {
+			t.Fatalf("the dirty entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("a dirty worktree must never be removed: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("keeps a worktree held by an active governed operation", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true, active: true, activeOperation: "rebase"},
+			entries:           []port.WorktreeEntry{taskEntry},
+		}
+		result, err := service(git, []port.PullRequestSummary{mergedRecord}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassActive || entry.Removed ||
+			!strings.Contains(entry.Reason, "rebase") {
+			t.Fatalf("the held entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("a held worktree must never be removed: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("keeps an abandoned worktree for the actor decision", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{taskEntry},
+		}
+		result, err := service(git, []port.PullRequestSummary{envelopeRecord(port.PullRequestStateClosed, "12")}).
+			PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassAbandoned || entry.Removed || entry.PRState != "closed" ||
+			!strings.Contains(entry.Reason, "belongs to the actor") {
+			t.Fatalf("the abandoned entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("an abandoned worktree must never be removed: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("keeps a worktree without a pull-request record", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{taskEntry},
+		}
+		result, err := service(git, []port.PullRequestSummary{
+			{Number: "5", Title: "KHUB-21: other work", State: port.PullRequestStateMerged},
+		}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassActive || entry.Removed || entry.PRState != "" ||
+			!strings.Contains(entry.Reason, "no pull request records") {
+			t.Fatalf("the unpublished entry = %#v", entry)
+		}
+	})
+
+	t.Run("matches records only through the canonical title grammars", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{taskEntry},
+		}
+		result, err := service(git, []port.PullRequestSummary{
+			{Number: "7", Title: "unrelated GOV-129 mention", State: port.PullRequestStateMerged},
+		}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassActive || entry.Removed {
+			t.Fatalf("a non-grammar mention must never bind the record: %#v", entry)
+		}
+	})
+
+	t.Run("classifies detached worktrees by their local form", func(t *testing.T) {
+		t.Parallel()
+		fresh := port.WorktreeEntry{Path: "C:/repo-GOV-129", Head: "def", Detached: true}
+		dirty := port.WorktreeEntry{Path: "C:/repo-GOV-130", Head: "ghi", Detached: true}
+		orphaned := port.WorktreeEntry{Path: "C:/repo-GOV-131", Head: "jkl", Detached: true}
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{fresh, dirty, orphaned},
+			cleanFor:          map[string]bool{"C:/repo-GOV-130": false},
+			cleanErrFor:       map[string]error{"C:/repo-GOV-131": errors.New("orphaned worktree registration")},
+		}
+		result, err := service(git, nil).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if entry := entryByPath(result.Entries, "C:/repo-GOV-129"); entry.Class != pruneClassPreStart || entry.Removed || entry.Ticket != "GOV-129" {
+			t.Fatalf("the pre-start entry = %#v", entry)
+		}
+		if entry := entryByPath(result.Entries, "C:/repo-GOV-130"); entry.Class != pruneClassActive || entry.Removed {
+			t.Fatalf("the dirty detached entry = %#v", entry)
+		}
+		if entry := entryByPath(result.Entries, "C:/repo-GOV-131"); entry.Class != pruneClassActive || entry.Removed ||
+			!strings.Contains(entry.Reason, "unmeasurable") {
+			t.Fatalf("the unmeasurable detached entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("a pre-start classification must never remove: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("classifies non-registry paths as out of scope", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries: []port.WorktreeEntry{
+				{Path: "C:/repo-main-control", Head: "abc", Branch: "hotfix/GOV-27-publish-prepared-reconciliation-candidate"},
+				{Path: "C:/bare", Bare: true},
+			},
+		}
+		result, err := service(git, nil).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range result.Entries {
+			if entry.Class != pruneClassOutOfScope || entry.Removed {
+				t.Fatalf("an out-of-scope entry = %#v", entry)
+			}
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("an out-of-scope worktree must never be removed: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("the newest pull-request record decides the review state", func(t *testing.T) {
+		t.Parallel()
+		t.Run("an open record keeps the worktree published-open", func(t *testing.T) {
+			t.Parallel()
+			git := &fakePruneGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				entries:           []port.WorktreeEntry{taskEntry},
+			}
+			result, err := service(git, []port.PullRequestSummary{
+				mergedRecord,
+				{Number: "13", Title: "GOV-129: add-export", State: port.PullRequestStateOpen},
+			}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := result.Entries[0]
+			if entry.Class != pruneClassPublishedOpen || entry.Removed || entry.PRNumber != "13" {
+				t.Fatalf("the newest-open entry = %#v", entry)
+			}
+		})
+
+		t.Run("a merged record proves completion", func(t *testing.T) {
+			t.Parallel()
+			git := &fakePruneGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				entries:           []port.WorktreeEntry{taskEntry},
+			}
+			result, err := service(git, []port.PullRequestSummary{
+				{Number: "12", Title: "GOV-129: add-export", State: port.PullRequestStateOpen},
+				{Number: "13", Title: "GOV-129: add-export", State: port.PullRequestStateMerged},
+			}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := result.Entries[0]
+			if entry.Class != pruneClassStaleEligible || !entry.Removed || entry.PRNumber != "13" || entry.PRState != "merged" {
+				t.Fatalf("the newest-merged entry = %#v", entry)
+			}
+		})
+	})
+
+	t.Run("plans the removal without mutating during dry-run", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{taskEntry},
+		}
+		result, err := service(git, []port.PullRequestSummary{mergedRecord}).PruneWorktrees(context.Background(), PruneWorktreesRequest{
+			Repository: testRepository(),
+			DryRun:     true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.DryRun || len(result.Plan) != 1 || result.Plan[0].Action != "worktree-remove" ||
+			result.Plan[0].Detail != "git worktree remove "+taskPath {
+			t.Fatalf("dry-run result = %#v", result)
+		}
+		if entry := result.Entries[0]; entry.Class != pruneClassStaleEligible || entry.Removed {
+			t.Fatalf("the dry-run entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("a dry run must not remove the worktree: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("keeps a worktree whose local evidence is unmeasurable and removes the next candidate", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries: []port.WorktreeEntry{
+				{Path: "C:/repo-GOV-130", Head: "ghi", Branch: "docs/GOV-130-derive-the-genesis-timeout-budget"},
+				taskEntry,
+			},
+			cleanErrFor: map[string]error{"C:/repo-GOV-130": errors.New("orphaned worktree registration")},
+		}
+		result, err := service(git, []port.PullRequestSummary{
+			{Number: "9", Title: "docs(GOV-130): derive the genesis timeout budget", State: port.PullRequestStateMerged},
+			mergedRecord,
+		}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		unmeasurable := entryByPath(result.Entries, "C:/repo-GOV-130")
+		if unmeasurable.Class != pruneClassActive || unmeasurable.Removed ||
+			!strings.Contains(unmeasurable.Reason, "unmeasurable") {
+			t.Fatalf("the unmeasurable entry = %#v", unmeasurable)
+		}
+		removed := entryByPath(result.Entries, taskPath)
+		if removed.Class != pruneClassStaleEligible || !removed.Removed {
+			t.Fatalf("the next candidate = %#v", removed)
+		}
+		if len(git.removedPaths) != 1 || git.removedPaths[0] != taskPath {
+			t.Fatalf("worktree removals = %v", git.removedPaths)
+		}
+	})
+
+	t.Run("records a refused removal fail-closed", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			entries:           []port.WorktreeEntry{taskEntry},
+			removeErr:         errors.New("remove failed"),
+		}
+		result, err := service(git, []port.PullRequestSummary{mergedRecord}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Removed || !strings.Contains(entry.Reason, "removal refused") {
+			t.Fatalf("the refused entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("a refused removal must not record a removal: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("keeps a worktree whose operation inspection is unmeasurable", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true, activeErr: errors.New("operation inspection failed")},
+			entries:           []port.WorktreeEntry{taskEntry},
+		}
+		result, err := service(git, []port.PullRequestSummary{mergedRecord}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		entry := result.Entries[0]
+		if entry.Class != pruneClassActive || entry.Removed ||
+			!strings.Contains(entry.Reason, "unmeasurable") {
+			t.Fatalf("the unmeasurable-operation entry = %#v", entry)
+		}
+		if len(git.removedPaths) != 0 {
+			t.Fatalf("an unverified worktree must never be removed: %v", git.removedPaths)
+		}
+	})
+
+	t.Run("orders the pull-request records of the ticket deterministically", func(t *testing.T) {
+		t.Parallel()
+		t.Run("an unparseable number sorts below every parseable number", func(t *testing.T) {
+			t.Parallel()
+			git := &fakePruneGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				entries:           []port.WorktreeEntry{taskEntry},
+			}
+			result, err := service(git, []port.PullRequestSummary{
+				{Number: "abc", Title: "GOV-129: add-export", State: port.PullRequestStateMerged},
+				{Number: "14", Title: "GOV-129: add-export", State: port.PullRequestStateOpen},
+			}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := result.Entries[0]
+			if entry.PRNumber != "14" || entry.Class != pruneClassPublishedOpen {
+				t.Fatalf("the parseable newest record must decide: %#v", entry)
+			}
+		})
+
+		t.Run("a non-numeric newest candidate never replaces a parsed record", func(t *testing.T) {
+			t.Parallel()
+			git := &fakePruneGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				entries:           []port.WorktreeEntry{taskEntry},
+			}
+			result, err := service(git, []port.PullRequestSummary{
+				mergedRecord,
+				{Number: "abc", Title: "GOV-129: add-export", State: port.PullRequestStateOpen},
+			}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := result.Entries[0]
+			if entry.PRNumber != "12" || entry.Class != pruneClassStaleEligible || !entry.Removed {
+				t.Fatalf("the parsed newest record must decide: %#v", entry)
+			}
+		})
+
+		t.Run("records in descending order keep the highest number", func(t *testing.T) {
+			t.Parallel()
+			git := &fakePruneGit{
+				fakeGitRepository: &fakeGitRepository{clean: true},
+				entries:           []port.WorktreeEntry{taskEntry},
+			}
+			result, err := service(git, []port.PullRequestSummary{
+				{Number: "13", Title: "GOV-129: add-export", State: port.PullRequestStateMerged},
+				{Number: "12", Title: "GOV-129: add-export", State: port.PullRequestStateOpen},
+			}).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			entry := result.Entries[0]
+			if entry.PRNumber != "13" || entry.Class != pruneClassStaleEligible || !entry.Removed {
+				t.Fatalf("the highest record must decide: %#v", entry)
+			}
+		})
+	})
+
+	t.Run("propagates a worktree inventory failure", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{},
+			listErr:           errors.New("list failed"),
+		}
+		_, err := service(git, nil).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err == nil || !strings.Contains(err.Error(), "list failed") {
+			t.Fatalf("PruneWorktrees() error = %v, want the propagated inventory failure", err)
+		}
+	})
+
+	t.Run("propagates a remote URL failure", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{err: errors.New("remote url failed")},
+		}
+		_, err := service(git, nil).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err == nil || !strings.Contains(err.Error(), "remote url failed") {
+			t.Fatalf("PruneWorktrees() error = %v, want the propagated remote URL failure", err)
+		}
+	})
+
+	t.Run("propagates a pull-request inventory failure", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{fakeGitRepository: &fakeGitRepository{clean: true}}
+		inventory := &fakePullRequestInventory{err: errors.New("provider unreachable")}
+		_, err := NewWorktreeService(git).WithPullRequestInventory(inventory).
+			PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err == nil || !strings.Contains(err.Error(), "provider unreachable") {
+			t.Fatalf("PruneWorktrees() error = %v, want the propagated provider failure", err)
+		}
+	})
+
+	t.Run("propagates a remote branch listing failure", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{
+			fakeGitRepository: &fakeGitRepository{clean: true},
+			remoteErr:         errors.New("remote branches failed"),
+		}
+		_, err := service(git, nil).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		if err == nil || !strings.Contains(err.Error(), "remote branches failed") {
+			t.Fatalf("PruneWorktrees() error = %v, want the propagated remote branch failure", err)
+		}
+	})
+
+	t.Run("fails closed without pull-request state evidence", func(t *testing.T) {
+		t.Parallel()
+		git := &fakePruneGit{fakeGitRepository: &fakeGitRepository{}}
+		_, err := NewWorktreeService(git).PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+		if countCall(git.calls, "worktree-list") != 0 {
+			t.Fatalf("a blocked prune must not inventory: %v", git.calls)
+		}
+	})
+
+	t.Run("fails closed without the remote branch listing capability", func(t *testing.T) {
+		t.Parallel()
+		git := &fakeWorktreeManagerOnlyGit{fakeGitRepository: &fakeGitRepository{}}
+		_, err := NewWorktreeService(git).WithPullRequestInventory(&fakePullRequestInventory{}).
+			PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+	})
+
+	t.Run("fails closed when the composed adapter carries no worktree capability", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewWorktreeService(&fakeGitRepository{}).WithPullRequestInventory(&fakePullRequestInventory{}).
+			PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("fails closed without a composed Git adapter", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewWorktreeService(nil).WithPullRequestInventory(&fakePullRequestInventory{}).
+			PruneWorktrees(context.Background(), PruneWorktreesRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+}
