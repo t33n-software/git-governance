@@ -410,9 +410,15 @@ Ein frischer, detached Task-Worktree, den ein Akteur für ein Ticket erzeugt
 hat, ist legitimer Pre-Start-Kontext für jeden Akteur, der Ticket-Arbeit
 ausführt — den orchestrierenden Agent wie den menschlichen Entwickler. Die
 Worktree-Akquisition erfolgt governet über den `workflow worktree
-start`-Endpoint, der den Worktree aus der aktuellen `origin/develop`-Revision
-erzeugt; die sanktionierte erste Mutation im Worktree ist der governete
-`workflow ticket start`-Dispatch, der die offizielle Working-Branch im
+start`-Endpoint; seine Akquisitions-Basis folgt der Lane, deren Arbeit der
+Worktree trägt: reguläre Ticket-Arbeit aus der aktuellen `origin/develop`-Revision,
+Hotfix-Arbeit aus der betroffenen geschützten Linie (`main` oder der
+betroffenen `release/*`- bzw. `support/*`-Linie), Release-Stabilisierungs- und
+Preparation-Arbeit aus der eingefrorenen `release/*`-Linie; die konkrete
+Endpoint-Form der Basis-Auswahl bleibt Binary-Hilfe-Eigentum und wird je
+Invokation aus der aktuellen Hilfe abgeleitet. Die sanktionierte erste
+Mutation im Worktree ist der governete Dispatch der Lane (für reguläre
+Ticket-Arbeit `workflow ticket start`), der die offizielle Working-Branch im
 Worktree erzeugt. Unter Agent-Orchestrierung erzeugt der Orchestrator den
 Worktree und die Children attachen; in Einzelarbeit erzeugt und nutzt der
 Entwickler ihn direkt. Jeder andere detached- oder unknown-Zustand bleibt
@@ -626,8 +632,8 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | Branch-Kontext | Aufgabenmuster | Verbindlicher Einstieg |
 |---|---|---|
 | `shared_line` | `ticket` | Embargo aktiv; Intake; dann `workflow worktree start` gemäß der Worktree-Konvention aus [3.1]; im Worktree `workflow ticket start`; erst danach Implementierung |
-| `shared_line` | `hotfix` | Embargo aktiv; betroffene Linie fachlich binden; dann `workflow hotfix start` |
-| `shared_line` | `release` / `support` | Embargo aktiv; dann der passende `workflow release`-Pfad |
+| `shared_line` | `hotfix` | Embargo aktiv; betroffene Linie fachlich binden; dann `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1]; im Worktree `workflow hotfix start`; erst danach Implementierung |
+| `shared_line` | `release` / `support` | Embargo aktiv; dann `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1] (für Dispatch-Endpunkte ohne lokale Branch-Erzeugung trägt der Worktree den Dispatch); im Worktree der passende `workflow release`-Pfad |
 | `shared_line` | `exploration` | Embargo aktiv; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
 | `shared_line` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
 | `official_working` | Fortsetzung desselben Tickets | Fortsetzungslogik aus [3.3]; fehlende Evidenz ab frühestem Gate nachholen |
@@ -637,7 +643,13 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `unborn` | `ticket` / `hotfix` / `release` / `support` / `exploration` | `BLOCKED`: die Geburt geht jedem anderen Workflow voraus — zuerst `workflow bootstrap`, danach bindet der geborene Kontext die regulären Pfade |
 | `unborn` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
 | `detached` (frischer Task-Worktree gemäß [3.1]) | `ticket` | Worktree-Regel aus [3.1]: legitimer Pre-Start-Kontext; Intake; dann `workflow ticket start` im Worktree; erst danach Implementierung |
+| `detached` (frischer Task-Worktree gemäß [3.1]) | `hotfix` / `release` / `support` | Worktree-Regel aus [3.1] mit der Lane-Basis der betroffenen Linie: legitimer Pre-Start-Kontext; Intake; dann der governete Lane-Dispatch im Worktree; erst danach Implementierung |
 | übrige `detached`-/`unknown`-Zustände | jedes Muster | `BLOCKED` bis Benutzerentscheidung |
+
+Die Binary verweigert die lokalen Working-Branch-Lane-Dispatches fail-closed
+mit `WORKTREE_REQUIRED`, solange der Checkout kein verlinkter Task-Worktree
+ist; Read-only-, Remote-Dispatch- und Geburt-Endpunkte sowie Kompositionen
+ohne Worktree-Capability (Server-/CI-Klasse) bleiben ausgenommen.
 
 Aus dieser Matrix abgeleitete Hartverbote:
 
