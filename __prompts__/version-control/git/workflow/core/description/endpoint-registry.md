@@ -44,6 +44,7 @@ commit creation and validation
 read-only ticket-number allocation inventory (next-free number and holders
 before ticket intake)
 ticket start and publication
+task worktree acquisition, inventory and removal lifecycle
 hotfix start, record validation, delivery verification and propagation
 release request, cut, stabilization, alignment, promotion, backmerge and support
 authentication, diagnostics, policy inspection and pre-push validation
@@ -52,15 +53,17 @@ authentication, diagnostics, policy inspection and pre-push validation
 **Current State:**
 
 The registry coverage binds branch validation, synchronization, the governed
-synchronization resume, and the on-demand shared-line refresh, but did not
-bind the read-only allocation inventory of ticket numbers.
+synchronization resume, the on-demand shared-line refresh, and the read-only
+allocation inventory of ticket numbers, but did not bind the task worktree
+lifecycle endpoints.
 
 **Target State:**
 
-The registry coverage binds the read-only ticket-number allocation inventory:
-the `workflow ticket inventory` registry row covers the next-free-number and
-holder inventory over every governed allocation surface before ticket intake,
-with no mutation and fail-closed behavior on incompletely readable surfaces.
+The registry coverage binds the task worktree lifecycle: the `workflow
+worktree start`, `workflow worktree list`, and `workflow worktree remove`
+registry rows cover the governed acquisition of a detached task worktree,
+the worktree inventory, and the fail-closed worktree removal, with the
+register entries dormant until the binary help offers them.
 
 **Affected Files:**
 
