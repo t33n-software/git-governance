@@ -33,8 +33,8 @@ func TestListPullRequests(t *testing.T) {
 				"&per_page="+request.URL.Query().Get("per_page")+"&page="+request.URL.Query().Get("page"))
 			if request.URL.Query().Get("page") == "1" {
 				_, _ = writer.Write([]byte(`[
-					{"number":55,"title":"ABC-37: allow-git-lfs-in-canonical-gitattributes","user":{"login":"CyberT33N"},"created_at":"2026-09-30T20:02:32Z"},
-					{"number":12,"title":"fix(ABC-11): synchronize protected workflow contract","user":{"login":"CyberT33N"},"created_at":"2026-05-01T00:00:00Z"}
+					{"number":55,"title":"ABC-37: allow-git-lfs-in-canonical-gitattributes","user":{"login":"CyberT33N"},"created_at":"2026-09-30T20:02:32Z","state":"open","merged":false},
+					{"number":12,"title":"fix(ABC-11): synchronize protected workflow contract","user":{"login":"CyberT33N"},"created_at":"2026-05-01T00:00:00Z","state":"closed","merged":false}
 				]`))
 				return
 			}
@@ -52,8 +52,12 @@ func TestListPullRequests(t *testing.T) {
 		}
 		if summaries[0].Number != "55" || summaries[0].Title != "ABC-37: allow-git-lfs-in-canonical-gitattributes" ||
 			summaries[0].Author != "CyberT33N" ||
+			summaries[0].State != port.PullRequestStateOpen ||
 			!summaries[0].CreatedAt.Equal(time.Date(2026, 9, 30, 20, 2, 32, 0, time.UTC)) {
 			t.Fatalf("first summary = %#v", summaries[0])
+		}
+		if summaries[1].State != port.PullRequestStateClosed {
+			t.Fatalf("second summary state = %q", summaries[1].State)
 		}
 		if strings.Join(paths, "|") != "/repos/acme/governance/pulls?state=all&per_page=10&page=1" {
 			t.Fatalf("pagination paths = %v", paths)
@@ -150,6 +154,31 @@ func TestListPullRequests(t *testing.T) {
 			t.Fatal("ListPullRequests unexpectedly succeeded against a closed server")
 		}
 	})
+}
+
+func TestPullRequestInventoryState(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		state    string
+		merged   bool
+		expected port.PullRequestState
+	}{
+		{"a merged record wins over the raw state", "closed", true, port.PullRequestStateMerged},
+		{"a closed record without a merge stays closed", "closed", false, port.PullRequestStateClosed},
+		{"a closed record is matched case-insensitively", "CLOSED", false, port.PullRequestStateClosed},
+		{"an open record stays open", "open", false, port.PullRequestStateOpen},
+		{"an unknown state stays open", "", false, port.PullRequestStateOpen},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if actual := pullRequestInventoryState(testCase.state, testCase.merged); actual != testCase.expected {
+				t.Fatalf("pullRequestInventoryState(%q, %v) = %q", testCase.state, testCase.merged, actual)
+			}
+		})
+	}
 }
 
 func pullRequestInventoryFixture() string {

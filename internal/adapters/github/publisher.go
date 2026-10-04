@@ -631,8 +631,8 @@ const (
 )
 
 // pullRequestInventoryResponse is the bounded projection of one listed
-// pull request: the identifier, the title, the author, and the creation
-// time.
+// pull request: the identifier, the title, the author, the creation time,
+// and the lifecycle facts of the neutral state mapping.
 type pullRequestInventoryResponse struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
@@ -640,6 +640,8 @@ type pullRequestInventoryResponse struct {
 		Login string `json:"login"`
 	} `json:"user"`
 	CreatedAt time.Time `json:"created_at"`
+	State     string    `json:"state"`
+	Merged    bool      `json:"merged"`
 }
 
 // ListPullRequests enumerates the complete open and closed pull-request
@@ -681,6 +683,7 @@ func (publisher *Publisher) ListPullRequests(
 				Title:     pullRequest.Title,
 				Author:    pullRequest.User.Login,
 				CreatedAt: pullRequest.CreatedAt,
+				State:     pullRequestInventoryState(pullRequest.State, pullRequest.Merged),
 			})
 		}
 		if len(listed) < pullRequestInventoryPageSize {
@@ -696,6 +699,21 @@ func (publisher *Publisher) ListPullRequests(
 		Rule:        "the allocation inventory must read the complete surface and never silently truncate it",
 		Remediation: "archive or narrow the pull-request history before allocating a new ticket number",
 	})
+}
+
+// pullRequestInventoryState maps the provider pull-request facts onto the
+// neutral lifecycle state: the provider merge fact wins over the raw state
+// value, a closed record without a merge stays closed, and everything else
+// remains open.
+func pullRequestInventoryState(state string, merged bool) port.PullRequestState {
+	switch {
+	case merged:
+		return port.PullRequestStateMerged
+	case strings.EqualFold(strings.TrimSpace(state), "closed"):
+		return port.PullRequestStateClosed
+	default:
+		return port.PullRequestStateOpen
+	}
 }
 
 var _ port.PullRequestPublisher = (*Publisher)(nil)

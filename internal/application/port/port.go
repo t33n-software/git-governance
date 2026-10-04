@@ -629,7 +629,27 @@ type PullRequestSummary struct {
 	Title     string
 	Author    string
 	CreatedAt time.Time
+	// State classifies the provider lifecycle of the record so completion
+	// evidence never needs a second read: merged is measured from the
+	// provider merge fact, closed from the raw state, and everything else
+	// stays open.
+	State PullRequestState
 }
+
+// PullRequestState classifies the lifecycle state of one inventory pull
+// request record.
+type PullRequestState string
+
+const (
+	// PullRequestStateOpen reports a pull request that is neither merged
+	// nor closed.
+	PullRequestStateOpen PullRequestState = "open"
+	// PullRequestStateMerged reports a pull request the provider recorded
+	// as merged.
+	PullRequestStateMerged PullRequestState = "merged"
+	// PullRequestStateClosed reports a pull request closed without a merge.
+	PullRequestStateClosed PullRequestState = "closed"
+)
 
 // PullRequestInventoryLister is an optional capability for hosting adapters
 // that can enumerate the complete pull-request surface of one repository
