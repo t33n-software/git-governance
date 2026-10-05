@@ -22,6 +22,7 @@ Active package topology:
 core/DESCRIPTION.md                           root TOC (this file)
 core/description/purpose-and-architecture.md  purpose and responsibility split
 core/description/core-invariants.md           behavioral invariants
+core/description/core-invariants/              per-unit invariant leaf package
 core/description/endpoint-registry.md         endpoint registry role
 core/description/security-and-evidence.md     security and evidence boundaries
 core/description/adapter-relationship.md      source-adapter relationship
