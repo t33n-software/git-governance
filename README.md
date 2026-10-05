@@ -22,21 +22,35 @@ and update through the same channel:
 - **Package managers** are the primary installation path once their publisher
   identities are configured; they own the installation location, `PATH`,
   upgrade, and rollback.
-- **Release artifacts** are the direct path: download the artifact for your
-  platform from the release channel, verify its SHA-256 checksum and
-  signature against the release manifest, place the binary in a directory on
-  your `PATH`, and verify with `git-governance --version` and
-  `git-governance doctor`.
+- **Install scripts** are the verification-first direct path:
+
+  ```text
+  POSIX:   curl -fsSL https://raw.githubusercontent.com/t33n-software/git-governance/main/install.sh | sh
+  Windows: irm https://raw.githubusercontent.com/t33n-software/git-governance/main/install.ps1 | iex
+  ```
+
+  They resolve a pinned or validated latest version, verify the SHA-256
+  checksum manifest fail-closed before any mutation, replace the binary
+  atomically with a rollback copy, and report the `PATH` state without
+  editing shell profiles. A pin is set through `GIT_GOVERNANCE_VERSION`
+  before the run.
+- **Release artifacts** are the manual zero-dependency fallback: download the
+  artifact, the checksum manifest, and the signature bundle for your platform
+  from the release channel, verify them against the release manifest, place
+  the binary in a directory on your `PATH`, and verify with
+  `git-governance --version` and `git-governance doctor`.
 - **Updates** run through the installing channel — an update is the
   installation re-run against a newer pinned version. There is no automatic
   self-update and no `update` subcommand; the delivery and update model is
   recorded in
   [ADR-0009](docs/architecture/ADR-0009-CHANNEL-OWNED-DELIVERY-AND-UPDATE-MODEL.md).
 
-Verification-first install scripts and package-manager manifests are added by
-the release pipeline. The complete delivery, installation, and update design
-is in [installation and release](docs/operations/installation-and-release.md);
-a contributor build from source is described in
+The install scripts live at the repository root (`install.sh`, `install.ps1`).
+Package-manager manifests are added by the release pipeline once the
+publisher identities are configured. The complete delivery, installation, and
+update design is in
+[installation and release](docs/operations/installation-and-release.md); a
+contributor build from source is described in
 [getting started](docs/getting-started.md).
 
 ## Command catalog
