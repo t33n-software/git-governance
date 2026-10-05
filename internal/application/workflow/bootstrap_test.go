@@ -1124,14 +1124,6 @@ func (fake *recoveryRefsGit) HasAnyRef(context.Context, port.RepositoryIdentity)
 	return false, nil
 }
 
-// recoveryRestorerGit carries the reference inspection plus the unborn-state
-// restoration capability.
-type recoveryRestorerGit struct{ recoveryRefsGit }
-
-func (fake *recoveryRestorerGit) RestoreUnbornState(context.Context, port.RepositoryIdentity) error {
-	return nil
-}
-
 // resumeCommitsGit carries only the head-commit-counter capability.
 type resumeCommitsGit struct{ fakeGitRepository }
 
@@ -1151,13 +1143,6 @@ type resumeVerifierGit struct{ resumeRevisionsGit }
 
 func (fake *resumeVerifierGit) VerifyCommitSignature(context.Context, port.RepositoryIdentity, string) error {
 	return nil
-}
-
-// resumeHooksGit adds the hook-boundary-inspection capability.
-type resumeHooksGit struct{ resumeVerifierGit }
-
-func (fake *resumeHooksGit) HookBoundaryPresent(context.Context, port.RepositoryIdentity) (bool, error) {
-	return true, nil
 }
 
 func TestRecoverUnbornCapabilityResolution(t *testing.T) {
