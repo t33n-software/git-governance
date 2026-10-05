@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -617,23 +618,17 @@ func TestMainHotfixDeliveryHelperEdgeCases(t *testing.T) {
 		}
 		server.Close()
 
-		original := hotfixDeliveryWorkflowWaitLimit
-		hotfixDeliveryWorkflowWaitLimit = 20 * time.Millisecond
-		t.Cleanup(func() { hotfixDeliveryWorkflowWaitLimit = original })
-		server = httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-			_ = json.NewEncoder(writer).Encode(workflowRunsResponse{
-				WorkflowRuns: []workflowRunResponse{{
-					Status:       "completed",
-					Conclusion:   "success",
-					HTMLURL:      "https://github.example/actions/runs/unrelated",
-					DisplayTitle: "Release v9.9.9",
-				}},
-			})
-		}))
-		defer server.Close()
-		base, _ = url.Parse(server.URL)
-		publisher = New(Options{Resolver: testCredentialResolver(), APIBaseURL: server.URL, HTTPClient: server.Client()})
-		_, err = publisher.waitForHotfixArtifactWorkflow(context.Background(), base, repository, "v1.0.2")
+		cancelled, cancel := context.WithCancel(context.Background())
+		publisher = New(Options{Resolver: testCredentialResolver(), HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			cancel()
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(`{"workflow_runs":[{"status":"completed","conclusion":"success","display_title":"Release v9.9.9"}]}`)),
+				Header:     make(http.Header),
+			}, nil
+		})}})
+		base, _ = url.Parse(defaultAPIBaseURL)
+		_, err = publisher.waitForHotfixArtifactWorkflow(cancelled, base, repository, "v1.0.2")
 		assertProblem(t, err, problem.CodeExternalCommandFailed)
 	})
 }
