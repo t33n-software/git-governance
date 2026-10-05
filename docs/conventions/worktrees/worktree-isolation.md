@@ -19,8 +19,10 @@ The isolation chain is:
 ticket -> branch -> worktree
 ```
 
-- One detached worktree exists per active ticket, created from the current
-  `origin/develop` revision.
+- One detached worktree exists per active ticket, created from the lane's
+  acquisition base: regular ticket work from the current `origin/develop`
+  revision, hotfix work from the affected protected line, and release
+  stabilization work from the frozen release line.
 - The worktree is the highest isolation boundary on a development machine.
   Above it lie only machine and container boundaries (the CI class).
 - Ticket-bound work is committed and published through the governed binary
@@ -40,8 +42,9 @@ git-governance workflow worktree start
 ```
 
 The endpoint fetches the selected remote and creates the worktree detached
-from the current `origin/develop` revision of that remote. No branch is
-created in this step.
+from the lane's acquisition base of that remote; the lane-to-base mapping and
+the endpoint flags stay owned by the current help. No branch is created in
+this step.
 
 ## Sanctioned first mutation
 
@@ -68,8 +71,10 @@ and publication — runs through the binary inside the worktree.
    precedes every commit.
 4. Never share one worktree across tickets.
 5. Cleanup removes the worktree only after the ticket's pull request is
-   merged or the work is otherwise concluded; official branch removal stays
-   with the governed cleanup paths.
+   merged or the work is otherwise concluded; removal runs through the
+   governed `workflow worktree remove` endpoint or the evidence-based
+   `workflow worktree prune` pass, and official branch removal stays with
+   the governed cleanup paths.
 
 ## Rejected forms
 
@@ -91,8 +96,15 @@ outside the governed lifecycle endpoints — are handled per the
 
 ## Tool enforcement relationship
 
-The binary's fail-closed gates already resolve worktree-correctly: worktree
-aware repository discovery, per-worktree cleanliness checks, per-worktree
-operation markers, and shared-line protection. The worktree lifecycle
-endpoints and the publish-return worktree behavior are specified in
+The binary's fail-closed gates resolve worktree-correctly: worktree aware
+repository discovery, per-worktree cleanliness checks, per-worktree operation
+markers, and shared-line protection. The task-worktree requirement is
+enforced fail-closed across the local working-branch dispatches of the
+ticket, hotfix, and release lanes, and the detached pre-start form is
+measured against the lane's own acquisition base. The per-endpoint obligation
+table lives in the
+[task worktree lifecycle usage](../../usage/workflows/worktrees.md).
+Publication from the worktree checkout reports the honest worktree return
+instead of attempting the switch to the integration line bound in the primary
+checkout; the complete return-switch form set is specified in
 [ADR-0008](../architecture/ADR-0008-WORKTREE-ISOLATION-MODEL.md).

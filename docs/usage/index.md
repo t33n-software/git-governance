@@ -30,6 +30,10 @@ git governance workflow release backmerge
 git governance workflow release align-reconciliation-base
 git governance workflow release support
 git governance workflow cleanup
+git governance workflow worktree start
+git governance workflow worktree list
+git governance workflow worktree remove
+git governance workflow worktree prune
 
 git governance validate pre-push
 
