@@ -11,6 +11,7 @@
 - [Build and release artifact ownership](conventions/build-and-release-artifact-ownership.md)
 - [Worktree isolation convention](conventions/worktrees/worktree-isolation.md)
 - [Worktree name reservation convention](conventions/worktrees/worktree-name-reservation.md)
+- [Branch hygiene convention](conventions/branches/branch-hygiene.md)
 - [Commit conventions](conventions/commits/README.md)
 - [CLI conventions](conventions/cli/README.md)
 - [Architecture decision record](architecture/ADR-0001-GO-CLI-TARGET-ARCHITECTURE.md)
