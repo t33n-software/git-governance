@@ -46,6 +46,8 @@ before ticket intake)
 ticket start and publication
 task worktree acquisition, inventory, proven-completion prune and removal
 lifecycle
+governed branch hygiene: controlled removal of one completed local working
+branch and evidence-based prune of completed branches
 hotfix start, record validation, delivery verification and propagation
 release request, cut, stabilization, alignment, promotion, backmerge and support
 authentication, diagnostics, policy inspection and pre-push validation
@@ -60,8 +62,16 @@ lifecycle: the `workflow worktree start`, `workflow worktree list`, `workflow
 worktree remove`, and `workflow worktree prune` registry rows cover the
 governed acquisition of a detached task worktree, the worktree inventory,
 the fail-closed worktree removal, and the evidence-based prune of
-proven-complete worktrees under hybrid completion evidence. The repository
-birth family carries the complete birth lifecycle: the `workflow bootstrap`
+proven-complete worktrees under hybrid completion evidence. The
+branch-hygiene family carries the governed branch hygiene: the `workflow
+branch remove` and `workflow branch prune` registry rows cover the
+controlled removal of one completed local working branch and the
+evidence-based prune of completed branches under the same hybrid evidence
+conjunction — the newest merged pull-request record of the ticket, the
+deleted remote branch-cleanup obligation, no checkout in any worktree, and
+null-ahead against the recorded lane base — with fail-closed refusal records
+for every loss-bearing class and no background or automatic deletion. The
+repository birth family carries the complete birth lifecycle: the `workflow bootstrap`
 row covers the governed birth itself, the `workflow bootstrap recover`
 and `workflow bootstrap publish` rows cover the governed pre-birth recovery
 of a foreign or aborted pre-staging state and the governed publication

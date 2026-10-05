@@ -470,7 +470,10 @@ Erlaubt bleiben unter aktivem Embargo ausschließlich:
   Help-Reanchor);
 - der Dispatch eines Ebene-1-Workflows, der die Shared Line verlässt — die
   governete Worktree-Akquisition (`workflow worktree start`) und der
-  Workflow, der die offizielle Working-Branch governet erzeugt.
+  Workflow, der die offizielle Working-Branch governet erzeugt;
+- der Dispatch der gouvernten Branch-Hygiene-Endpunkte (`workflow branch
+  remove`, `workflow branch prune`) — ihre Mutationsoberfläche ist die
+  Working-Branch-Referenz, niemals die ausgecheckte Shared Line.
 ```
 
 Das Embargo endet erst, wenn nach dem Workflow-Dispatch der Branch-Kontext
@@ -590,7 +593,7 @@ Jede Git-Wirkung wird über genau eine von drei Ebenen ausgeführt. Die Auswahl
 ist verbindlich und wird vor der ersten Invocation nachgewiesen:
 
 ```text
-Ebene 1 — Workflows (`workflow ticket|hotfix|release|cleanup|worktree`)
+Ebene 1 — Workflows (`workflow ticket|hotfix|release|cleanup|worktree|branch`)
   Pflicht, immer wenn das Aufgabenmuster von einem Workflow abgedeckt ist.
   Workflows kapseln Reihenfolge, Validierung und Gates inhärent.
 
@@ -649,8 +652,11 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 
 Die Binary verweigert die lokalen Working-Branch-Lane-Dispatches fail-closed
 mit `WORKTREE_REQUIRED`, solange der Checkout kein verlinkter Task-Worktree
-ist; Read-only-, Remote-Dispatch- und Geburt-Endpunkte sowie Kompositionen
-ohne Worktree-Capability (Server-/CI-Klasse) bleiben ausgenommen.
+ist; Read-only-, Remote-Dispatch- und Geburt-Endpunkte, die
+Branch-Hygiene-Endpunkte (Repository-Oberflächen-Operationen wie
+`workflow cleanup`, deren Mutationsoberfläche die Working-Branch-Referenz
+und niemals die ausgecheckte Shared Line ist) sowie Kompositionen ohne
+Worktree-Capability (Server-/CI-Klasse) bleiben ausgenommen.
 
 Aus dieser Matrix abgeleitete Hartverbote:
 
@@ -881,6 +887,8 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `workflow worktree list` | RO | Lokale Task-Worktrees inventarisieren | Keine Mutation |
 | `workflow worktree remove` | E1 | Den Worktree eines abgeschlossenen Tickets entfernen | Löscht ausschließlich den Worktree; keine offiziellen oder Remote-Branches |
 | `workflow worktree prune` | E1 | Die Task-Worktrees entfernen, deren Completion-Evidenz bewiesen ist | Hybrid-Evidenz je Eintrag — gemergter neuester PR-Record, erfüllte Branch-Obligation auf der Remote-Fläche, sauberer Worktree, keine aktive Operation; nur bewiesen-vollständige Einträge werden entfernt; löscht ausschließlich Worktrees, keine Branches |
+| `workflow branch remove` | E1 | Einen lokalen offiziellen Working-Branch unter der Branch-Hygiene-Evidenz löschen | Hybrid-Evidenz je Branch — gemergter neuester PR-Record, gelöschte Remote-Branch-Obligation, kein Checkout, Null-Ahead gegen die recordierte Lane-Basis; löscht ausschließlich lokale offizielle Working-Branches, niemals Shared Lines, niemals Ahead-Branches, niemals automatisch; die Mutationsoberfläche ist die Working-Branch-Referenz, niemals die ausgecheckte Shared Line |
+| `workflow branch prune` | E1 | Die lokalen offiziellen Working-Branches entfernen, deren Branch-Hygiene-Evidenz bewiesen ist | Dieselbe Evidenz-Konjunktion je Branch; Entdeckung und Batch-Pass über die Branch-Inventur mit Dry-Run-Plan, je-Eintrag-Entfernung unter denselben Guards — Komposition, nicht Duplikation; die Allokations-Inventur bleibt reine Lese-Wahrheit; nichts läuft im Hintergrund — jeder Lösch-Dispatch ist akteursgerufen |
 
 ### 5.3 Hotfix-Arbeit
 
