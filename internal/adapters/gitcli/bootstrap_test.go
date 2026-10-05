@@ -13,6 +13,91 @@ import (
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
+func TestRestoreUnbornState(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empties the index and deletes every born reference", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: ""},
+			{stdout: "refs/heads/main\nrefs/heads/develop\n"},
+			{stdout: ""},
+			{stdout: ""},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		if err := repository.RestoreUnbornState(context.Background(), testIdentity()); err != nil {
+			t.Fatal(err)
+		}
+		if len(runner.calls) != 4 {
+			t.Fatalf("recorded calls = %#v", runner.calls)
+		}
+		if strings.Join(runner.calls[0].arguments, " ") != "read-tree --empty" {
+			t.Fatalf("index restoration = %#v", runner.calls[0].arguments)
+		}
+		if strings.Join(runner.calls[1].arguments, " ") != "for-each-ref --format=%(refname)" {
+			t.Fatalf("reference enumeration = %#v", runner.calls[1].arguments)
+		}
+		if strings.Join(runner.calls[2].arguments, " ") != "update-ref -d refs/heads/main" {
+			t.Fatalf("first deletion = %#v", runner.calls[2].arguments)
+		}
+		if strings.Join(runner.calls[3].arguments, " ") != "update-ref -d refs/heads/develop" {
+			t.Fatalf("second deletion = %#v", runner.calls[3].arguments)
+		}
+	})
+
+	t.Run("an empty reference set deletes nothing", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{
+			{stdout: ""},
+			{stdout: "\n"},
+		}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		if err := repository.RestoreUnbornState(context.Background(), testIdentity()); err != nil {
+			t.Fatal(err)
+		}
+		if len(runner.calls) != 2 {
+			t.Fatalf("an empty reference set must not delete: %#v", runner.calls)
+		}
+	})
+
+	t.Run("index restoration failures fail closed", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{
+			runner:  &fakeRunner{results: []processResult{{err: errors.New("failed"), exitCode: 128}}},
+			timeout: time.Second,
+		}
+		err := repository.RestoreUnbornState(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("reference enumeration failures fail closed", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{
+			runner: &fakeRunner{results: []processResult{
+				{stdout: ""},
+				{err: errors.New("failed"), exitCode: 128},
+			}},
+			timeout: time.Second,
+		}
+		err := repository.RestoreUnbornState(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("reference deletion failures fail closed", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{
+			runner: &fakeRunner{results: []processResult{
+				{stdout: ""},
+				{stdout: "refs/heads/main\n"},
+				{err: errors.New("failed"), exitCode: 128},
+			}},
+			timeout: time.Second,
+		}
+		err := repository.RestoreUnbornState(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}
+
 func TestPreviewStage(t *testing.T) {
 	t.Parallel()
 

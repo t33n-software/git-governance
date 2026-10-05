@@ -63,6 +63,33 @@ func (repository *Repository) HasAnyRef(ctx context.Context, identity port.Repos
 	return strings.TrimSpace(result.stdout) != "", nil
 }
 
+// RestoreUnbornState restores the proven pre-birth state of an unborn
+// repository after an aborted genesis step: the index returns to the empty
+// tree and every existing reference is deleted, which leaves the symbolic
+// unborn HEAD untouched. The working tree is never modified, so foreign
+// working-tree changes survive the compensation unchanged.
+func (repository *Repository) RestoreUnbornState(ctx context.Context, identity port.RepositoryIdentity) error {
+	result := repository.invoke(ctx, identity.Root, nil, "read-tree", "--empty")
+	if result.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "empty the index for the genesis compensation", result)
+	}
+	result = repository.invoke(ctx, identity.Root, nil, "for-each-ref", "--format=%(refname)")
+	if result.err != nil {
+		return repository.commandProblem(problem.CodeGitCommandFailed, identity, "enumerate the born references for the genesis compensation", result)
+	}
+	for _, raw := range strings.Split(strings.TrimSpace(result.stdout), "\n") {
+		ref := strings.TrimSpace(raw)
+		if ref == "" {
+			continue
+		}
+		deletion := repository.invoke(ctx, identity.Root, nil, "update-ref", "-d", ref)
+		if deletion.err != nil {
+			return repository.commandProblem(problem.CodeGitCommandFailed, identity, "delete the born reference "+ref+" for the genesis compensation", deletion)
+		}
+	}
+	return nil
+}
+
 // VerifyCommitSignature proves that the referenced commit carries a valid,
 // trusted signature. The check is fail-closed because the active policy
 // requires signed commits.
@@ -174,3 +201,4 @@ var _ port.StagePreviewer = (*Repository)(nil)
 var _ port.RefExistenceInspector = (*Repository)(nil)
 var _ port.CommitSignatureVerifier = (*Repository)(nil)
 var _ port.HookInstaller = (*Repository)(nil)
+var _ port.UnbornStateRestorer = (*Repository)(nil)
