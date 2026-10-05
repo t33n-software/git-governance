@@ -353,8 +353,39 @@ The scripts follow a verification-first standard:
   never edited without an explicit user request;
 - document a manual zero-dependency download path as the fallback.
 
-Documented one-liner bootstrap forms are convenience entries over the
-verification-first script, never a bypass of its verification.
+The scripts implementing this standard live at the repository root:
+
+- `install.sh` (POSIX `sh`) — detects `curl` and then `wget` and fails closed
+  with actionable guidance (a package-manager hint plus the manual path) when
+  neither is available; detects `sha256sum` and then `shasum` for the native
+  checksum verification; verifies the signature bundle with `cosign` when
+  cosign is installed and reports the skipped local verification explicitly
+  when it is not (the checksum manifest stays the enforced verification
+  truth); resolves a pinned version through `GIT_GOVERNANCE_VERSION` or the
+  validated latest release; installs into `~/.local/bin` (overridable via
+  `GIT_GOVERNANCE_INSTALL_DIR`), preserves the previous binary as
+  `git-governance.previous`, and reports the current terminal's `PATH` state
+  without editing shell profiles.
+- `install.ps1` (Windows PowerShell 5.1 and PowerShell 7+ compatible) — uses
+  only native cmdlets (`Invoke-RestMethod`, `Invoke-WebRequest`,
+  `Expand-Archive`, `Get-FileHash`), declares no additional consumer
+  dependency, and enforces the same verification, rollback, and `PATH`
+  reporting contract; it installs into
+  `%LOCALAPPDATA%\Programs\git-governance` by default.
+
+Both scripts verify the installed binary with `--version`; the `doctor`
+diagnostics run as an informational report because its repository checks
+depend on the working directory. Documented one-liner bootstrap forms are
+convenience entries over the verification-first script, never a bypass of
+its verification:
+
+- POSIX: `curl -fsSL https://raw.githubusercontent.com/t33n-software/git-governance/main/install.sh | sh`
+- Windows: `irm https://raw.githubusercontent.com/t33n-software/git-governance/main/install.ps1 | iex`
+
+The one-liner forms fetch the channel script from the repository's `main`
+line; the binary itself always comes from the pinned or validated release.
+The manual zero-dependency fallback is the documented download-and-verify
+path in section 5.2 over the release artifacts directly.
 
 Version-currency reporting stays out of the hook paths: hooks remain offline
 in this version. An opt-in, fail-open currency report — a `doctor` extension

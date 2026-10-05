@@ -71,10 +71,29 @@ readiness contract is in [GitHub App authentication](usage/authentication.md).
 ## Install a released build
 
 Consumers do not build from source. Install and update through the same
-channel:
+channel. The verification-first install scripts are the direct path:
 
-1. Download the release artifact for your platform from the release channel.
-2. Verify its SHA-256 checksum and signature against the release manifest.
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/t33n-software/git-governance/main/install.ps1 | iex
+```
+
+```sh
+# macOS and Linux
+curl -fsSL https://raw.githubusercontent.com/t33n-software/git-governance/main/install.sh | sh
+```
+
+The scripts resolve a pinned or validated latest version, verify the SHA-256
+checksum manifest fail-closed before any mutation, replace the binary
+atomically with a rollback copy, and report the `PATH` state without editing
+shell profiles. A pin is set through `GIT_GOVERNANCE_VERSION` before the run.
+
+The manual zero-dependency fallback performs the same verification by hand:
+
+1. Download the release artifact, the checksum manifest, and the signature
+   bundle for your platform from the release channel.
+2. Verify the SHA-256 checksum (and the signature bundle with `cosign`, when
+   installed) against the release manifest.
 3. Place the binary in a directory already on your `PATH`.
 4. Verify with `git-governance --version` and `git-governance doctor`.
 
@@ -85,5 +104,6 @@ and the complete installation design — including the verification-first
 script standard and the package-manager target level — is in
 [installation and release](operations/installation-and-release.md).
 
-Release installers and package-manager manifests are added by the release
-pipeline. They are not yet published by this repository.
+Package-manager manifests are added by the release pipeline once the
+publisher identities are configured; they are not yet published by this
+repository.
