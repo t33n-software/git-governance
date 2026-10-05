@@ -79,6 +79,7 @@ type services struct {
 	commits            *commitapp.Service
 	tickets            *workflow.TicketService
 	worktrees          *workflow.WorktreeService
+	branchHygiene      *workflow.BranchHygieneService
 	releases           *workflow.ReleaseService
 	bootstrap          *workflow.BootstrapService
 	allocation         *ticketalloc.Service
@@ -291,12 +292,13 @@ func (application *application) services() services {
 					" keyPolicy=" + description.KeyPolicy +
 					" commitSigning=" + description.CommitSigning
 			}),
-		lifecycle:   lifecycle,
-		allocation:  allocation,
-		worktrees:   workflow.NewWorktreeService(git).WithPullRequestInventory(inventoryPullRequests),
-		preferences: policy.NewPreferencesService(store),
-		doctor:      policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
-		githubAuth:  githubAuth,
+		lifecycle:     lifecycle,
+		allocation:    allocation,
+		worktrees:     workflow.NewWorktreeService(git).WithPullRequestInventory(inventoryPullRequests),
+		branchHygiene: workflow.NewBranchHygieneService(git).WithPullRequestInventory(inventoryPullRequests),
+		preferences:   policy.NewPreferencesService(store),
+		doctor:        policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
+		githubAuth:    githubAuth,
 	}
 }
 
