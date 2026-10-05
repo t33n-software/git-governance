@@ -294,6 +294,15 @@ type BranchReferenceFastForwarder interface {
 	) (FastForwardOutcome, error)
 }
 
+// BranchAheadCounter is an optional capability for adapters that can count
+// the commits a local branch carries that its selected remote-tracking base
+// does not. The branch-hygiene guards derive the null-ahead class from the
+// count; keeping the capability separate avoids forcing unrelated Git
+// adapters and test fakes to implement a comparison they never invoke.
+type BranchAheadCounter interface {
+	CountBranchAheadCommits(ctx context.Context, repository RepositoryIdentity, name branch.BranchName, base branch.TargetBase) (int, error)
+}
+
 // WorktreeEntry describes one worktree of the Git worktree inventory.
 type WorktreeEntry struct {
 	// Path is the absolute worktree directory.

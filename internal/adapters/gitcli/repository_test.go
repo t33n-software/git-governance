@@ -467,6 +467,56 @@ func TestBranchStateOperations(t *testing.T) {
 	})
 }
 
+func TestCountBranchAheadCommitsMeasuresTheBranchBaseDelta(t *testing.T) {
+	t.Parallel()
+
+	name, err := branch.ParseName("feature/ABC-123-add-export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	develop, _ := branch.ParseName("develop")
+	base, err := branch.NewTargetBase("origin", develop)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("null ahead", func(t *testing.T) {
+		runner := &fakeRunner{results: []processResult{{stdout: "0\n"}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		actual, err := repository.CountBranchAheadCommits(context.Background(), testIdentity(), name, base)
+		if err != nil || actual != 0 {
+			t.Fatalf("CountBranchAheadCommits() = (%d, %v)", actual, err)
+		}
+		assertCall(t, runner.calls[0], "C:/repo", "", "rev-list", "--count", "origin/develop..feature/ABC-123-add-export")
+	})
+
+	t.Run("ahead commits", func(t *testing.T) {
+		repository := &Repository{runner: &fakeRunner{results: []processResult{{stdout: "3\n"}}}, timeout: time.Second}
+		actual, err := repository.CountBranchAheadCommits(context.Background(), testIdentity(), name, base)
+		if err != nil || actual != 3 {
+			t.Fatalf("CountBranchAheadCommits() = (%d, %v)", actual, err)
+		}
+	})
+
+	t.Run("negative count", func(t *testing.T) {
+		repository := &Repository{runner: &fakeRunner{results: []processResult{{stdout: "-5\n"}}}, timeout: time.Second}
+		_, err := repository.CountBranchAheadCommits(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+	})
+
+	t.Run("comparison failure", func(t *testing.T) {
+		repository := &Repository{runner: &fakeRunner{results: []processResult{{err: errors.New("unknown revision"), exitCode: 128}}}, timeout: time.Second}
+		_, err := repository.CountBranchAheadCommits(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+	})
+
+	t.Run("malformed count", func(t *testing.T) {
+		repository := &Repository{runner: &fakeRunner{results: []processResult{{stdout: "not-a-number"}}}, timeout: time.Second}
+		_, err := repository.CountBranchAheadCommits(context.Background(), testIdentity(), name, base)
+		assertProblemCode(t, err, problem.CodeBranchBaseInvalid)
+	})
+}
+
 func TestOfficialBranchesForTicketFindsLocalAndRemoteCanonicalBranches(t *testing.T) {
 	t.Parallel()
 

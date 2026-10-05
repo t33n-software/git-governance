@@ -1047,6 +1047,32 @@ func (repository *Repository) CommitMessagesSince(ctx context.Context, identity 
 	return parseCommitMessages(result.stdout)
 }
 
+// CountBranchAheadCommits counts the commits the named local branch carries
+// that the selected remote-tracking base does not. The branch-hygiene guards
+// derive the null-ahead class from the count: zero commits mean the branch
+// holds nothing its base lacks, so a deletion cannot lose work the base is
+// missing.
+func (repository *Repository) CountBranchAheadCommits(ctx context.Context, identity port.RepositoryIdentity, name branch.BranchName, base branch.TargetBase) (int, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "rev-list", "--count", base.String()+".."+name.String())
+	if result.err != nil {
+		return 0, repository.commandProblem(problem.CodeBranchBaseInvalid, identity, "compare the branch with its target base", result)
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(result.stdout))
+	if err != nil || count < 0 {
+		return 0, problem.Wrap(problem.Details{
+			Code:        problem.CodeBranchBaseInvalid,
+			Category:    problem.CategoryRepository,
+			Field:       "target base",
+			Actual:      base.String(),
+			Expected:    "a comparable remote-tracking base",
+			Rule:        "Git must return a non-negative ahead-commit count",
+			Example:     "origin/develop",
+			Remediation: "fetch the remote and verify the selected target base exists",
+		}, err)
+	}
+	return count, nil
+}
+
 // Rebase reapplies local commits onto the target base. The application layer
 // decides whether this mutation is policy-safe before calling the adapter.
 func (repository *Repository) Rebase(ctx context.Context, identity port.RepositoryIdentity, base branch.TargetBase) error {
@@ -1605,3 +1631,4 @@ var _ port.MergeContinuator = (*Repository)(nil)
 var _ port.ActiveMergeTargetInspector = (*Repository)(nil)
 var _ port.LocalBranchLister = (*Repository)(nil)
 var _ port.BranchReferenceFastForwarder = (*Repository)(nil)
+var _ port.BranchAheadCounter = (*Repository)(nil)
