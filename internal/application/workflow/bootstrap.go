@@ -123,6 +123,7 @@ type bootstrapCapabilities struct {
 	installer port.HookInstaller
 	signer    port.GitSigningInspector
 	revisions port.RevisionResolver
+	restorer  port.UnbornStateRestorer
 }
 
 // Bootstrap executes the governed birth through its bound phases: preflight
@@ -180,10 +181,10 @@ func (service *BootstrapService) Bootstrap(ctx context.Context, request Bootstra
 		message,
 	)
 	if err != nil {
-		return BootstrapResult{}, err
+		return BootstrapResult{}, compensateGenesisAbortion(ctx, capabilities.restorer, repository, err)
 	}
 	if err := service.runGenesisFinalizer(ctx, repository, capabilities, revision, installation); err != nil {
-		return BootstrapResult{}, err
+		return BootstrapResult{}, compensateGenesisAbortion(ctx, capabilities.restorer, repository, err)
 	}
 	record := genesis.NewRecord(
 		repository.Root,
@@ -530,6 +531,10 @@ func resolveBootstrapCapabilities(git port.GitRepository) (bootstrapCapabilities
 	if !ok {
 		return bootstrapCapabilities{}, bootstrapCapabilityRequired("revision resolution")
 	}
+	restorer, ok := git.(port.UnbornStateRestorer)
+	if !ok {
+		return bootstrapCapabilities{}, bootstrapCapabilityRequired("unborn-state restoration")
+	}
 	return bootstrapCapabilities{
 		previewer: previewer,
 		refs:      refs,
@@ -537,6 +542,7 @@ func resolveBootstrapCapabilities(git port.GitRepository) (bootstrapCapabilities
 		installer: installer,
 		signer:    signer,
 		revisions: revisions,
+		restorer:  restorer,
 	}, nil
 }
 
@@ -630,6 +636,37 @@ func scopeMutationGit(git port.GitRepository, budget time.Duration) port.GitRepo
 		return scoper.WithOperationTimeout(budget)
 	}
 	return git
+}
+
+// compensateGenesisAbortion restores the proven unborn pre-state after an
+// aborted genesis step. A successful restoration returns the original cause
+// with the compensation fact added to its diagnostic; a failed restoration
+// returns a blocking record that names the partial state and its recovery,
+// wrapping the original cause. The restoration runs on a detached context, so
+// a cancelled caller cannot skip the restoration of the proven pre-state. A
+// cause without the typed problem contract carries no diagnostic surface and
+// is returned unchanged.
+func compensateGenesisAbortion(ctx context.Context, restorer port.UnbornStateRestorer, repository port.RepositoryIdentity, cause error) error {
+	if err := restorer.RestoreUnbornState(context.WithoutCancel(ctx), repository); err != nil {
+		return problem.Wrap(problem.Details{
+			Code:        problem.CodeInternal,
+			Category:    problem.CategoryInternal,
+			Field:       "genesis compensation",
+			Diagnostic:  err.Error(),
+			Expected:    "the proven unborn pre-state: empty index, no references, unborn HEAD",
+			Rule:        "a failed compensation leaves the partial birth in place and blocks the retry",
+			Remediation: "empty the index, delete the born refs, and retry the bootstrap",
+		}, cause)
+	}
+	if typed, ok := problem.As(cause); ok {
+		details := typed.Details
+		if details.Diagnostic != "" {
+			details.Diagnostic += "; "
+		}
+		details.Diagnostic += "the aborted birth was compensated back to the proven unborn pre-state (empty index, no references, unborn HEAD); the retry is idempotent"
+		return problem.Wrap(details, cause)
+	}
+	return cause
 }
 
 func bootstrapRepository(repository port.RepositoryIdentity) (port.RepositoryIdentity, error) {

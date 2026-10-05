@@ -158,6 +158,17 @@ type HookInstaller interface {
 	InstallHooks(ctx context.Context, repository RepositoryIdentity) (HookInstallation, error)
 }
 
+// UnbornStateRestorer is an optional capability for adapters that can restore
+// the proven pre-birth state of an unborn repository after an aborted genesis
+// step: the index returns to the empty tree and every existing reference is
+// deleted, which leaves the symbolic unborn HEAD and the working tree
+// untouched. The governed repository birth compensates every aborted genesis
+// step through this capability so the retry of the same endpoint stays
+// idempotent.
+type UnbornStateRestorer interface {
+	RestoreUnbornState(ctx context.Context, repository RepositoryIdentity) error
+}
+
 // CherryPickContinuator is consumed only by workflows that must resume a
 // user-resolved cherry-pick. Keeping it separate avoids forcing unrelated Git
 // adapters and test fakes to implement a mutation they never invoke.

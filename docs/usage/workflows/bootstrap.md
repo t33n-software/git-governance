@@ -36,6 +36,14 @@ allowance, bounded), so large content sets do not need a `--timeout`
 override. An explicitly supplied `--timeout` remains the upper bound that
 caps the derived budget.
 
+Every aborted genesis step is compensated: when the mutation or the
+finalizer fails, the tool restores the proven pre-birth state — an empty
+index and no references — before it reports the failure, leaving the unborn
+HEAD and the working tree untouched. The failure record carries the
+compensation fact, and the retry of the same endpoint stays idempotent. A
+compensation that cannot complete fails closed with a named record that
+blocks the retry until the partial birth is resolved.
+
 Publication is a separately confirmed step:
 
 ```powershell

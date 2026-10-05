@@ -832,6 +832,11 @@ func (git *commandGit) WithOperationTimeout(timeout time.Duration) port.GitRepos
 	return git
 }
 
+// RestoreUnbornState accepts the genesis compensation as a recorded no-op.
+func (*commandGit) RestoreUnbornState(context.Context, port.RepositoryIdentity) error {
+	return nil
+}
+
 // PreviewStage resolves a fixed content-set preview for the governed
 // repository birth.
 func (*commandGit) PreviewStage(context.Context, port.RepositoryIdentity, []string) ([]string, error) {

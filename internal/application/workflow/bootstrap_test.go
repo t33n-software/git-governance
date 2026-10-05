@@ -51,6 +51,8 @@ type bootstrapGit struct {
 	installation  port.HookInstallation
 	stagedPaths   []string
 	committed     commitmsg.Message
+	restored      bool
+	restoreErr    error
 }
 
 func newBootstrapGit() *bootstrapGit {
@@ -191,6 +193,12 @@ func (fake *bootstrapGit) ResolveRevision(_ context.Context, _ port.RepositoryId
 		return resolved, fake.err
 	}
 	return "", fake.err
+}
+
+func (fake *bootstrapGit) RestoreUnbornState(context.Context, port.RepositoryIdentity) error {
+	fake.calls = append(fake.calls, "restore-unborn-state")
+	fake.restored = true
+	return fake.restoreErr
 }
 
 // bootstrapTools fakes the host-tool inspector for the hook-manager
@@ -479,6 +487,12 @@ func (fake *signerCapableGit) ProveSigningCapability(context.Context, port.Repos
 	return nil
 }
 
+type revisionsCapableGit struct{ signerCapableGit }
+
+func (fake *revisionsCapableGit) ResolveRevision(context.Context, port.RepositoryIdentity, string) (string, error) {
+	return "", nil
+}
+
 func TestBootstrapCapabilityResolution(t *testing.T) {
 	t.Parallel()
 
@@ -492,6 +506,7 @@ func TestBootstrapCapabilityResolution(t *testing.T) {
 		{name: "hook installation missing", git: &verifierCapableGit{}},
 		{name: "signing inspection missing", git: &installerCapableGit{}},
 		{name: "revision resolution missing", git: &signerCapableGit{}},
+		{name: "unborn-state restoration missing", git: &revisionsCapableGit{}},
 	}
 	for _, testCase := range testCases {
 		testCase := testCase
@@ -801,6 +816,128 @@ func TestBootstrapMutationFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBootstrapCompensatesAbortedGenesisSteps(t *testing.T) {
+	t.Parallel()
+
+	t.Run("an aborted mutation restores the proven pre-state", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, true}
+		git.stageErr = errors.New("stage failed")
+		_, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest())
+		if err == nil {
+			t.Fatal("expected the mutation failure to propagate")
+		}
+		if !git.restored {
+			t.Fatal("the aborted mutation did not restore the proven pre-state")
+		}
+		if err.Error() != "stage failed" {
+			t.Fatalf("the compensation altered the untyped cause: %v", err)
+		}
+	})
+
+	t.Run("a typed cause carries the compensation fact in its diagnostic", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, true}
+		git.stageErr = problem.New(problem.Details{
+			Code:     problem.CodeGitCommandFailed,
+			Category: problem.CategoryGit,
+			Field:    "index",
+			Rule:     "the staging step failed",
+		})
+		_, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest())
+		if err == nil {
+			t.Fatal("expected the mutation failure to propagate")
+		}
+		typed, ok := problem.As(err)
+		if !ok {
+			t.Fatalf("the typed cause lost its contract: %v", err)
+		}
+		if typed.Code != problem.CodeGitCommandFailed {
+			t.Fatalf("the compensation changed the failure code: %v", typed.Code)
+		}
+		if !strings.Contains(typed.Details.Diagnostic, "compensated back to the proven unborn pre-state") {
+			t.Fatalf("the compensation fact is missing: %q", typed.Details.Diagnostic)
+		}
+	})
+
+	t.Run("an existing diagnostic is preserved and extended", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, true}
+		git.stageErr = problem.New(problem.Details{
+			Code:       problem.CodeGitCommandFailed,
+			Category:   problem.CategoryGit,
+			Field:      "index",
+			Diagnostic: "the staging process died",
+			Rule:       "the staging step failed",
+		})
+		_, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest())
+		if err == nil {
+			t.Fatal("expected the mutation failure to propagate")
+		}
+		typed, _ := problem.As(err)
+		if !strings.HasPrefix(typed.Details.Diagnostic, "the staging process died; ") {
+			t.Fatalf("the existing diagnostic was not preserved: %q", typed.Details.Diagnostic)
+		}
+	})
+
+	t.Run("a finalizer failure is compensated", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, true}
+		git.verifyErr = errors.New("unsigned")
+		_, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest())
+		if err == nil {
+			t.Fatal("expected the finalizer failure to propagate")
+		}
+		if !git.restored {
+			t.Fatal("the finalizer failure did not restore the proven pre-state")
+		}
+	})
+
+	t.Run("a failed compensation blocks the retry", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, true}
+		git.stageErr = errors.New("stage failed")
+		git.restoreErr = errors.New("index.lock persists")
+		_, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest())
+		if err == nil {
+			t.Fatal("expected the compensation failure to block")
+		}
+		typed, ok := problem.As(err)
+		if !ok || typed.Code != problem.CodeInternal {
+			t.Fatalf("the failed compensation lost its blocking record: %v", err)
+		}
+		if typed.Field != "genesis compensation" {
+			t.Fatalf("compensation field = %q", typed.Field)
+		}
+		if !strings.Contains(typed.Details.Diagnostic, "index.lock persists") {
+			t.Fatalf("the restoration diagnostic is missing: %q", typed.Details.Diagnostic)
+		}
+		if !strings.Contains(typed.Details.Rule, "a failed compensation leaves the partial birth in place") {
+			t.Fatalf("the blocking rule is missing: %q", typed.Details.Rule)
+		}
+		if !git.restored {
+			t.Fatal("the compensation never attempted the restoration")
+		}
+	})
+
+	t.Run("a successful birth never compensates", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, true}
+		if _, err := newBootstrapService(git, newBootstrapTools()).Bootstrap(context.Background(), bootstrapRequest()); err != nil {
+			t.Fatal(err)
+		}
+		if git.restored {
+			t.Fatal("the successful birth restored the pre-state")
+		}
+	})
 }
 
 func TestBootstrapFinalizerFailures(t *testing.T) {
