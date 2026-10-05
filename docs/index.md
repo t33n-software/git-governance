@@ -5,6 +5,7 @@
 - [CLI usage guide](usage/index.md)
 - [GitHub App authentication](usage/authentication.md)
 - [Release reconciliation](usage/workflows/release-reconciliation.md)
+- [Task worktree lifecycle](usage/workflows/worktrees.md)
 - [GitHub ruleset conventions](conventions/hosting-platforms/github/rulesets/README.md)
 - [Development verification](development/verification.md)
 - [Build and release artifact ownership](conventions/build-and-release-artifact-ownership.md)
