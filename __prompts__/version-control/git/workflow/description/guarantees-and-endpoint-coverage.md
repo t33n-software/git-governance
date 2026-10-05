@@ -54,6 +54,12 @@ The combined adapter and core guarantee:
   working-branch lane dispatch fails closed outside a linked task worktree,
   while read-only, remote-dispatch, and birth endpoints and capability-less
   server compositions stay outside the requirement;
+- the governed branch-hygiene endpoints delete completed local working
+  branches only under proven hybrid evidence — merged pull request, deleted
+  remote branch-cleanup obligation, no checkout, null-ahead against the
+  recorded lane base — and refuse every loss-bearing class fail-closed;
+  nothing runs in the background and the allocation inventory stays a pure
+  read surface;
 - Scratch is selected through a decision matrix instead of created by default;
 - current GOV-42 main-hotfix delivery endpoints and controller boundaries are represented;
 - unavailable binary or protected-controller capability fails closed;
@@ -77,6 +83,8 @@ The portable core requires Help-first discovery for the current CLI's:
 branch, commit, policy, doctor, validation and authentication endpoints
 ticket start and publication workflows
 worktree acquisition, inventory and removal lifecycle workflows
+governed branch hygiene: controlled removal of one completed local working
+branch and evidence-based prune of completed branches
 hotfix record, delivery, single-commit and manifest propagation workflows
 release request, cut, stabilization, alignment, promotion, backmerge and support workflows
 Scratch cleanup and controlled transfer paths
