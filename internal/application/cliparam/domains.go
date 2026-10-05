@@ -343,7 +343,7 @@ func MessageFile() Domain {
 	return Domain{
 		Concept: "message file",
 		Class:   ClassStructuralReference,
-		Rule:    "absolute path to an existing plain UTF-8 text file of at most 1 MiB (relative paths are rejected); existence is resolved at runtime",
+		Rule:    "absolute path to an existing plain UTF-8 text file of at most 1 MiB (relative paths are rejected); line endings are LF or CRLF and normalize to LF before validation; existence is resolved at runtime",
 	}
 }
 
@@ -465,7 +465,7 @@ func CommitMessageFile() Domain {
 	return Domain{
 		Concept: "file containing the complete commit message",
 		Class:   ClassStructuralReference,
-		Rule:    "repository file carrying the complete commit message, at most 1 MiB; existence is resolved at runtime",
+		Rule:    "repository file carrying the complete commit message, at most 1 MiB; line endings are LF or CRLF and normalize to LF before validation; existence is resolved at runtime",
 	}
 }
 
@@ -474,7 +474,7 @@ func StagePath() Domain {
 	return Domain{
 		Concept: "explicit path to stage",
 		Class:   ClassStructuralReference,
-		Rule:    "repository-relative path; existence is resolved at runtime; repeatable",
+		Rule:    "repository-relative path; existence is resolved at runtime; repeatable, one path per occurrence, or comma-separated values in one occurrence",
 	}
 }
 

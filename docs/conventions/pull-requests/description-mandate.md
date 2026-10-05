@@ -68,15 +68,26 @@ misread them; the pull-request description never passes the commit parser.
 
 ## Enforcement
 
-The mandate is enforced fail-closed at three boundaries:
+The mandate is enforced fail-closed at four boundaries:
 
 1. **CLI boundary:** every pull-request-creating workflow endpoint accepts
    the description input and rejects pull-request creation without it,
    before any Git mutation happens.
-2. **Application boundary:** the provider-neutral publication funnel rejects
+2. **Structure boundary:** the CLI boundary additionally validates the
+   canonical structure of a transported description: all five canonical
+   sections must appear as `## <section name>` headings in the immutable
+   order, each with non-empty content. A description that collapses into a
+   single paragraph without headings — for example after an agent stripped
+   every line break to avoid a transport error — fails closed with a coded
+   record that names the found sections and the missing or disordered one.
+   The check binds structure and presence only; the content inside a
+   section is never validated. The description transport is a message file
+   (see [../cli/message-file-transport.md](../cli/message-file-transport.md));
+   its line-ending contract applies unchanged.
+3. **Application boundary:** the provider-neutral publication funnel rejects
    an intent with an empty description, so programmatic callers cannot
    bypass the CLI boundary.
-3. **Adapter boundary:** the hosting adapter rejects an empty description
+4. **Adapter boundary:** the hosting adapter rejects an empty description
    when creating the provider pull request, so the transport never emits an
    undocumented review gate.
 
