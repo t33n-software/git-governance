@@ -614,6 +614,11 @@ type commandGit struct {
 	fetchErr          error
 	subjectsErr       error
 	operationTimeouts []time.Duration
+	headCommits       int
+	countHeadErr      error
+	hookBoundary      bool
+	hookBndryErr      error
+	restoreErr        error
 }
 
 func newCommandGit(t *testing.T, current string, messages []string) *commandGit {
@@ -635,7 +640,9 @@ func newCommandGit(t *testing.T, current string, messages []string) *commandGit 
 			AllowedSignersFile:     "C:/keys/allowed_signers",
 			AllowedSignersReadable: true,
 		},
-		hasCommits: true,
+		hasCommits:   true,
+		headCommits:  1,
+		hookBoundary: true,
 	}
 }
 
@@ -833,8 +840,18 @@ func (git *commandGit) WithOperationTimeout(timeout time.Duration) port.GitRepos
 }
 
 // RestoreUnbornState accepts the genesis compensation as a recorded no-op.
-func (*commandGit) RestoreUnbornState(context.Context, port.RepositoryIdentity) error {
-	return nil
+func (git *commandGit) RestoreUnbornState(context.Context, port.RepositoryIdentity) error {
+	return git.restoreErr
+}
+
+// CountHeadCommits reports the fake's genesis commit count.
+func (git *commandGit) CountHeadCommits(context.Context, port.RepositoryIdentity) (int, error) {
+	return git.headCommits, git.countHeadErr
+}
+
+// HookBoundaryPresent reports the fake's hook-boundary state.
+func (git *commandGit) HookBoundaryPresent(context.Context, port.RepositoryIdentity) (bool, error) {
+	return git.hookBoundary, git.hookBndryErr
 }
 
 // PreviewStage resolves a fixed content-set preview for the governed

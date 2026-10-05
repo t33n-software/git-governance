@@ -87,7 +87,7 @@ zwingend ein eigenes, von allen anderen Bereichen unterscheidbares Symbol.
 | 🧭 | Kontext & Guard | Branch-Ermittlung und -Klassifizierung, Shared-Line-Guard, Mutations-Embargo, Fortsetzungsentscheidung, `branch validate`, `branch list` |
 | 🩺 | Umgebung & Policy | `doctor`, `policy describe`, `config`, Binary-Version, Plattform- und Toolchain-Prüfung, einmaliger Provider-Session-Prefetch über `auth status`, `auth login` als Remediation |
 | 🎯 | Intake & Entscheidungsbindung | Aufgabenmuster-Klassifizierung, Ticket-, Family- und Slug-Bindung, Ausführungsebenen-Entscheidung, Scratch-Bewertung |
-| 🐣 | Repository-Geburt | `workflow bootstrap` — die governete Geburt eines ungeborenen Repositorys (Genesis-Commit auf `main`, `develop` aus derselben Revision, Hook-Boundary, Evidence-Record, separat bestätigte Publication) |
+| 🐣 | Repository-Geburt | `workflow bootstrap` — die governete Geburt eines ungeborenen Repositorys (Genesis-Commit auf `main`, `develop` aus derselben Revision, Hook-Boundary, Evidence-Record, separat bestätigte Publication) — samt seiner Geburts-Lifecycle-Endpunkte: `workflow bootstrap recover` (die governete Pre-Birth-Recovery des ungeborenen Standes) und `workflow bootstrap publish` (der governete Publish-Resume der geborenen Shared Lines) |
 | 🌱 | Branch-Bereitstellung | `workflow ticket start`, `branch create`, `branch sync-base` — governete Erzeugung und Basis-Ausrichtung von Working-Branches außerhalb der Spezial-Lanes |
 | 🛠️ | Implementierung | Acceptance-Ledger-Ausführung, Datei-Edits, `branch merge-scratch`, sonstige konfliktfreie Umsetzungsschritte |
 | 🧪 | Verifikation | Quality-Suite, Tests, Coverage und repositorylokale Prüfungen |
@@ -639,8 +639,9 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `official_working` | Fortsetzung desselben Tickets | Fortsetzungslogik aus [3.3]; fehlende Evidenz ab frühestem Gate nachholen |
 | `official_working` | neue, andere Aufgabe | Pull-Request-Zustand der Branch prüfen ([3.1]): bei `open` oder `merged` abgeschlossene Übergabe — direkter neuer Ticket-Intake ohne Fortsetzungsfrage; bei `none` oder `unknown` Fortsetzungsentscheidung beim Benutzer einholen |
 | `scratch` | `exploration` | Scratch-Regeln aus [4.8]; Überführung nur kontrolliert auf die offizielle Branch |
-| `unborn` | `bootstrap` | Kein Embargo; Intake (Ticket der Geburt); dann `workflow bootstrap`; das initiale Content-Set entsteht vor der Geburt auf dem ungeborenen Repository |
+| `unborn` | `bootstrap` | Kein Embargo; Intake (Ticket der Geburt); dann `workflow bootstrap`; das initiale Content-Set entsteht vor der Geburt auf dem ungeborenen Repository; ein fremder oder abbruchbedingter Pre-Staging-Zustand wird vor der Geburt über `workflow bootstrap recover` governet restauriert |
 | `unborn` | `ticket` / `hotfix` / `release` / `support` / `exploration` | `BLOCKED`: die Geburt geht jedem anderen Workflow voraus — zuerst `workflow bootstrap`, danach bindet der geborene Kontext die regulären Pfade |
+| `shared_line` | `bootstrap` (Publish-Resume eines geboren-ohne-Push-Repositorys) | Kein Embargo für den read-only Re-Beweis — die lokale Shared Line wird nicht mutiert; die Publikation läuft über `workflow bootstrap publish` mit separater Bestätigung |
 | `unborn` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
 | `detached` (frischer Task-Worktree gemäß [3.1]) | `ticket` | Worktree-Regel aus [3.1]: legitimer Pre-Start-Kontext; Intake; dann `workflow ticket start` im Worktree; erst danach Implementierung |
 | `detached` (frischer Task-Worktree gemäß [3.1]) | `hotfix` / `release` / `support` | Worktree-Regel aus [3.1] mit der Lane-Basis der betroffenen Linie: legitimer Pre-Start-Kontext; Intake; dann der governete Lane-Dispatch im Worktree; erst danach Implementierung |
@@ -928,6 +929,8 @@ eine Shared Line mergen.
 | Endpoint | Ebene | Wann er erforderlich ist | Ergebnisgrenze |
 |---|---|---|---|
 | `workflow bootstrap` | E1 | Ein ungeborenes Repository (kein HEAD-Commit, keine Refs) governet gebären; einziger zulässiger Pfad zur Erzeugung von `main` und `develop` | Geborenes Repository: signierter Genesis-Commit auf `main`, `develop` aus derselben Revision, installierte Hook-Boundary, Genesis-Evidence-Record; die Remote-Geburt der Shared Lines erfolgt nur separat bestätigt über `--push` |
+| `workflow bootstrap recover` | E1 | Einen fremden oder abbruchbedingten Pre-Staging-Zustand eines ungeborenen Repositorys vor der Geburt auf die bewiesene Prä-Zustandsform zurücksetzen (leerer Index, keine Refs) — die Remediation-Fähigkeit der `WORKTREE_NOT_CLEAN`-Preflight-Regel | Fail-closed auf geborenen Repositories (`REPOSITORY_ALREADY_BORN` — geborene Repositories werden nie zurückgesetzt); destruktive Mutation nur separat bestätigt; der Working-Tree bleibt unberührt; Read-back-Evidenz; idempotent auf einem sauberen ungeborenen Stand |
+| `workflow bootstrap publish` | E1 | Die separat bestätigte Publikation der geborenen Shared Lines eines geboren-ohne-Push-Repositorys nachholen (governer Publish-Resume) | Re-Beweis der vollständigen Geburts-Topologie vor dem Push (exakt ein Commit, `main` und `develop` auf derselben Genesis-Revision, verifizierte Signatur, materialisierte Hook-Boundary, gebundenes Remote); pusht ausschließlich `main` und `develop`; fail-closed mit `BIRTH_STATE_INVALID` außerhalb des bewiesenen Zustands |
 
 Die Geburt ist der vom Shared-Line-Guard referenzierte governete
 Erzeugungspfad für `main` und `develop`: Sie ist keine Ausnahme vom Guard,
@@ -1324,7 +1327,7 @@ Bereich:
 🎯 Execution level | level=<workflow|command|raw_git> | endpoint=<value> | coverage=<covered|gap-named>
 🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
-🐣 Bootstrap | ticket=<value> | revision=<value> | refs=<value> | published=<true|false> | dry_run=<true|false>
+🐣 Bootstrap | mode=<birth|recover|publish> | ticket=<value> | revision=<value> | refs=<value> | published=<true|false> | dry_run=<true|false>
 ❓ Intent | mode=question | band=0-54 | workflow=dormant
 ▶️ Intent | mode=task | band=80-100 | workflow=started | deferred_init=<not_required|completed>
 🧪 Quality | required=<count> | passed=<count> | status=<PASS|FAIL>

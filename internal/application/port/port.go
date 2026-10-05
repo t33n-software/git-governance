@@ -169,6 +169,22 @@ type UnbornStateRestorer interface {
 	RestoreUnbornState(ctx context.Context, repository RepositoryIdentity) error
 }
 
+// HeadCommitCounter is an optional capability for adapters that can count the
+// commits reachable from HEAD. The governed publication resume proves the
+// birth topology through it: a born repository carries exactly one genesis
+// commit, and any additional commit breaks the resume state.
+type HeadCommitCounter interface {
+	CountHeadCommits(ctx context.Context, repository RepositoryIdentity) (int, error)
+}
+
+// HookBoundaryInspector is an optional capability for adapters that can prove
+// the canonical hook boundary is materialized in the repository's Git hooks
+// directory. The genesis finalizer installs the boundary; the publication
+// resume re-proves it before the shared-line push without reinstalling it.
+type HookBoundaryInspector interface {
+	HookBoundaryPresent(ctx context.Context, repository RepositoryIdentity) (bool, error)
+}
+
 // CherryPickContinuator is consumed only by workflows that must resume a
 // user-resolved cherry-pick. Keeping it separate avoids forcing unrelated Git
 // adapters and test fakes to implement a mutation they never invoke.

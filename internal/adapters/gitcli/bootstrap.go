@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/t33n-software/git-governance/internal/application/port"
@@ -88,6 +89,47 @@ func (repository *Repository) RestoreUnbornState(ctx context.Context, identity p
 		}
 	}
 	return nil
+}
+
+// CountHeadCommits counts the commits reachable from HEAD. The caller proves
+// the born state before counting: an unborn HEAD carries no revision for Git
+// to walk, so the underlying failure stays a Git-command failure.
+func (repository *Repository) CountHeadCommits(ctx context.Context, identity port.RepositoryIdentity) (int, error) {
+	result := repository.invoke(ctx, identity.Root, nil, "rev-list", "--count", "HEAD")
+	if result.err != nil {
+		return 0, repository.commandProblem(problem.CodeGitCommandFailed, identity, "count the commits reachable from HEAD", result)
+	}
+	count, err := strconv.Atoi(strings.TrimSpace(result.stdout))
+	if err != nil {
+		return 0, problem.New(problem.Details{
+			Code:        problem.CodeGitCommandFailed,
+			Category:    problem.CategoryGit,
+			Field:       "commit count",
+			Actual:      strings.TrimSpace(result.stdout),
+			Expected:    "a decimal commit count",
+			Rule:        "the birth-topology proof requires the commit count of HEAD",
+			Remediation: "repair the repository history and retry the publication resume",
+		})
+	}
+	return count, nil
+}
+
+// HookBoundaryPresent proves that the canonical hook boundary is materialized
+// in the repository's Git hooks directory. The birth finalizer installs the
+// boundary; the publication resume re-proves it before the shared-line push
+// without reinstalling it. Any unreadable hook file reports the boundary as
+// absent, so the resume fails closed.
+func (repository *Repository) HookBoundaryPresent(ctx context.Context, identity port.RepositoryIdentity) (bool, error) {
+	gitDirectory, err := repository.gitDirectory(ctx, identity)
+	if err != nil {
+		return false, err
+	}
+	for _, hook := range canonicalHookSet {
+		if _, statErr := os.Stat(filepath.Join(gitDirectory, "hooks", hook)); statErr != nil {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // VerifyCommitSignature proves that the referenced commit carries a valid,
@@ -202,3 +244,5 @@ var _ port.RefExistenceInspector = (*Repository)(nil)
 var _ port.CommitSignatureVerifier = (*Repository)(nil)
 var _ port.HookInstaller = (*Repository)(nil)
 var _ port.UnbornStateRestorer = (*Repository)(nil)
+var _ port.HeadCommitCounter = (*Repository)(nil)
+var _ port.HookBoundaryInspector = (*Repository)(nil)
