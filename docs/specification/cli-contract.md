@@ -1128,6 +1128,9 @@ It reads the ref list supplied by Git bounded from stdin and checks:
   branch
 - target branch grammar and the key policy
 - the shared-line push prohibition
+- the governed remote birth recognition: a batch that exclusively creates the
+  born shared lines is allowed when the shared birth predicate proves the
+  exact genesis state
 - commit-ticket consistency
 - deletions, non-fast-forward/rewrite attempts, and multiple updates
 - bundle presence and freshness once the bundle adapter is active
@@ -1138,6 +1141,16 @@ It reads the ref list supplied by Git bounded from stdin and checks:
 The validator never executes a rebase or merge itself. If a matching final
 proof is missing, the configured full suite runs as the local raw-push
 fallback. It blocks with a concrete, policy-compliant instruction.
+
+The governed remote birth is the one sanctioned shared-line creation. The
+recognition is state-based and read-only: the shared birth predicate proves
+exactly one commit, `main` and `develop` on the shared genesis revision, the
+verified genesis signature, and the materialized hook boundary, and the
+pushed object IDs must match that revision. The recognized publication binds
+this birth evidence as its verdict basis; the full-suite fallback is not
+applicable to the genesis publication. There is no flag, environment marker,
+or `--no-verify` path, and every push outside the proven predicate keeps the
+unchanged shared-line prohibition.
 
 ## 18. Configuration commands
 

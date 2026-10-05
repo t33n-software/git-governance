@@ -62,10 +62,12 @@ governed acquisition of a detached task worktree, the worktree inventory,
 the fail-closed worktree removal, and the evidence-based prune of
 proven-complete worktrees under hybrid completion evidence. The repository
 birth family carries the complete birth lifecycle: the `workflow bootstrap`
-row covers the governed birth itself, and the `workflow bootstrap recover`
+row covers the governed birth itself, the `workflow bootstrap recover`
 and `workflow bootstrap publish` rows cover the governed pre-birth recovery
 of a foreign or aborted pre-staging state and the governed publication
-resume of a repository born without `--push`.
+resume of a repository born without `--push`, and the `validate pre-push`
+row carries the state-based recognition of the governed remote birth that
+completes the birth publication path.
 
 **Target State:**
 

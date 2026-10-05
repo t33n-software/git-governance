@@ -87,7 +87,7 @@ zwingend ein eigenes, von allen anderen Bereichen unterscheidbares Symbol.
 | 🧭 | Kontext & Guard | Branch-Ermittlung und -Klassifizierung, Shared-Line-Guard, Mutations-Embargo, Fortsetzungsentscheidung, `branch validate`, `branch list` |
 | 🩺 | Umgebung & Policy | `doctor`, `policy describe`, `config`, Binary-Version, Plattform- und Toolchain-Prüfung, einmaliger Provider-Session-Prefetch über `auth status`, `auth login` als Remediation |
 | 🎯 | Intake & Entscheidungsbindung | Aufgabenmuster-Klassifizierung, Ticket-, Family- und Slug-Bindung, Ausführungsebenen-Entscheidung, Scratch-Bewertung |
-| 🐣 | Repository-Geburt | `workflow bootstrap` — die governete Geburt eines ungeborenen Repositorys (Genesis-Commit auf `main`, `develop` aus derselben Revision, Hook-Boundary, Evidence-Record, separat bestätigte Publication) — samt seiner Geburts-Lifecycle-Endpunkte: `workflow bootstrap recover` (die governete Pre-Birth-Recovery des ungeborenen Standes) und `workflow bootstrap publish` (der governete Publish-Resume der geborenen Shared Lines) |
+| 🐣 | Repository-Geburt | `workflow bootstrap` — die governete Geburt eines ungeborenen Repositorys (Genesis-Commit auf `main`, `develop` aus derselben Revision, Hook-Boundary, Evidence-Record, separat bestätigte Publication) — samt seiner Geburts-Lifecycle-Endpunkte: `workflow bootstrap recover` (die governete Pre-Birth-Recovery des ungeborenen Standes), `workflow bootstrap publish` (der governete Publish-Resume der geborenen Shared Lines) und der Birth-Recognition der Pre-Push-Boundary (die Hook-Grenzfläche, die die governierte Remote-Geburt über das Geburts-Topologie-Prädikat erkennt und genau diesen bewiesenen Push zulässt) |
 | 🌱 | Branch-Bereitstellung | `workflow ticket start`, `branch create`, `branch sync-base` — governete Erzeugung und Basis-Ausrichtung von Working-Branches außerhalb der Spezial-Lanes |
 | 🛠️ | Implementierung | Acceptance-Ledger-Ausführung, Datei-Edits, `branch merge-scratch`, sonstige konfliktfreie Umsetzungsschritte |
 | 🧪 | Verifikation | Quality-Suite, Tests, Coverage und repositorylokale Prüfungen |
@@ -860,7 +860,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `policy describe` | RO | Vor Intake, Werteentscheidung oder Policy-Abgleich | Aktuelle Policy-Snapshot |
 | `doctor` | RO | Vor Mutation oder bei Umgebungszweifeln | Umgebung / Repository diagnostizieren |
 | `commit validate` | RO | Commit-Nachricht oder vorhandene Serie beurteilen | Keine Mutation |
-| `validate pre-push` | RO | Hook- oder Raw-Push-Pfad | Strukturelle Ref-Policy plus Quality-Fallback |
+| `validate pre-push` | RO | Hook- oder Raw-Push-Pfad | Strukturelle Ref-Policy plus Quality-Fallback; erkennt die governierte Remote-Geburt über das Geburts-Topologie-Prädikat und lässt genau diesen bewiesenen Push zu — im erkannten Zustand bindet die Geburts-Evidenz die Verdiktsbasis und der Vollsuite-Fallback ist auf die Genesis-Publikation nicht anwendbar; außerhalb des Prädikats bleibt das Shared-Line-Verbot unverändert |
 | `auth status github` | RO | Genau einmal als Prefetch nach der Aufgabenmuster-Bindung bei geplanter Provider-Publikation | Keine Browser- oder Credential-Preisgabe; Ergebnis bindet `provider_session_verified` |
 | `auth login github` | RO | Nur bei expliziter lokaler Anmeldeanforderung oder als Remediation eines blockierten Prefetch | Interaktive Sitzung, keine Secrets im Prompt |
 
@@ -938,7 +938,15 @@ sondern der einzige Workflow, der die Shared Lines erzeugen darf. Der Endpunkt
 verweigert auf einem bereits geborenen Repository fail-closed
 (Idempotenz-Grenze), mutiert niemals ohne ausdrückliche Bestätigung und zeigt
 mit `--dry-run` den vollständigen Genesis-Plan inklusive aller
-Preflight-Ergebnisse, ohne zu mutieren.
+Preflight-Ergebnisse, ohne zu mutieren. Die Publikation der Geburt erkennt die
+Pre-Push-Boundary ausschließlich zustandsbasiert im Validator: Das
+Geburts-Topologie-Prädikat (exakt ein Commit, `main` und `develop` auf
+derselben Genesis-Revision, verifizierte Signatur, materialisierte
+Hook-Boundary) beweist die einzige sanktionierte Erzeugung der Shared Lines
+auf dem Remote, und die gepushten Object-IDs müssen dieser Revision
+entsprechen. Es existiert kein Hook-Flag, kein Hook-Argument, kein Env-Marker
+und kein `--no-verify`; außerhalb des bewiesenen Prädikats bleibt das
+Shared-Line-Verbot unverändert.
 
 ## [6] IMPLEMENTIERUNG, SEMANTISCHE COMMITS UND QUALITY
 [INTENT: ANWEISUNG]
@@ -1333,6 +1341,7 @@ Bereich:
 🧪 Quality | required=<count> | passed=<count> | status=<PASS|FAIL>
 📦 Commit | index=<n> | type=<value> | paths=<count> | body=<present|omitted-justified> | cli=<PASS|FAIL>
 🚀 Publish | pushed=<true|false> | provider=<value> | pr_body=<transported|gap|not_required> | pr=<url|blocked>
+🐣 Pre-push recognition | verdict=<allowed|forbidden> | revision=<value> | refs=<value> | basis=<birth-evidence>
 🏷️ Release | line=<value> | delivery=<PASS|WAITING|FAIL> | reconciliation=<value>
 🚑 Hotfix | ticket=<value> | record=<PASS|FAIL> | manifest=<PASS|FAIL> | delivery=<PASS|WAITING|FAIL> | propagation=<value>
 ```
