@@ -53,6 +53,12 @@ type bootstrapGit struct {
 	committed     commitmsg.Message
 	restored      bool
 	restoreErr    error
+	headCommits   int
+	countHeadErr  error
+	hookBoundary  bool
+	hookBndryErr  error
+	anyRefQueue   []bool
+	anyRefErrs    []error
 }
 
 func newBootstrapGit() *bootstrapGit {
@@ -69,7 +75,9 @@ func newBootstrapGit() *bootstrapGit {
 			"main":    bootstrapTestRevision,
 			"develop": bootstrapTestRevision,
 		},
-		exists: map[string]bool{"main": true, "develop": true},
+		exists:       map[string]bool{"main": true, "develop": true},
+		headCommits:  1,
+		hookBoundary: true,
 		installation: port.HookInstallation{
 			Directory: filepath.Join(testRepository().Root, ".git", "hooks"),
 			Hooks:     []string{"commit-msg", "pre-push"},
@@ -147,6 +155,16 @@ func (fake *bootstrapGit) PreviewStage(_ context.Context, _ port.RepositoryIdent
 
 func (fake *bootstrapGit) HasAnyRef(context.Context, port.RepositoryIdentity) (bool, error) {
 	fake.calls = append(fake.calls, "has-any-ref")
+	if len(fake.anyRefQueue) > 0 {
+		anyRef := fake.anyRefQueue[0]
+		fake.anyRefQueue = fake.anyRefQueue[1:]
+		var err error
+		if len(fake.anyRefErrs) > 0 {
+			err = fake.anyRefErrs[0]
+			fake.anyRefErrs = fake.anyRefErrs[1:]
+		}
+		return anyRef, err
+	}
 	return fake.anyRef, fake.anyRefErr
 }
 
@@ -199,6 +217,16 @@ func (fake *bootstrapGit) RestoreUnbornState(context.Context, port.RepositoryIde
 	fake.calls = append(fake.calls, "restore-unborn-state")
 	fake.restored = true
 	return fake.restoreErr
+}
+
+func (fake *bootstrapGit) CountHeadCommits(context.Context, port.RepositoryIdentity) (int, error) {
+	fake.calls = append(fake.calls, "count-head-commits")
+	return fake.headCommits, fake.countHeadErr
+}
+
+func (fake *bootstrapGit) HookBoundaryPresent(context.Context, port.RepositoryIdentity) (bool, error) {
+	fake.calls = append(fake.calls, "hook-boundary-present")
+	return fake.hookBoundary, fake.hookBndryErr
 }
 
 // bootstrapTools fakes the host-tool inspector for the hook-manager
@@ -1085,6 +1113,466 @@ func TestPublishBornLines(t *testing.T) {
 		}
 		if len(git.pushed) != 2 || git.pushed[0].String() != "main" || git.pushed[1].String() != "develop" {
 			t.Fatalf("pushed = %v", git.pushed)
+		}
+	})
+}
+
+// recoveryRefsGit carries only the reference-inspection capability.
+type recoveryRefsGit struct{ fakeGitRepository }
+
+func (fake *recoveryRefsGit) HasAnyRef(context.Context, port.RepositoryIdentity) (bool, error) {
+	return false, nil
+}
+
+// resumeCommitsGit carries only the head-commit-counter capability.
+type resumeCommitsGit struct{ fakeGitRepository }
+
+func (fake *resumeCommitsGit) CountHeadCommits(context.Context, port.RepositoryIdentity) (int, error) {
+	return 1, nil
+}
+
+// resumeRevisionsGit adds the revision-resolution capability.
+type resumeRevisionsGit struct{ resumeCommitsGit }
+
+func (fake *resumeRevisionsGit) ResolveRevision(context.Context, port.RepositoryIdentity, string) (string, error) {
+	return bootstrapTestRevision, nil
+}
+
+// resumeVerifierGit adds the signature-verification capability.
+type resumeVerifierGit struct{ resumeRevisionsGit }
+
+func (fake *resumeVerifierGit) VerifyCommitSignature(context.Context, port.RepositoryIdentity, string) error {
+	return nil
+}
+
+func TestRecoverUnbornCapabilityResolution(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		git  port.GitRepository
+	}{
+		{name: "reference inspection missing", git: &fakeGitRepository{}},
+		{name: "unborn-state restoration missing", git: &recoveryRefsGit{}},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newBootstrapService(testCase.git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{
+				Repository: testRepository(),
+			})
+			assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+		})
+	}
+}
+
+func TestRecoverUnbornRefusals(t *testing.T) {
+	t.Parallel()
+
+	t.Run("guards dependencies and inputs", func(t *testing.T) {
+		t.Parallel()
+		if _, err := NewBootstrapService(nil, nil, nil, nil).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()}); err == nil {
+			t.Fatal("expected the missing-dependency guard")
+		}
+		if _, err := newBootstrapService(newBootstrapGit(), newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{}); err == nil {
+			t.Fatal("expected the repository guard")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := newBootstrapService(newBootstrapGit(), newBootstrapTools()).RecoverUnborn(ctx, RecoverUnbornRequest{Repository: testRepository()}); err == nil {
+			t.Fatal("expected the cancelled context guard")
+		}
+	})
+
+	t.Run("a born repository is never recovered", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeRepositoryAlreadyBorn)
+		if git.restored {
+			t.Fatal("the refused recovery restored a state")
+		}
+	})
+
+	t.Run("the unborn HEAD must target main", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.current = "develop"
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeUnbornHeadMismatch)
+	})
+
+	t.Run("a running git operation blocks the recovery", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.active = true
+		git.activeOperation = "rebase"
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeOperationInProgress)
+	})
+}
+
+func TestRecoverUnbornProofErrorPropagation(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		mutate func(git *bootstrapGit)
+	}{
+		{name: "has commits", mutate: func(git *bootstrapGit) { git.err = errors.New("git failed") }},
+		{name: "current branch", mutate: func(git *bootstrapGit) { git.currentErr = errors.New("git failed") }},
+		{name: "active operation", mutate: func(git *bootstrapGit) { git.activeErr = errors.New("git failed") }},
+		{name: "staged changes", mutate: func(git *bootstrapGit) {
+			git.stagedQueue = []bool{false}
+			git.stagedErrs = []error{errors.New("git failed")}
+		}},
+		{name: "reference inspection", mutate: func(git *bootstrapGit) { git.anyRefErr = errors.New("git failed") }},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			git := newBootstrapGit()
+			testCase.mutate(git)
+			if _, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()}); err == nil {
+				t.Fatal("expected the proof error to propagate")
+			}
+			if git.restored {
+				t.Fatal("the failed proof restored a state")
+			}
+		})
+	}
+}
+
+func TestRecoverUnbornExecution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the dry run proves the state without restoring it", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.anyRef = true
+		git.stagedQueue = []bool{true}
+		result, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{
+			Repository: testRepository(),
+			DryRun:     true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.DryRun || git.restored {
+			t.Fatalf("the dry run mutated the repository: result = %#v, restored = %t", result, git.restored)
+		}
+		actions := make([]string, 0, len(result.Plan))
+		for _, step := range result.Plan {
+			actions = append(actions, step.Action)
+		}
+		if strings.Join(actions, ",") != "prove-unborn,empty-index,remove-references,prove-pre-state" {
+			t.Fatalf("dry-run plan = %q", strings.Join(actions, ","))
+		}
+	})
+
+	t.Run("a clean unborn repository recovers idempotently", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		result, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !git.restored || result.IndexEmptied || result.ReferencesRemoved {
+			t.Fatalf("the clean recovery = %#v, restored = %t", result, git.restored)
+		}
+	})
+
+	t.Run("a foreign pre-staging state is restored and proven", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.anyRefQueue = []bool{true, false}
+		git.stagedQueue = []bool{true, false}
+		result, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !git.restored || !result.IndexEmptied || !result.ReferencesRemoved {
+			t.Fatalf("the recovery result = %#v, restored = %t", result, git.restored)
+		}
+		actions := make([]string, 0, len(result.Plan))
+		for _, step := range result.Plan {
+			actions = append(actions, step.Action)
+		}
+		if strings.Join(actions, ",") != "prove-unborn,empty-index,remove-references,prove-pre-state" {
+			t.Fatalf("recovery plan = %q", strings.Join(actions, ","))
+		}
+	})
+
+	t.Run("a restoration failure propagates", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{true}
+		git.restoreErr = errors.New("index.lock persists")
+		if _, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()}); err == nil {
+			t.Fatal("expected the restoration failure to propagate")
+		}
+	})
+
+	t.Run("a staged read-back blocks the retry", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{true, true}
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeInternal)
+		typed, ok := problem.As(err)
+		if !ok || typed.Field != "recovery read-back" {
+			t.Fatalf("the read-back failure lost its blocking record: %v", err)
+		}
+	})
+
+	t.Run("a reference read-back blocks the retry", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, false}
+		git.anyRef = true
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeInternal)
+	})
+
+	t.Run("a read-back error propagates", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, false}
+		git.stagedErrs = []error{nil, errors.New("git failed")}
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeInternal)
+		typed, ok := problem.As(err)
+		if !ok || typed.Field != "recovery read-back" {
+			t.Fatalf("the read-back failure lost its blocking record: %v", err)
+		}
+		if !git.restored {
+			t.Fatal("the restoration never ran")
+		}
+	})
+
+	t.Run("a reference read-back error propagates", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.stagedQueue = []bool{false, false}
+		git.anyRefQueue = []bool{false}
+		git.anyRefErrs = []error{nil}
+		git.anyRefErr = errors.New("git failed")
+		_, err := newBootstrapService(git, newBootstrapTools()).RecoverUnborn(context.Background(), RecoverUnbornRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeInternal)
+		typed, ok := problem.As(err)
+		if !ok || typed.Field != "recovery read-back" {
+			t.Fatalf("the read-back failure lost its blocking record: %v", err)
+		}
+		if !git.restored {
+			t.Fatal("the restoration never ran")
+		}
+	})
+}
+
+func TestPublishResumeCapabilityResolution(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		git  port.GitRepository
+	}{
+		{name: "head commit counting missing", git: &fakeGitRepository{}},
+		{name: "revision resolution missing", git: &resumeCommitsGit{}},
+		{name: "signature verification missing", git: &resumeRevisionsGit{}},
+		{name: "hook boundary inspection missing", git: &resumeVerifierGit{}},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newBootstrapService(testCase.git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{
+				Repository: testRepository(),
+			})
+			assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+		})
+	}
+}
+
+func TestPublishResumeBirthTopologyProof(t *testing.T) {
+	t.Parallel()
+
+	t.Run("guards dependencies and inputs", func(t *testing.T) {
+		t.Parallel()
+		if _, err := NewBootstrapService(nil, nil, nil, nil).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()}); err == nil {
+			t.Fatal("expected the missing-dependency guard")
+		}
+		if _, err := newBootstrapService(newBootstrapGit(), newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{}); err == nil {
+			t.Fatal("expected the repository guard")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		if _, err := newBootstrapService(newBootstrapGit(), newBootstrapTools()).PublishResume(ctx, PublishResumeRequest{Repository: testRepository()}); err == nil {
+			t.Fatal("expected the cancelled context guard")
+		}
+	})
+
+	t.Run("an unborn repository is refused", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = false
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeBirthStateInvalid)
+		if len(git.pushed) != 0 {
+			t.Fatalf("the refused resume pushed: %v", git.pushed)
+		}
+	})
+
+	t.Run("a multi-commit repository is refused", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.headCommits = 3
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeBirthStateInvalid)
+	})
+
+	t.Run("a missing shared line is refused", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.exists = map[string]bool{"main": true, "develop": false}
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeBirthStateInvalid)
+	})
+
+	t.Run("a diverged shared line is refused", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.revisions = map[string]string{
+			"HEAD":    bootstrapTestRevision,
+			"main":    bootstrapTestRevision,
+			"develop": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		}
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeBirthStateInvalid)
+	})
+
+	t.Run("an unverifiable genesis signature is refused", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.verifyErr = problem.New(problem.Details{
+			Code:     problem.CodeCommitSignatureRequired,
+			Category: problem.CategoryGovernance,
+			Field:    "commit signature",
+		})
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeCommitSignatureRequired)
+	})
+
+	t.Run("a missing hook boundary is refused", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.hookBoundary = false
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeBirthStateInvalid)
+	})
+
+	t.Run("an unbound remote is refused before the push", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.remoteURLErr = errors.New("no such remote")
+		_, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		assertProblemCode(t, err, problem.CodeConfigurationUnavailable)
+		if len(git.pushed) != 0 {
+			t.Fatalf("the refused resume pushed: %v", git.pushed)
+		}
+	})
+
+	t.Run("proof failures propagate without pushing", func(t *testing.T) {
+		t.Parallel()
+		testCases := []struct {
+			name   string
+			mutate func(git *bootstrapGit)
+		}{
+			{name: "has commits", mutate: func(git *bootstrapGit) { git.err = errors.New("git failed") }},
+			{name: "head commit count", mutate: func(git *bootstrapGit) { git.countHeadErr = errors.New("git failed") }},
+			{name: "head revision resolution", mutate: func(git *bootstrapGit) { git.resolveErr = errors.New("git failed") }},
+			{name: "governed ref validation", mutate: func(git *bootstrapGit) { git.validateRefErr = errors.New("invalid ref") }},
+			{name: "born ref existence check", mutate: func(git *bootstrapGit) { git.existsErr = errors.New("git failed") }},
+			{name: "shared revision resolution", mutate: func(git *bootstrapGit) {
+				git.resolveFailOn = map[string]error{"main": errors.New("git failed")}
+			}},
+			{name: "hook boundary inspection", mutate: func(git *bootstrapGit) { git.hookBndryErr = errors.New("git failed") }},
+		}
+		for _, testCase := range testCases {
+			testCase := testCase
+			t.Run(testCase.name, func(t *testing.T) {
+				t.Parallel()
+				git := newBootstrapGit()
+				git.hasCommits = true
+				testCase.mutate(git)
+				if _, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()}); err == nil {
+					t.Fatal("expected the proof failure to propagate")
+				}
+				if len(git.pushed) != 0 {
+					t.Fatalf("the failed proof pushed: %v", git.pushed)
+				}
+			})
+		}
+	})
+}
+
+func TestPublishResumeExecution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the dry run proves the birth topology without pushing", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		result, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{
+			Repository: testRepository(),
+			DryRun:     true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.DryRun || result.Revision != bootstrapTestRevision || len(git.pushed) != 0 {
+			t.Fatalf("the dry-run resume = %#v, pushed = %v", result, git.pushed)
+		}
+		actions := make([]string, 0, len(result.Plan))
+		for _, step := range result.Plan {
+			actions = append(actions, step.Action)
+		}
+		if strings.Join(actions, ",") != "prove-birth,publish" {
+			t.Fatalf("dry-run plan = %q", strings.Join(actions, ","))
+		}
+	})
+
+	t.Run("the proven birth publishes exactly the shared lines", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		result, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.DryRun || result.Revision != bootstrapTestRevision {
+			t.Fatalf("the resume result = %#v", result)
+		}
+		if len(git.pushed) != 2 || git.pushed[0].String() != "main" || git.pushed[1].String() != "develop" {
+			t.Fatalf("pushed = %v", git.pushed)
+		}
+	})
+
+	t.Run("a push failure propagates", func(t *testing.T) {
+		t.Parallel()
+		git := newBootstrapGit()
+		git.hasCommits = true
+		git.pushErr = errors.New("push failed")
+		if _, err := newBootstrapService(git, newBootstrapTools()).PublishResume(context.Background(), PublishResumeRequest{Repository: testRepository()}); err == nil {
+			t.Fatal("expected the push failure to propagate")
 		}
 	})
 }

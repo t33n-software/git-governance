@@ -335,3 +335,106 @@ func TestInstallHooks(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
 	})
 }
+
+func TestCountHeadCommits(t *testing.T) {
+	t.Parallel()
+
+	t.Run("counts the commits reachable from HEAD", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{stdout: "1\n"}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		count, err := repository.CountHeadCommits(context.Background(), testIdentity())
+		if err != nil || count != 1 {
+			t.Fatalf("CountHeadCommits() = (%d, %v)", count, err)
+		}
+		if strings.Join(runner.calls[0].arguments, " ") != "rev-list --count HEAD" {
+			t.Fatalf("CountHeadCommits() arguments = %#v", runner.calls[0].arguments)
+		}
+	})
+
+	t.Run("counts large histories", func(t *testing.T) {
+		t.Parallel()
+		runner := &fakeRunner{results: []processResult{{stdout: "18410\n"}}}
+		repository := &Repository{runner: runner, timeout: time.Second}
+		count, err := repository.CountHeadCommits(context.Background(), testIdentity())
+		if err != nil || count != 18410 {
+			t.Fatalf("CountHeadCommits() = (%d, %v)", count, err)
+		}
+	})
+
+	t.Run("git failures fail closed", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{
+			runner:  &fakeRunner{results: []processResult{{err: errors.New("failed"), exitCode: 128}}},
+			timeout: time.Second,
+		}
+		_, err := repository.CountHeadCommits(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("a non-decimal answer fails closed", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{
+			runner:  &fakeRunner{results: []processResult{{stdout: "not-a-count\n"}}},
+			timeout: time.Second,
+		}
+		_, err := repository.CountHeadCommits(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}
+
+func TestHookBoundaryPresent(t *testing.T) {
+	t.Parallel()
+
+	writeHooks := func(t *testing.T, hooksDirectory string, hooks ...string) {
+		t.Helper()
+		if err := os.MkdirAll(hooksDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, hook := range hooks {
+			if err := os.WriteFile(filepath.Join(hooksDirectory, hook), []byte("#!/bin/sh\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	t.Run("the materialized canonical hook set is present", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		gitDirectory := filepath.Join(root, ".git")
+		writeHooks(t, filepath.Join(gitDirectory, "hooks"), "commit-msg", "pre-push")
+		repository := &Repository{
+			runner:  &fakeRunner{results: []processResult{{stdout: gitDirectory + "\n"}}},
+			timeout: time.Second,
+		}
+		present, err := repository.HookBoundaryPresent(context.Background(), port.RepositoryIdentity{Root: root, Remote: "origin"})
+		if err != nil || !present {
+			t.Fatalf("HookBoundaryPresent() = (%t, %v)", present, err)
+		}
+	})
+
+	t.Run("a missing hook file reports the boundary as absent", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		gitDirectory := filepath.Join(root, ".git")
+		writeHooks(t, filepath.Join(gitDirectory, "hooks"), "commit-msg")
+		repository := &Repository{
+			runner:  &fakeRunner{results: []processResult{{stdout: gitDirectory + "\n"}}},
+			timeout: time.Second,
+		}
+		present, err := repository.HookBoundaryPresent(context.Background(), port.RepositoryIdentity{Root: root, Remote: "origin"})
+		if err != nil || present {
+			t.Fatalf("HookBoundaryPresent() = (%t, %v)", present, err)
+		}
+	})
+
+	t.Run("git directory resolution failures fail closed", func(t *testing.T) {
+		t.Parallel()
+		repository := &Repository{
+			runner:  &fakeRunner{results: []processResult{{err: errors.New("failed"), exitCode: 128}}},
+			timeout: time.Second,
+		}
+		_, err := repository.HookBoundaryPresent(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}

@@ -1642,6 +1642,100 @@ func newBootstrapWorkflowCommand(application *application) *cobra.Command {
 	registerTicketNumberFlag(command, &numberRaw)
 	registerStageFlag(command, &stagePaths)
 	command.Flags().BoolVar(&push, "push", false, "push the born shared lines main and develop after the local genesis (separately confirmed; requires a bound remote)")
+	command.AddCommand(
+		newBootstrapRecoverCommand(application),
+		newBootstrapPublishCommand(application),
+	)
+	return command
+}
+
+func newBootstrapRecoverCommand(application *application) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "recover",
+		Short: "Restore the proven unborn pre-state of an unborn repository before its governed birth",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			if err := application.confirmMutation(
+				command.Context(),
+				"Recover the unborn pre-state",
+				"Empty the index and remove every reference of the unborn repository? The working tree is never modified.",
+			); err != nil {
+				return err
+			}
+			result, err := services.bootstrap.RecoverUnborn(command.Context(), workflow.RecoverUnbornRequest{
+				Repository: repository,
+				DryRun:     application.options.dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			summary := "Unborn pre-state recovery completed."
+			if result.DryRun {
+				summary = "Unborn pre-state recovery plan generated."
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.bootstrap.recover",
+				Summary:   summary,
+				Fields: map[string]string{
+					"indexEmptied":      boolString(result.IndexEmptied),
+					"referencesRemoved": boolString(result.ReferencesRemoved),
+					"dryRun":            boolString(result.DryRun),
+					"plan":              bootstrapPlanText(result.Plan),
+				},
+			})
+		}),
+	}
+	return command
+}
+
+func newBootstrapPublishCommand(application *application) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "publish",
+		Short: "Publish the born shared lines of a repository that was born without --push",
+		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
+			services := application.services()
+			repository, err := application.discover(command.Context(), services)
+			if err != nil {
+				return err
+			}
+			inputs.add("publish shared lines", boolString(true))
+			if err := application.confirmMutation(
+				command.Context(),
+				"Publish born shared lines",
+				"Push the born shared lines main and develop to "+repository.Remote+"? This is the governed remote birth of the repository.",
+			); err != nil {
+				return err
+			}
+			result, err := services.bootstrap.PublishResume(command.Context(), workflow.PublishResumeRequest{
+				Repository: repository,
+				DryRun:     application.options.dryRun,
+			})
+			if err != nil {
+				return err
+			}
+			summary := "Born shared lines published."
+			if result.DryRun {
+				summary = "Shared-lines publication plan generated."
+			}
+			fields := map[string]string{
+				"published": boolString(!result.DryRun),
+				"dryRun":    boolString(result.DryRun),
+				"plan":      bootstrapPlanText(result.Plan),
+			}
+			if result.Revision != "" {
+				fields["revision"] = result.Revision
+			}
+			return application.report(command, port.Report{
+				Operation: "workflow.bootstrap.publish",
+				Summary:   summary,
+				Fields:    fields,
+			})
+		}),
+	}
 	return command
 }
 

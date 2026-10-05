@@ -69,6 +69,7 @@ const (
 	CodeRepositoryNotFound            Code = "REPOSITORY_NOT_FOUND"
 	CodeRepositoryHasNoCommits        Code = "REPOSITORY_HAS_NO_COMMITS"
 	CodeRepositoryAlreadyBorn         Code = "REPOSITORY_ALREADY_BORN"
+	CodeBirthStateInvalid             Code = "BIRTH_STATE_INVALID"
 	CodeUnbornHeadMismatch            Code = "UNBORN_HEAD_MISMATCH"
 	CodeContentBoundaryViolation      Code = "CONTENT_BOUNDARY_VIOLATION"
 	CodeGitCommandFailed              Code = "GIT_COMMAND_FAILED"

@@ -70,3 +70,50 @@ git governance --interactive never --output json --yes workflow bootstrap `
 
 Use `--dry-run` to inspect the complete preflight result and the full plan
 without mutating Git.
+
+## Recover the unborn pre-state
+
+Before the birth, a repository can carry a foreign or aborted pre-staging
+state — a populated index or stray references — that the birth preflight
+refuses fail-closed. The recovery subcommand restores the proven pre-birth
+state:
+
+```powershell
+git governance workflow bootstrap recover
+```
+
+The recovery:
+
+1. proves the unborn topology — no HEAD commit, the unborn HEAD targeting
+   `main`, no active Git operation — read-only and fail-closed;
+2. empties the index and removes every reference through the same governed
+   restoration the birth compensation uses; the working tree is never
+   modified, so every staged file returns to its untracked form;
+3. proves the restored state through a read-back (empty index, no
+   references).
+
+A born repository is refused with `REPOSITORY_ALREADY_BORN` — a born
+repository is never reset by the recovery. The mutation requires explicit
+confirmation or `--yes`; `--dry-run` renders the plan with the state
+reductions the proof found. The recovery is idempotent: a clean unborn
+repository recovers with a no-op restoration.
+
+## Resume the publication of a born repository
+
+A repository born without `--push` carries its genesis locally while its
+shared lines are absent from the remote. The publication resume completes the
+publication:
+
+```powershell
+git governance workflow bootstrap publish
+```
+
+The resume re-proves the complete birth topology before pushing — exactly one
+commit reachable from HEAD, `main` and `develop` both pointing at that shared
+genesis revision, the verified genesis signature, and the materialized
+canonical hook boundary — and requires a bound remote. Outside that proven
+state it fails closed with `BIRTH_STATE_INVALID`; it never pushes anything
+else. The publication is separately confirmed (`--yes` or the interactive
+prompt), and the underlying push crosses the pre-push boundary like every
+other shared-line publication. `--dry-run` renders the proof plan and the
+proven revision without pushing.

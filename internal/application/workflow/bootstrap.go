@@ -238,6 +238,375 @@ func (service *BootstrapService) PublishBornLines(ctx context.Context, repositor
 	return nil
 }
 
+// RecoverUnbornRequest describes the governed pre-birth recovery of an
+// unborn repository whose index or references carry a foreign or aborted
+// pre-staging state.
+type RecoverUnbornRequest struct {
+	Repository port.RepositoryIdentity
+	DryRun     bool
+}
+
+// BootstrapRecoveryResult carries the executed or planned recovery steps and
+// the proven pre-state facts.
+type BootstrapRecoveryResult struct {
+	Plan              []branchapp.PlanStep
+	DryRun            bool
+	IndexEmptied      bool
+	ReferencesRemoved bool
+}
+
+// RecoverUnborn restores the proven pre-birth state of an unborn repository:
+// the read-only proof binds the unborn topology — no commits, the unborn HEAD
+// targeting main, no active Git operation — the mutation empties the index
+// and removes every reference through the same governed restoration the birth
+// compensation uses, and the read-only read-back proves the restored state.
+// The working tree is never modified, so foreign working-tree changes survive
+// unchanged. A born repository is never recovered; its corrections belong to
+// the governed lifecycle, not to a destructive pre-birth reset.
+func (service *BootstrapService) RecoverUnborn(ctx context.Context, request RecoverUnbornRequest) (BootstrapRecoveryResult, error) {
+	if service.git == nil {
+		return BootstrapRecoveryResult{}, internalDependencyError("bootstrap services")
+	}
+	repository, err := bootstrapRepository(request.Repository)
+	if err != nil {
+		return BootstrapRecoveryResult{}, err
+	}
+	if err := bootstrapContextError(ctx); err != nil {
+		return BootstrapRecoveryResult{}, err
+	}
+	refs, restorer, err := resolveRecoveryCapabilities(service.git)
+	if err != nil {
+		return BootstrapRecoveryResult{}, err
+	}
+	proof, err := service.proveUnbornRecoveryState(ctx, repository, refs)
+	if err != nil {
+		return BootstrapRecoveryResult{}, err
+	}
+	plan := recoveryPlan(proof)
+	if request.DryRun {
+		return BootstrapRecoveryResult{Plan: plan, DryRun: true}, nil
+	}
+	if err := restorer.RestoreUnbornState(ctx, repository); err != nil {
+		return BootstrapRecoveryResult{}, err
+	}
+	if err := service.proveRestoredPreState(ctx, repository, refs); err != nil {
+		return BootstrapRecoveryResult{}, err
+	}
+	return BootstrapRecoveryResult{
+		Plan:              plan,
+		IndexEmptied:      proof.Staged,
+		ReferencesRemoved: proof.Referenced,
+	}, nil
+}
+
+// unbornRecoveryProof carries the read-only state facts the recovery proves
+// before and after the restoration.
+type unbornRecoveryProof struct {
+	Staged     bool
+	Referenced bool
+}
+
+func (service *BootstrapService) proveUnbornRecoveryState(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	refs port.RefExistenceInspector,
+) (unbornRecoveryProof, error) {
+	hasCommits, err := service.git.HasCommits(ctx, repository)
+	if err != nil {
+		return unbornRecoveryProof{}, err
+	}
+	if hasCommits {
+		return unbornRecoveryProof{}, recoveryStateInvalid("the repository HEAD already carries a commit")
+	}
+	current, err := service.git.CurrentBranch(ctx, repository)
+	if err != nil {
+		return unbornRecoveryProof{}, err
+	}
+	if current.Family() != branch.FamilyMain {
+		return unbornRecoveryProof{}, unbornHeadMismatch(current)
+	}
+	operation, active, err := service.git.ActiveOperation(ctx, repository)
+	if err != nil {
+		return unbornRecoveryProof{}, err
+	}
+	if active {
+		return unbornRecoveryProof{}, problem.New(problem.Details{
+			Code:        problem.CodeOperationInProgress,
+			Category:    problem.CategoryRepository,
+			Field:       "git operation",
+			Actual:      operation,
+			Expected:    "no merge, rebase, or cherry-pick in progress",
+			Rule:        "a running Git operation blocks the governed pre-birth recovery",
+			Remediation: "complete or abort the active operation and retry the recovery",
+		})
+	}
+	staged, err := service.git.HasStagedChanges(ctx, repository)
+	if err != nil {
+		return unbornRecoveryProof{}, err
+	}
+	anyRef, err := refs.HasAnyRef(ctx, repository)
+	if err != nil {
+		return unbornRecoveryProof{}, err
+	}
+	return unbornRecoveryProof{Staged: staged, Referenced: anyRef}, nil
+}
+
+func (service *BootstrapService) proveRestoredPreState(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	refs port.RefExistenceInspector,
+) error {
+	staged, err := service.git.HasStagedChanges(ctx, repository)
+	if err != nil {
+		return recoveryReadBackProblem("the staged-state read-back failed", err)
+	}
+	if staged {
+		return recoveryReadBackProblem("the index still carries staged entries after the restoration", nil)
+	}
+	anyRef, err := refs.HasAnyRef(ctx, repository)
+	if err != nil {
+		return recoveryReadBackProblem("the reference read-back failed", err)
+	}
+	if anyRef {
+		return recoveryReadBackProblem("the repository still carries references after the restoration", nil)
+	}
+	return nil
+}
+
+// PublishResumeRequest describes the governed publication resume of a
+// repository born without --push.
+type PublishResumeRequest struct {
+	Repository port.RepositoryIdentity
+	DryRun     bool
+}
+
+// BootstrapPublicationResult carries the executed or planned publication
+// steps and the proven genesis revision.
+type BootstrapPublicationResult struct {
+	Plan     []branchapp.PlanStep
+	DryRun   bool
+	Revision string
+}
+
+// PublishResume re-proves the complete birth topology of a born repository —
+// exactly one commit, main and develop on the shared genesis revision, the
+// verified genesis signature, and the materialized hook boundary — and then
+// publishes the born shared lines through the separately confirmed
+// publication. Outside the proven birth state it fails closed; it never
+// pushes anything else.
+func (service *BootstrapService) PublishResume(ctx context.Context, request PublishResumeRequest) (BootstrapPublicationResult, error) {
+	if service.git == nil || service.branches == nil {
+		return BootstrapPublicationResult{}, internalDependencyError("bootstrap services")
+	}
+	repository, err := bootstrapRepository(request.Repository)
+	if err != nil {
+		return BootstrapPublicationResult{}, err
+	}
+	if err := bootstrapContextError(ctx); err != nil {
+		return BootstrapPublicationResult{}, err
+	}
+	capabilities, err := resolvePublishResumeCapabilities(service.git)
+	if err != nil {
+		return BootstrapPublicationResult{}, err
+	}
+	revision, err := service.proveBirthTopology(ctx, repository, capabilities)
+	if err != nil {
+		return BootstrapPublicationResult{}, err
+	}
+	if _, err := service.git.RemoteURL(ctx, repository); err != nil {
+		return BootstrapPublicationResult{}, problem.New(problem.Details{
+			Code:        problem.CodeConfigurationUnavailable,
+			Category:    problem.CategoryConfig,
+			Field:       "remote",
+			Actual:      repository.Remote,
+			Expected:    "a bound remote for the publication of the born shared lines",
+			Rule:        "the publication resume requires a bound remote; the born shared lines publish only through it",
+			Remediation: "bind the remote first (git remote add " + repository.Remote + " <url>) and retry the publication resume",
+		})
+	}
+	plan := publicationResumePlan(revision, repository.Remote)
+	if request.DryRun {
+		return BootstrapPublicationResult{Plan: plan, DryRun: true, Revision: revision}, nil
+	}
+	if err := service.PublishBornLines(ctx, request.Repository); err != nil {
+		return BootstrapPublicationResult{}, err
+	}
+	return BootstrapPublicationResult{Plan: plan, Revision: revision}, nil
+}
+
+// publishResumeCapabilities binds the optional adapter capabilities the
+// publication resume requires: the commit counter, the revision resolver, the
+// signature verifier, and the hook-boundary inspector.
+type publishResumeCapabilities struct {
+	commits   port.HeadCommitCounter
+	revisions port.RevisionResolver
+	verifier  port.CommitSignatureVerifier
+	hooks     port.HookBoundaryInspector
+}
+
+func resolvePublishResumeCapabilities(git port.GitRepository) (publishResumeCapabilities, error) {
+	commits, ok := git.(port.HeadCommitCounter)
+	if !ok {
+		return publishResumeCapabilities{}, bootstrapCapabilityRequired("head commit counting")
+	}
+	revisions, ok := git.(port.RevisionResolver)
+	if !ok {
+		return publishResumeCapabilities{}, bootstrapCapabilityRequired("revision resolution")
+	}
+	verifier, ok := git.(port.CommitSignatureVerifier)
+	if !ok {
+		return publishResumeCapabilities{}, bootstrapCapabilityRequired("commit signature verification")
+	}
+	hooks, ok := git.(port.HookBoundaryInspector)
+	if !ok {
+		return publishResumeCapabilities{}, bootstrapCapabilityRequired("hook boundary inspection")
+	}
+	return publishResumeCapabilities{commits: commits, revisions: revisions, verifier: verifier, hooks: hooks}, nil
+}
+
+func resolveRecoveryCapabilities(git port.GitRepository) (port.RefExistenceInspector, port.UnbornStateRestorer, error) {
+	refs, ok := git.(port.RefExistenceInspector)
+	if !ok {
+		return nil, nil, bootstrapCapabilityRequired("reference inspection")
+	}
+	restorer, ok := git.(port.UnbornStateRestorer)
+	if !ok {
+		return nil, nil, bootstrapCapabilityRequired("unborn-state restoration")
+	}
+	return refs, restorer, nil
+}
+
+// proveBirthTopology re-proves the complete birth topology at finalizer
+// grade: exactly one commit reachable from HEAD, both shared lines existing
+// and pointing at that shared genesis revision, the verified genesis
+// signature, and the materialized hook boundary.
+func (service *BootstrapService) proveBirthTopology(
+	ctx context.Context,
+	repository port.RepositoryIdentity,
+	capabilities publishResumeCapabilities,
+) (string, error) {
+	hasCommits, err := service.git.HasCommits(ctx, repository)
+	if err != nil {
+		return "", err
+	}
+	if !hasCommits {
+		return "", birthStateInvalid("the repository HEAD carries no commit")
+	}
+	commits, err := capabilities.commits.CountHeadCommits(ctx, repository)
+	if err != nil {
+		return "", err
+	}
+	if commits != 1 {
+		return "", birthStateInvalid(strconv.Itoa(commits) + " commits are reachable from HEAD")
+	}
+	revision, err := capabilities.revisions.ResolveRevision(ctx, repository, "HEAD")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range []branch.BranchName{mustMain(), mustDevelop()} {
+		if _, err := service.branches.Validate(ctx, branchapp.ValidateRequest{
+			Repository: repository,
+			Name:       line,
+		}); err != nil {
+			return "", err
+		}
+		exists, err := service.git.BranchExists(ctx, repository, line)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return "", birthStateInvalid("the born ref " + line.String() + " does not exist")
+		}
+		lineRevision, err := capabilities.revisions.ResolveRevision(ctx, repository, line.String())
+		if err != nil {
+			return "", err
+		}
+		if lineRevision != revision {
+			return "", birthStateInvalid("the born ref " + line.String() + " points at " + lineRevision + " instead of the shared genesis revision " + revision)
+		}
+	}
+	if err := capabilities.verifier.VerifyCommitSignature(ctx, repository, revision); err != nil {
+		return "", err
+	}
+	present, err := capabilities.hooks.HookBoundaryPresent(ctx, repository)
+	if err != nil {
+		return "", err
+	}
+	if !present {
+		return "", birthStateInvalid("the installed hook boundary is not materialized")
+	}
+	return revision, nil
+}
+
+// recoveryPlan renders the recovery steps: the unborn proof, the state
+// reductions the proof found, and the read-back evidence.
+func recoveryPlan(proof unbornRecoveryProof) []branchapp.PlanStep {
+	plan := []branchapp.PlanStep{
+		{Action: "prove-unborn", Detail: "unborn-state proof: no commits, unborn HEAD on main, no active Git operation"},
+	}
+	if proof.Staged {
+		plan = append(plan, branchapp.PlanStep{Action: "empty-index", Detail: "empty the index; staged content stays in the working tree as untracked files"})
+	}
+	if proof.Referenced {
+		plan = append(plan, branchapp.PlanStep{Action: "remove-references", Detail: "remove every reference of the aborted or foreign pre-staging state"})
+	}
+	plan = append(plan, branchapp.PlanStep{Action: "prove-pre-state", Detail: "read-back proof: empty index and no references"})
+	return plan
+}
+
+// publicationResumePlan renders the publication resume steps: the birth
+// topology proof and the separately confirmed shared-line publication.
+func publicationResumePlan(revision string, remote string) []branchapp.PlanStep {
+	return []branchapp.PlanStep{
+		{Action: "prove-birth", Detail: "birth-topology proof: exactly one commit, main and develop on the shared genesis revision " + revision + ", verified signature, materialized hook boundary"},
+		{Action: "publish", Detail: "push main and develop to " + remote + " after the separate publication confirmation"},
+	}
+}
+
+// recoveryStateInvalid refuses a recovery outside the unborn pre-birth
+// domain: a born repository is never reset.
+func recoveryStateInvalid(detail string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeRepositoryAlreadyBorn,
+		Category:    problem.CategoryRepository,
+		Field:       "repository",
+		Actual:      detail,
+		Expected:    "an unborn repository without commits",
+		Rule:        "the governed pre-birth recovery restores only unborn repositories; a born repository is never reset",
+		Remediation: "run the recovery only on a repository without commits",
+	})
+}
+
+// birthStateInvalid refuses a publication resume outside the proven birth
+// topology: the shared lines publish only from the exact genesis state.
+func birthStateInvalid(detail string) error {
+	return problem.New(problem.Details{
+		Code:        problem.CodeBirthStateInvalid,
+		Category:    problem.CategoryRepository,
+		Field:       "repository",
+		Actual:      detail,
+		Expected:    "the proven birth topology: exactly one commit, main and develop on the shared genesis revision, verified signature, materialized hook boundary",
+		Rule:        "the publication resume re-proves the complete birth topology before the shared-line push",
+		Remediation: "review the repository state; the shared lines publish only from the proven genesis state",
+	})
+}
+
+func recoveryReadBackProblem(detail string, cause error) error {
+	problemDetails := problem.Details{
+		Code:        problem.CodeInternal,
+		Category:    problem.CategoryInternal,
+		Field:       "recovery read-back",
+		Diagnostic:  detail,
+		Expected:    "the proven pre-birth state: empty index and no references",
+		Rule:        "a failed read-back leaves the repository state in place and blocks the retry",
+		Remediation: "review the repository state and retry the recovery",
+	}
+	if cause == nil {
+		return problem.New(problemDetails)
+	}
+	return problem.Wrap(problemDetails, cause)
+}
+
 // runBootstrapPreflight proves every birth precondition without mutating
 // anything: the unborn state, the unborn HEAD targeting main, the idle Git
 // state, the empty index, the environment, the signing gate with its canary,
