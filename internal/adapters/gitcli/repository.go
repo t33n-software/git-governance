@@ -1057,7 +1057,7 @@ func (repository *Repository) CountBranchAheadCommits(ctx context.Context, ident
 	if result.err != nil {
 		return 0, repository.commandProblem(problem.CodeBranchBaseInvalid, identity, "compare the branch with its target base", result)
 	}
-	count, err := strconv.ParseInt(strings.TrimSpace(result.stdout), 10, 64)
+	count, err := strconv.Atoi(strings.TrimSpace(result.stdout))
 	if err != nil || count < 0 {
 		return 0, problem.Wrap(problem.Details{
 			Code:        problem.CodeBranchBaseInvalid,
@@ -1070,7 +1070,7 @@ func (repository *Repository) CountBranchAheadCommits(ctx context.Context, ident
 			Remediation: "fetch the remote and verify the selected target base exists",
 		}, err)
 	}
-	return int(count), nil
+	return count, nil
 }
 
 // Rebase reapplies local commits onto the target base. The application layer
