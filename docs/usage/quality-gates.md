@@ -78,6 +78,12 @@ corrupted or incomplete proof fails closed. This local optimization never
 replaces remote CI, required checks, review, or branch protection, and it does
 not permit `--no-verify` or hook disabling.
 
+The governed remote birth is the one exception to the full-suite fallback: its
+recognized publication binds the birth evidence (born refs, shared genesis
+revision, verified genesis signature, materialized hook boundary) as the
+verdict basis, because the genesis carries no ticket-branch work for a suite
+to gate.
+
 The recommended default includes every official working family:
 `feature`, `fix`, `docs`, `refactor`, `chore`, `test`, `perf`, and `hotfix`.
 `scratch` is absent from that default because it is private exploration. It is
