@@ -3,6 +3,7 @@
 package commitmsg
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
@@ -225,6 +226,10 @@ type Message struct {
 func NewMessage(header Header, body string, footers []Footer) (Message, error) {
 	if !header.kind.IsKnown() || header.ticket.IsZero() {
 		return Message{}, invalidHeader("", "commit messages require a valid header")
+	}
+	body, err := normalizeBody(body)
+	if err != nil {
+		return Message{}, err
 	}
 	if err := validateText(body, true); err != nil {
 		return Message{}, err
@@ -523,18 +528,94 @@ func validateSubjectEnvelopeFree(subject string) error {
 }
 
 func validateText(value string, allowNewline bool) error {
-	for _, runeValue := range value {
+	for index, runeValue := range value {
 		if runeValue == '\n' && allowNewline {
 			continue
 		}
 		if unicode.IsControl(runeValue) {
-			return invalidDescription(
-				"commit messages cannot contain control characters",
-				"remove control characters from the commit message",
-			)
+			return invalidControlRune(value, index, runeValue)
 		}
 	}
 	return nil
+}
+
+// normalizeBody applies the message-file line-ending contract to a body that
+// enters the composition path: CRLF line endings are normalized to LF, one
+// trailing line feed is trimmed (a message file conventionally ends with a
+// final newline, and the canonical message artifact ends without a trailing
+// blank line), and a lone carriage return fails closed as corrupt input. The
+// Parse path normalizes the full message before section splitting; this
+// constructor owns the same contract for bodies composed from structured
+// parts, so both validation paths accept exactly the same line-ending set.
+// Canonical convention: docs/conventions/cli/message-file-transport.md.
+func normalizeBody(body string) (string, error) {
+	normalized := strings.ReplaceAll(body, "\r\n", "\n")
+	if strings.ContainsRune(normalized, '\r') {
+		return "", invalidDescription(
+			"commit messages must use LF or CRLF line endings",
+			"replace lone carriage returns with a supported line ending",
+		)
+	}
+	normalized = strings.TrimSuffix(normalized, "\n")
+	return normalized, nil
+}
+
+// invalidControlRune builds the actionable control-character failure: the
+// record names the exact code point with its line and byte offset and
+// carries a sanitized context line, so a consumer can identify an invisible
+// character without guessing. Canonical convention:
+// docs/conventions/cli/error-philosophy.md.
+func invalidControlRune(value string, index int, runeValue rune) error {
+	line := 1 + strings.Count(value[:index], "\n")
+	lineStart := strings.LastIndex(value[:index], "\n") + 1
+	lineEnd := strings.Index(value[index:], "\n")
+	if lineEnd < 0 {
+		lineEnd = len(value)
+	} else {
+		lineEnd += index
+	}
+	context := sanitizeControlText(value[lineStart:lineEnd])
+	return problem.New(problem.Details{
+		Code:        problem.CodeCommitDescriptionInvalid,
+		Category:    problem.CategoryGovernance,
+		Field:       "commit message",
+		Actual:      fmt.Sprintf("U+%04X %s at line %d, byte offset %d", runeValue, controlRuneName(runeValue), line, index),
+		Context:     context,
+		Diagnostic:  fmt.Sprintf("line %d reads: %s", line, context),
+		Expected:    "printable text; LF or CRLF line endings are valid and normalize to LF automatically",
+		Rule:        "commit messages cannot contain control characters",
+		Example:     "feat(ABC-123): add export button",
+		Remediation: "remove or replace the named control character",
+	})
+}
+
+func controlRuneName(runeValue rune) string {
+	switch runeValue {
+	case '\r':
+		return "CARRIAGE RETURN"
+	case '\t':
+		return "CHARACTER TABULATION"
+	case '\v':
+		return "LINE TABULATION"
+	case '\f':
+		return "FORM FEED"
+	case 0:
+		return "NULL"
+	default:
+		return "CONTROL CHARACTER"
+	}
+}
+
+func sanitizeControlText(text string) string {
+	var builder strings.Builder
+	for _, r := range text {
+		if unicode.IsControl(r) {
+			builder.WriteString(fmt.Sprintf("\\u%04X", r))
+			continue
+		}
+		builder.WriteRune(r)
+	}
+	return builder.String()
 }
 
 // typeEnumeration renders the canonical commit-family list from the type

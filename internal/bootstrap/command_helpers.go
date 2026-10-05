@@ -149,12 +149,110 @@ func (application *application) validatePullRequestPublication(
 
 // validatePullRequestBody enforces the mandatory pull-request description
 // owned by docs/conventions/pull-requests/description-mandate.md before any
-// Git mutation happens.
+// Git mutation happens: the description must be non-empty and must carry the
+// five canonical sections in their immutable order.
 func validatePullRequestBody(createPullRequest bool, body string) error {
-	if createPullRequest && strings.TrimSpace(body) == "" {
+	if !createPullRequest {
+		return nil
+	}
+	if strings.TrimSpace(body) == "" {
 		return invalidOption("body-file", "empty", "a non-empty pull-request description file passed as --body-file when --create-pull-request is set")
 	}
+	return validatePullRequestDescriptionStructure(body)
+}
+
+// pullRequestDescriptionSections is the canonical five-section layout of the
+// pull-request description in its immutable order, owned by
+// docs/conventions/pull-requests/description-mandate.md.
+var pullRequestDescriptionSections = []string{
+	"Summary",
+	"Scope and Non-Goals",
+	"Commit Series",
+	"Risk and Rollback",
+	"Verification and Review Focus",
+}
+
+// validatePullRequestDescriptionStructure enforces the canonical five-section
+// description layout: every canonical section appears as a `## <Section Name>`
+// Markdown heading in the immutable order, each with non-empty content. The
+// check binds structure and presence only — the content inside a section is
+// never validated. Additional non-canonical headings are not rejected; the
+// mandate binds the canonical sections, not a closed heading set.
+func validatePullRequestDescriptionStructure(body string) error {
+	type descriptionHeading struct {
+		name string
+		line int
+	}
+	lines := strings.Split(body, "\n")
+	headings := make([]descriptionHeading, 0, len(pullRequestDescriptionSections))
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "## ") {
+			continue
+		}
+		headings = append(headings, descriptionHeading{
+			name: strings.TrimSpace(strings.TrimPrefix(trimmed, "## ")),
+			line: index,
+		})
+	}
+
+	sectionLines := make(map[string]int, len(pullRequestDescriptionSections))
+	cursor := 0
+	for _, canonical := range pullRequestDescriptionSections {
+		found := -1
+		for cursor < len(headings) {
+			candidate := headings[cursor]
+			cursor++
+			if candidate.name == canonical {
+				found = candidate.line
+				break
+			}
+		}
+		if found < 0 {
+			found := make([]string, 0, len(headings))
+			for _, heading := range headings {
+				found = append(found, heading.name)
+			}
+			return pullRequestDescriptionInvalid(
+				fmt.Sprintf("found sections: %s", strings.Join(found, "; ")),
+				fmt.Sprintf("the canonical section '%s' is missing or out of order", canonical),
+			)
+		}
+		sectionLines[canonical] = found
+	}
+
+	for _, canonical := range pullRequestDescriptionSections {
+		start := sectionLines[canonical] + 1
+		end := len(lines)
+		for _, heading := range headings {
+			if heading.line > sectionLines[canonical] {
+				end = heading.line
+				break
+			}
+		}
+		if strings.TrimSpace(strings.Join(lines[start:end], "\n")) == "" {
+			return pullRequestDescriptionInvalid(
+				fmt.Sprintf("the section '## %s' has no content", canonical),
+				"every canonical section carries non-empty content",
+			)
+		}
+	}
 	return nil
+}
+
+func pullRequestDescriptionInvalid(actual, rule string) error {
+	return problem.New(problem.Details{
+		Code:     problem.CodePullRequestDescriptionInvalid,
+		Category: problem.CategoryGovernance,
+		Field:    "pull request description",
+		Actual:   actual,
+		Expected: "the five canonical sections as '## <Section Name>' headings in order: " +
+			strings.Join(pullRequestDescriptionSections, ", ") +
+			", each with non-empty content",
+		Rule:        rule,
+		Example:     "## Summary\n\nAdd the export capability.",
+		Remediation: "compose all five canonical sections in the immutable order with non-empty content and pass the description via --body-file",
+	})
 }
 
 func (application *application) completePreparedPublication(

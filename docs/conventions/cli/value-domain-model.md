@@ -142,3 +142,40 @@ instances it cannot guarantee is an untrue contract and forbidden.
                      repeatable; example: --footer Refs=#123
 --token-env string   environment variable that carries the access token (default TOOL_TOKEN)
 ```
+
+## 9. Multi-value parameters — one value domain, one repeatable flag
+
+A value domain that accepts multiple values is carried by exactly ONE flag
+on exactly ONE endpoint, and that flag is repeatable:
+
+1. **One domain, one flag.** Each occurrence appends one value. A second
+   flag or a second endpoint for the same value domain is the
+   duplicated-domain-surface antipattern: it doubles the command surface,
+   splits the help, and drifts independently.
+2. **Two transport forms, one domain.** Repetition (one value per
+   occurrence) is the canonical form for agents — one value per flag
+   avoids quoting hazards and keeps per-value shell completion. Comma-
+   separated expansion within one occurrence is the compact form for
+   humans. Both forms carry the same value set; they are transport
+   variants of one domain, never two domains.
+3. **Reserved delimiter.** The separator is reserved in comma-capable
+   domains: a value containing it is not expressible in the comma form
+   and fails closed at existence or resolution time. The hazard is
+   disclosed in the flag's help duty.
+4. **Help duty.** Every repeatable flag declares repeatability and both
+   transport forms; the text is generated from the value register, never
+   hand-maintained (see [single-source-of-truth.md](single-source-of-truth.md)).
+5. **Error discipline.** A multi-value failure names the concrete failing
+   element — the value and its position — never a bare count.
+
+```text
+--stage strings    repository-relative path; existence is resolved at runtime;
+                   repeatable, one path per occurrence, or comma-separated
+                   values in one occurrence
+--footer strings   footer as TOKEN=VALUE; repeatable; example: --footer Refs=#123
+```
+
+Repetition is not an inefficiency: repeated flags are argument transport
+within ONE process invocation, not repeated execution. Separate endpoints
+per value count would multiply the command surface without any domain
+value.

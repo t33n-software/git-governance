@@ -455,6 +455,109 @@ func TestValidateSubjectRejectsMetadataEnvelope(t *testing.T) {
 	}
 }
 
+func TestNewMessageNormalizesCRLFBody(t *testing.T) {
+	t.Parallel()
+
+	id, err := ticket.ParseID("ABC-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := NewHeader(TypeFix, id, "resolve timeout", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	message, err := NewMessage(header, "The timeout now honors cancellation.\r\n\r\nRetries stay bounded.\r\n", nil)
+	if err != nil {
+		t.Fatalf("NewMessage() rejected a CRLF body: %v", err)
+	}
+	if strings.ContainsRune(message.Body(), '\r') {
+		t.Fatalf("Body() kept carriage returns: %q", message.Body())
+	}
+	if message.Body() != "The timeout now honors cancellation.\n\nRetries stay bounded." {
+		t.Fatalf("Body() = %q, want the LF-normalized body", message.Body())
+	}
+	roundTrip, err := Parse(message.String())
+	if err != nil {
+		t.Fatalf("normalized message did not round-trip: %v", err)
+	}
+	if roundTrip.String() != message.String() {
+		t.Fatalf("round-trip changed %q to %q", message.String(), roundTrip.String())
+	}
+}
+
+func TestNewMessageRejectsLoneCarriageReturn(t *testing.T) {
+	t.Parallel()
+
+	id, err := ticket.ParseID("ABC-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := NewHeader(TypeFix, id, "resolve timeout", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = NewMessage(header, "first line\rsecond line", nil)
+	assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
+	typed, ok := problem.As(err)
+	if !ok || typed.Rule != "commit messages must use LF or CRLF line endings" {
+		t.Fatalf("lone carriage return rule = %v, want the line-ending rule", err)
+	}
+}
+
+func TestControlCharacterFailureNamesTheOffendingRune(t *testing.T) {
+	t.Parallel()
+
+	id, err := ticket.ParseID("ABC-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, err := NewHeader(TypeDocs, id, "document export", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := "## Motivation\r\n\r\nClients need exports.\x00"
+	_, err = NewMessage(header, body, nil)
+	assertProblemCode(t, err, problem.CodeCommitDescriptionInvalid)
+
+	typed, ok := problem.As(err)
+	if !ok {
+		t.Fatalf("error %T does not carry a problem: %v", err, err)
+	}
+	if !strings.Contains(typed.Actual, "U+0000 NULL") {
+		t.Fatalf("Actual = %q, want the U+0000 code point", typed.Actual)
+	}
+	if !strings.Contains(typed.Actual, "line 3") || !strings.Contains(typed.Actual, "byte offset") {
+		t.Fatalf("Actual = %q, want the line and byte offset", typed.Actual)
+	}
+	if !strings.Contains(typed.Diagnostic, "line 3 reads:") || !strings.Contains(typed.Diagnostic, "\\u0000") {
+		t.Fatalf("Diagnostic = %q, want the sanitized context line", typed.Diagnostic)
+	}
+}
+
+func TestControlRuneNamesCoverTheInventory(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		runeValue rune
+		want      string
+	}{
+		{runeValue: '\r', want: "CARRIAGE RETURN"},
+		{runeValue: '\t', want: "CHARACTER TABULATION"},
+		{runeValue: '\v', want: "LINE TABULATION"},
+		{runeValue: '\f', want: "FORM FEED"},
+		{runeValue: 0, want: "NULL"},
+		{runeValue: 0x1b, want: "CONTROL CHARACTER"},
+	}
+	for _, testCase := range testCases {
+		if got := controlRuneName(testCase.runeValue); got != testCase.want {
+			t.Fatalf("controlRuneName(U+%04X) = %q, want %q", testCase.runeValue, got, testCase.want)
+		}
+	}
+}
+
 func assertProblemCode(t *testing.T, err error, expected problem.Code) {
 	t.Helper()
 	if err == nil {

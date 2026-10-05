@@ -448,14 +448,14 @@ func TestPullRequestPublicationSilentContracts(t *testing.T) {
 
 	t.Run("preflights explicit provider publication", func(t *testing.T) {
 		application := newBranchCommandApplication(newBranchCommandGit(t, name.String()), nil, nil, "human")
-		if err := application.validatePullRequestPublication(application.services(), false, true, "Summary: add export."); err == nil {
+		if err := application.validatePullRequestPublication(application.services(), false, true, pullRequestDescriptionFiveSections); err == nil {
 			t.Fatal("provider publication without a push unexpectedly succeeded")
 		}
-		if err := application.validatePullRequestPublication(application.services(), true, true, "Summary: add export."); err == nil {
+		if err := application.validatePullRequestPublication(application.services(), true, true, pullRequestDescriptionFiveSections); err == nil {
 			t.Fatal("provider publication without an adapter unexpectedly succeeded")
 		}
 		application.options.dryRun = true
-		if err := application.validatePullRequestPublication(application.services(), true, true, "Summary: add export."); err != nil {
+		if err := application.validatePullRequestPublication(application.services(), true, true, pullRequestDescriptionFiveSections); err != nil {
 			t.Fatalf("dry-run provider plan failed: %v", err)
 		}
 	})

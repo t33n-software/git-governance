@@ -43,6 +43,21 @@ A check that was not executed, or whose proof is missing, does not count as
 passed. This law binds every verification surface of the tool and of its
 own development process alike.
 
+## 6. Name the offending element
+
+A failure record for content that violates a character- or structure-level
+rule names the exact offending element: the code point, its line and byte
+offset, and a context line in which control characters render as visible
+escapes. Invisible defects (control characters, zero-width characters,
+line-ending artifacts) are the failure class where a generic message —
+"input contains forbidden characters" — sends the consumer into a
+guess-and-retry loop, because the character cannot be seen in an editor.
+The enriched record turns the loop into a single targeted correction. The
+line-ending normalization of
+[message-file-transport.md](message-file-transport.md) is what keeps this
+record truthful: after normalization, every named control character is a
+genuine content defect, never a transport artifact.
+
 ## Positive example
 
 The input violation is rejected before any mutation; the error record names
