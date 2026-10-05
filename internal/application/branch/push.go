@@ -172,7 +172,10 @@ func parsePrePushUpdate(line string) (PushUpdate, error) {
 
 // ValidatePrePushUpdates refreshes remote-tracking references once, then
 // validates every actual outgoing branch update. It never rebases, merges, or
-// pushes.
+// pushes. A batch that exclusively creates the born shared lines is recognized
+// as the governed remote birth when the shared birth predicate proves the
+// exact genesis state; every other batch keeps the unchanged shared-line
+// guard.
 func (synchronizer *Synchronizer) ValidatePrePushUpdates(
 	ctx context.Context,
 	repository port.RepositoryIdentity,
@@ -194,6 +197,14 @@ func (synchronizer *Synchronizer) ValidatePrePushUpdates(
 	}
 	if err := synchronizer.git.Fetch(ctx, repository); err != nil {
 		return PrePushBatchResult{}, err
+	}
+
+	result, recognized, err := synchronizer.recognizeBirthPublication(ctx, repository, updates)
+	if err != nil {
+		return PrePushBatchResult{}, err
+	}
+	if recognized {
+		return result, nil
 	}
 
 	results := make([]PrePushUpdateResult, 0, len(updates))

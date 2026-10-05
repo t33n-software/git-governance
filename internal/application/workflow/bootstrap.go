@@ -405,7 +405,7 @@ func (service *BootstrapService) PublishResume(ctx context.Context, request Publ
 	if err := bootstrapContextError(ctx); err != nil {
 		return BootstrapPublicationResult{}, err
 	}
-	capabilities, err := resolvePublishResumeCapabilities(service.git)
+	capabilities, err := branchapp.ResolveBirthTopologyCapabilities(service.git)
 	if err != nil {
 		return BootstrapPublicationResult{}, err
 	}
@@ -434,36 +434,6 @@ func (service *BootstrapService) PublishResume(ctx context.Context, request Publ
 	return BootstrapPublicationResult{Plan: plan, Revision: revision}, nil
 }
 
-// publishResumeCapabilities binds the optional adapter capabilities the
-// publication resume requires: the commit counter, the revision resolver, the
-// signature verifier, and the hook-boundary inspector.
-type publishResumeCapabilities struct {
-	commits   port.HeadCommitCounter
-	revisions port.RevisionResolver
-	verifier  port.CommitSignatureVerifier
-	hooks     port.HookBoundaryInspector
-}
-
-func resolvePublishResumeCapabilities(git port.GitRepository) (publishResumeCapabilities, error) {
-	commits, ok := git.(port.HeadCommitCounter)
-	if !ok {
-		return publishResumeCapabilities{}, bootstrapCapabilityRequired("head commit counting")
-	}
-	revisions, ok := git.(port.RevisionResolver)
-	if !ok {
-		return publishResumeCapabilities{}, bootstrapCapabilityRequired("revision resolution")
-	}
-	verifier, ok := git.(port.CommitSignatureVerifier)
-	if !ok {
-		return publishResumeCapabilities{}, bootstrapCapabilityRequired("commit signature verification")
-	}
-	hooks, ok := git.(port.HookBoundaryInspector)
-	if !ok {
-		return publishResumeCapabilities{}, bootstrapCapabilityRequired("hook boundary inspection")
-	}
-	return publishResumeCapabilities{commits: commits, revisions: revisions, verifier: verifier, hooks: hooks}, nil
-}
-
 func resolveRecoveryCapabilities(git port.GitRepository) (port.RefExistenceInspector, port.UnbornStateRestorer, error) {
 	refs, ok := git.(port.RefExistenceInspector)
 	if !ok {
@@ -477,65 +447,16 @@ func resolveRecoveryCapabilities(git port.GitRepository) (port.RefExistenceInspe
 }
 
 // proveBirthTopology re-proves the complete birth topology at finalizer
-// grade: exactly one commit reachable from HEAD, both shared lines existing
-// and pointing at that shared genesis revision, the verified genesis
-// signature, and the materialized hook boundary.
+// grade through the shared birth predicate owned by the branch application:
+// exactly one commit reachable from HEAD, both shared lines existing and
+// pointing at that shared genesis revision, the verified genesis signature,
+// and the materialized hook boundary.
 func (service *BootstrapService) proveBirthTopology(
 	ctx context.Context,
 	repository port.RepositoryIdentity,
-	capabilities publishResumeCapabilities,
+	capabilities branchapp.BirthTopologyCapabilities,
 ) (string, error) {
-	hasCommits, err := service.git.HasCommits(ctx, repository)
-	if err != nil {
-		return "", err
-	}
-	if !hasCommits {
-		return "", birthStateInvalid("the repository HEAD carries no commit")
-	}
-	commits, err := capabilities.commits.CountHeadCommits(ctx, repository)
-	if err != nil {
-		return "", err
-	}
-	if commits != 1 {
-		return "", birthStateInvalid(strconv.Itoa(commits) + " commits are reachable from HEAD")
-	}
-	revision, err := capabilities.revisions.ResolveRevision(ctx, repository, "HEAD")
-	if err != nil {
-		return "", err
-	}
-	for _, line := range []branch.BranchName{mustMain(), mustDevelop()} {
-		if _, err := service.branches.Validate(ctx, branchapp.ValidateRequest{
-			Repository: repository,
-			Name:       line,
-		}); err != nil {
-			return "", err
-		}
-		exists, err := service.git.BranchExists(ctx, repository, line)
-		if err != nil {
-			return "", err
-		}
-		if !exists {
-			return "", birthStateInvalid("the born ref " + line.String() + " does not exist")
-		}
-		lineRevision, err := capabilities.revisions.ResolveRevision(ctx, repository, line.String())
-		if err != nil {
-			return "", err
-		}
-		if lineRevision != revision {
-			return "", birthStateInvalid("the born ref " + line.String() + " points at " + lineRevision + " instead of the shared genesis revision " + revision)
-		}
-	}
-	if err := capabilities.verifier.VerifyCommitSignature(ctx, repository, revision); err != nil {
-		return "", err
-	}
-	present, err := capabilities.hooks.HookBoundaryPresent(ctx, repository)
-	if err != nil {
-		return "", err
-	}
-	if !present {
-		return "", birthStateInvalid("the installed hook boundary is not materialized")
-	}
-	return revision, nil
+	return branchapp.ProveBirthTopology(ctx, service.git, service.branches, repository, capabilities)
 }
 
 // recoveryPlan renders the recovery steps: the unborn proof, the state
@@ -574,20 +495,6 @@ func recoveryStateInvalid(detail string) error {
 		Expected:    "an unborn repository without commits",
 		Rule:        "the governed pre-birth recovery restores only unborn repositories; a born repository is never reset",
 		Remediation: "run the recovery only on a repository without commits",
-	})
-}
-
-// birthStateInvalid refuses a publication resume outside the proven birth
-// topology: the shared lines publish only from the exact genesis state.
-func birthStateInvalid(detail string) error {
-	return problem.New(problem.Details{
-		Code:        problem.CodeBirthStateInvalid,
-		Category:    problem.CategoryRepository,
-		Field:       "repository",
-		Actual:      detail,
-		Expected:    "the proven birth topology: exactly one commit, main and develop on the shared genesis revision, verified signature, materialized hook boundary",
-		Rule:        "the publication resume re-proves the complete birth topology before the shared-line push",
-		Remediation: "review the repository state; the shared lines publish only from the proven genesis state",
 	})
 }
 
