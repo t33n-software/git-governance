@@ -198,7 +198,9 @@ The local operating-system secret store must also be available:
 | Linux | Secret Service through `secret-tool` |
 
 There is no plaintext-file fallback. An unavailable native store makes login
-and publication fail closed.
+and publication fail closed. The Linux `secret-tool` dependency and its
+install command are documented in the platform requirement
+[Linux Secret Service](../operations/platform-requirements/linux-secret-service.md).
 
 ## Create and install the GitHub App
 

@@ -18,4 +18,5 @@
 - [CLI contract](specification/cli-contract.md)
 - [Policy and validation](specification/policy-and-validation.md)
 - [Installation and release design](operations/installation-and-release.md)
+- [Platform requirements](operations/platform-requirements/README.md)
 - [Product acceptance matrix](TRACEABILITY.md)

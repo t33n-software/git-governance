@@ -108,6 +108,10 @@ ID — is protected by DPAPI on Windows, Keychain on macOS, or Secret Service on
 Linux and is bound to the canonical repository identity of the login's working
 context; no plaintext fallback is permitted.
 
+The Linux Secret Service client `secret-tool` is the operating-system
+prerequisite for that store and is documented in the platform requirement
+[Linux Secret Service](platform-requirements/linux-secret-service.md).
+
 Managed CI does not reuse a developer refresh session. It supplies a
 workload-identity token and a HTTPS credential-broker endpoint at deployment
 time. The broker holds the GitHub App private key outside the repository and
