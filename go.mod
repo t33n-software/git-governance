@@ -1,13 +1,13 @@
 module github.com/CyberT33N/git-governance
 
-go 1.26
+go 1.26.0
 
 toolchain go1.26.5
 
 require (
 	charm.land/huh/v2 v2.0.3
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/sys v0.47.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
