@@ -207,7 +207,6 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 				messages: []string{"feat(ABC-123): add export"},
 				args: []string{
 					"workflow", "ticket", "publish",
-					"--branch", "feature/ABC-123-add-export",
 					"--resume",
 				},
 			},
@@ -331,7 +330,6 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			command,
 			"--interactive", "never", "--output", "json", "--yes", "--dry-run",
 			"workflow", "ticket", "publish",
-			"--branch", "feature/ABC-123-add-export",
 			"--resume",
 		)
 		assertProblemCode(t, err, problem.CodeInvalidInput)
@@ -441,6 +439,45 @@ func TestWorkflowCommandsResumeSilentlyAndPublishExplicitly(t *testing.T) {
 			_, err := executeBootstrapCommand(t, command, arguments...)
 			assertProblemCode(t, err, problem.CodeInvalidInput)
 		}
+	})
+}
+
+// TestResumeEndpointsRejectBranchInputWithResume pins the resume branch
+// contract: a paused rebase fixes the checkout, so the resume derives the
+// branch from the operation state and rejects any supplied --branch
+// fail-closed. Canonical convention:
+// docs/conventions/branches/resume-branch-derivation.md.
+func TestResumeEndpointsRejectBranchInputWithResume(t *testing.T) {
+	t.Run("ticket publish resume rejects --branch", func(t *testing.T) {
+		command := NewWithRuntime(
+			BuildInfo{Version: "test"},
+			commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", []string{"feat(ABC-123): add export"})),
+		)
+		_, err := executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"workflow", "ticket", "publish",
+			"--branch", "feature/ABC-123-add-export",
+			"--resume",
+		)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
+	})
+
+	t.Run("sync-base resume rejects --branch", func(t *testing.T) {
+		command := NewWithRuntime(
+			BuildInfo{Version: "test"},
+			commandRuntime(newCommandGit(t, "feature/ABC-123-add-export", []string{"feat(ABC-123): add export"})),
+		)
+		_, err := executeBootstrapCommand(
+			t,
+			command,
+			"--interactive", "never", "--output", "json", "--yes",
+			"branch", "sync-base",
+			"--branch", "feature/ABC-123-add-export",
+			"--resume",
+		)
+		assertProblemCode(t, err, problem.CodeInvalidInput)
 	})
 }
 

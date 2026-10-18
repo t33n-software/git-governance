@@ -843,6 +843,29 @@ func currentOrSpecified(ctx context.Context, service services, raw string, repos
 	return service.git.CurrentBranch(ctx, repository)
 }
 
+// resumeBranch resolves the branch that a --resume invocation continues. A
+// resume never takes a branch input: the command boundary rejects a supplied
+// --branch fail-closed, mirroring the existing --resume rejection of
+// --strategy and merge inputs, because during a paused rebase the checkout is
+// detached by design and the branch survives only in the operation state.
+// With no paused rebase the checked-out branch stays the resolution source
+// (the externally-completed verification path).
+// Canonical convention: docs/conventions/branches/resume-branch-derivation.md.
+func resumeBranch(ctx context.Context, service services, repository port.RepositoryIdentity) (branch.BranchName, error) {
+	inspector, ok := service.git.(port.PausedRebaseBranchInspector)
+	if !ok {
+		return service.git.CurrentBranch(ctx, repository)
+	}
+	derived, found, err := inspector.PausedRebaseBranch(ctx, repository)
+	if err != nil {
+		return branch.BranchName{}, err
+	}
+	if found {
+		return derived, nil
+	}
+	return service.git.CurrentBranch(ctx, repository)
+}
+
 func readCommitMessage(path string) (string, error) {
 	if path == "" {
 		return "", missingInput("commit message")

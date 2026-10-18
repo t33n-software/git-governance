@@ -27,7 +27,10 @@ git governance --interactive never --output json --yes branch sync-base `
 Policy:
 
 1. Run the command on the branch to synchronize. If supplied, `--branch` must
-   match the checked-out branch; it never switches branches implicitly.
+   match the checked-out branch; it never switches branches implicitly. On
+   `--resume` the branch is derived from the paused rebase state and any
+   supplied `--branch` is rejected fail-closed (canonical convention:
+   [Resume branch derivation](../../conventions/branches/resume-branch-derivation.md)).
 2. Fetch the selected remote.
 3. Compare `HEAD` with the real target base.
 4. If no base commits are missing, do nothing.

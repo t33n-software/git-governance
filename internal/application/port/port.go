@@ -205,6 +205,16 @@ type ActiveMergeTargetInspector interface {
 	ActiveMergeTargetMatches(ctx context.Context, repository RepositoryIdentity, target branch.TargetBase) (bool, error)
 }
 
+// PausedRebaseBranchInspector is an optional capability for adapters that can
+// resolve the canonical branch carried by a paused rebase state. During a
+// paused rebase Git detaches HEAD by design, so the branch survives only in
+// the operation state; a resume derives it there instead of requiring a
+// checked-out branch. Canonical convention:
+// docs/conventions/branches/resume-branch-derivation.md.
+type PausedRebaseBranchInspector interface {
+	PausedRebaseBranch(ctx context.Context, repository RepositoryIdentity) (branch.BranchName, bool, error)
+}
+
 // ReconciliationMergeInspector verifies that the checked-out resolution
 // candidate is the exact merge of a delivered release ref and a pinned develop
 // ref before a privileged controller publishes it.

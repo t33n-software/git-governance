@@ -951,6 +951,89 @@ func TestCommandHelpersCurrentOrSpecifiedAndReadCommitMessage(t *testing.T) {
 	})
 }
 
+// commandHelperPausedGit adds the paused-rebase inspection capability to the
+// command-helper fake so the resume branch derivation is testable directly.
+type commandHelperPausedGit struct {
+	*commandHelperGit
+
+	paused      branch.BranchName
+	pausedFound bool
+	pausedErr   error
+}
+
+func (git *commandHelperPausedGit) PausedRebaseBranch(
+	context.Context,
+	port.RepositoryIdentity,
+) (branch.BranchName, bool, error) {
+	return git.paused, git.pausedFound, git.pausedErr
+}
+
+func TestCommandHelpersResumeBranch(t *testing.T) {
+	repository := port.RepositoryIdentity{Root: "C:/found", Remote: "origin"}
+	checkedOut, err := branch.ParseName("feature/ABC-123-add-export")
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived, err := branch.ParseName("fix/ABC-123-correct-export")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("without the capability falls back to the checked-out branch", func(t *testing.T) {
+		actual, err := resumeBranch(
+			context.Background(),
+			services{git: newCommandHelperGit(t, checkedOut.String())},
+			repository,
+		)
+		if err != nil || actual.String() != checkedOut.String() {
+			t.Fatalf("resumeBranch() = (%q, %v)", actual.String(), err)
+		}
+	})
+
+	t.Run("derives the branch from the paused rebase state", func(t *testing.T) {
+		actual, err := resumeBranch(
+			context.Background(),
+			services{git: &commandHelperPausedGit{
+				commandHelperGit: newCommandHelperGit(t, checkedOut.String()),
+				paused:           derived,
+				pausedFound:      true,
+			}},
+			repository,
+		)
+		if err != nil || actual.String() != derived.String() {
+			t.Fatalf("resumeBranch() = (%q, %v)", actual.String(), err)
+		}
+	})
+
+	t.Run("without a paused rebase falls back to the checked-out branch", func(t *testing.T) {
+		actual, err := resumeBranch(
+			context.Background(),
+			services{git: &commandHelperPausedGit{
+				commandHelperGit: newCommandHelperGit(t, checkedOut.String()),
+			}},
+			repository,
+		)
+		if err != nil || actual.String() != checkedOut.String() {
+			t.Fatalf("resumeBranch() = (%q, %v)", actual.String(), err)
+		}
+	})
+
+	t.Run("propagates a paused-state inspection failure", func(t *testing.T) {
+		stateErr := errors.New("paused state unavailable")
+		_, err := resumeBranch(
+			context.Background(),
+			services{git: &commandHelperPausedGit{
+				commandHelperGit: newCommandHelperGit(t, checkedOut.String()),
+				pausedErr:        stateErr,
+			}},
+			repository,
+		)
+		if !errors.Is(err, stateErr) {
+			t.Fatalf("resumeBranch() error = %v, want %v", err, stateErr)
+		}
+	})
+}
+
 // writeMessageFile writes one absolute-path message file for the file-based
 // transport invocations: the file-based flags resolve the content from an
 // existing plain UTF-8 file instead of an inline string.

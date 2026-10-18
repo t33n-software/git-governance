@@ -314,7 +314,19 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			name, err := currentOrSpecified(command.Context(), services, nameRaw, repository)
+			// Resume contract: --resume never takes a branch input; a supplied
+			// --branch is rejected fail-closed and the branch is derived from
+			// the paused rebase state. See
+			// docs/conventions/branches/resume-branch-derivation.md.
+			if resume && command.Flags().Changed("branch") {
+				return invalidOption("branch", nameRaw, "omitted; --resume derives the branch from the paused rebase state")
+			}
+			var name branch.BranchName
+			if resume {
+				name, err = resumeBranch(command.Context(), services, repository)
+			} else {
+				name, err = currentOrSpecified(command.Context(), services, nameRaw, repository)
+			}
 			if err != nil {
 				return err
 			}
@@ -420,7 +432,7 @@ func newBranchSyncBaseCommand(application *application) *cobra.Command {
 			})
 		},
 	}
-	registerBranchReferenceFlag(command, &nameRaw, "branch", "branch name; must match the current branch when supplied")
+	registerBranchReferenceFlag(command, &nameRaw, "branch", "branch name; must match the current branch when supplied; rejected with --resume, which derives the branch from the paused rebase state")
 	registerBaseFlag(command, &baseRaw, "for synchronization")
 	registerSyncStrategyFlag(command, &strategyRaw)
 	registerMergeTypeFlag(command, &mergeFamily)

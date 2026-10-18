@@ -1,11 +1,15 @@
 # Resume ticket publication
 
 Conflict resolution remains a human task. After resolving and staging every
-conflict, the binary can resume the existing Git operation without prompts:
+conflict, the binary can resume the existing Git operation without prompts.
+A resume never takes a branch input: during a paused rebase Git detaches
+HEAD, so the branch is derived from the paused operation state, and any
+`--branch` supplied together with `--resume` is rejected fail-closed.
+Canonical convention:
+[Resume branch derivation](../../../conventions/branches/resume-branch-derivation.md).
 
 ```powershell
 git governance --interactive never --output json --yes workflow ticket publish `
-  --branch feature/ABC-123-add-export-button `
   --resume `
   --push
 ```

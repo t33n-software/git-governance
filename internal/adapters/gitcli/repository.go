@@ -261,6 +261,69 @@ func (repository *Repository) ActiveOperation(ctx context.Context, identity port
 	return "", false, nil
 }
 
+// PausedRebaseBranch resolves the canonical branch carried by a paused rebase
+// in the addressed worktree. Git detaches HEAD while a rebase is paused, so
+// the branch survives only in the operation state: rebase-merge/head-name for
+// a merge-backend rebase, rebase-apply/head-name for an am-backend rebase. An
+// absent marker or a noncanonical recorded reference reports "not found" so
+// the caller keeps its own fail-closed resume preflight instead of guessing.
+// Canonical convention: docs/conventions/branches/resume-branch-derivation.md.
+func (repository *Repository) PausedRebaseBranch(
+	ctx context.Context,
+	identity port.RepositoryIdentity,
+) (branch.BranchName, bool, error) {
+	for _, candidate := range []string{"rebase-merge/head-name", "rebase-apply/head-name"} {
+		result := repository.invoke(ctx, identity.Root, nil, "rev-parse", "--git-path", candidate)
+		if result.err != nil {
+			return branch.BranchName{}, false, repository.commandProblem(
+				problem.CodeGitCommandFailed,
+				identity,
+				"inspect the paused rebase state",
+				result,
+			)
+		}
+		path := strings.TrimSpace(result.stdout)
+		if path == "" {
+			return branch.BranchName{}, false, problem.New(problem.Details{
+				Code:        problem.CodeGitCommandFailed,
+				Category:    problem.CategoryRepository,
+				Field:       "Git operation state",
+				Expected:    "a path returned by git rev-parse --git-path",
+				Rule:        "a paused rebase is located through Git's own operation-state path",
+				Remediation: "repair the repository metadata and retry the resume",
+			})
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(identity.Root, path)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return branch.BranchName{}, false, problem.Wrap(problem.Details{
+				Code:        problem.CodeGitCommandFailed,
+				Category:    problem.CategoryRepository,
+				Field:       "Git operation state",
+				Actual:      path,
+				Expected:    "a readable paused rebase head reference",
+				Rule:        "a paused rebase branch is read from the operation-state file Git recorded",
+				Remediation: "check repository permissions and retry the resume",
+			}, err)
+		}
+		ref := strings.TrimSpace(string(raw))
+		if !strings.HasPrefix(ref, "refs/heads/") {
+			return branch.BranchName{}, false, nil
+		}
+		name, err := branch.ParseName(strings.TrimPrefix(ref, "refs/heads/"))
+		if err != nil {
+			return branch.BranchName{}, false, nil
+		}
+		return name, true, nil
+	}
+	return branch.BranchName{}, false, nil
+}
+
 // HasCommits reports whether HEAD resolves to at least one commit.
 func (repository *Repository) HasCommits(ctx context.Context, identity port.RepositoryIdentity) (bool, error) {
 	result := repository.invoke(ctx, identity.Root, nil, "rev-parse", "--verify", "--quiet", "HEAD")
@@ -1629,6 +1692,7 @@ var _ port.RevisionResolver = (*Repository)(nil)
 var _ port.FinalQualityEvidenceStore = (*Repository)(nil)
 var _ port.MergeContinuator = (*Repository)(nil)
 var _ port.ActiveMergeTargetInspector = (*Repository)(nil)
+var _ port.PausedRebaseBranchInspector = (*Repository)(nil)
 var _ port.LocalBranchLister = (*Repository)(nil)
 var _ port.BranchReferenceFastForwarder = (*Repository)(nil)
 var _ port.BranchAheadCounter = (*Repository)(nil)

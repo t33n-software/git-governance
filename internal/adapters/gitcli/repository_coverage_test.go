@@ -1020,3 +1020,100 @@ func TestRepositoryCoveragePromotionMergeRecovery(t *testing.T) {
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
 	})
 }
+
+func TestRepositoryCoveragePausedRebaseBranch(t *testing.T) {
+	t.Parallel()
+
+	t.Run("derives the canonical branch from the paused rebase state", func(t *testing.T) {
+		root := t.TempDir()
+		stateDirectory := filepath.Join(root, ".git", "rebase-merge")
+		if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(stateDirectory, "head-name"),
+			[]byte("refs/heads/feature/ABC-123-add-export\n"),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		repository, runner := coverageRepository(processResult{stdout: ".git/rebase-merge/head-name\n"})
+		name, found, err := repository.PausedRebaseBranch(context.Background(), port.RepositoryIdentity{Root: root, Remote: "origin"})
+		if err != nil || !found || name.String() != "feature/ABC-123-add-export" {
+			t.Fatalf("PausedRebaseBranch() = (%q, %t, %v)", name.String(), found, err)
+		}
+		assertCall(t, runner.calls[0], root, "", "rev-parse", "--git-path", "rebase-merge/head-name")
+	})
+
+	t.Run("falls back to the am backend state", func(t *testing.T) {
+		root := t.TempDir()
+		stateDirectory := filepath.Join(root, ".git", "rebase-apply")
+		if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(stateDirectory, "head-name"),
+			[]byte("refs/heads/fix/ABC-123-correct-export\n"),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		repository, _ := coverageRepository(
+			processResult{stdout: ".git/rebase-merge/head-name\n"},
+			processResult{stdout: ".git/rebase-apply/head-name\n"},
+		)
+		name, found, err := repository.PausedRebaseBranch(context.Background(), port.RepositoryIdentity{Root: root, Remote: "origin"})
+		if err != nil || !found || name.String() != "fix/ABC-123-correct-export" {
+			t.Fatalf("PausedRebaseBranch() = (%q, %t, %v)", name.String(), found, err)
+		}
+	})
+
+	t.Run("reports not found without a paused rebase", func(t *testing.T) {
+		repository, _ := coverageRepository(
+			processResult{stdout: ".git/rebase-merge/head-name\n"},
+			processResult{stdout: ".git/rebase-apply/head-name\n"},
+		)
+		_, found, err := repository.PausedRebaseBranch(context.Background(), port.RepositoryIdentity{Root: t.TempDir(), Remote: "origin"})
+		if err != nil || found {
+			t.Fatalf("PausedRebaseBranch() = (%t, %v)", found, err)
+		}
+	})
+
+	t.Run("a noncanonical recorded reference reports not found", func(t *testing.T) {
+		root := t.TempDir()
+		stateDirectory := filepath.Join(root, ".git", "rebase-merge")
+		if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(stateDirectory, "head-name"),
+			[]byte("0123456789abcdef0123456789abcdef01234567\n"),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		repository, _ := coverageRepository(processResult{stdout: ".git/rebase-merge/head-name\n"})
+		_, found, err := repository.PausedRebaseBranch(context.Background(), port.RepositoryIdentity{Root: root, Remote: "origin"})
+		if err != nil || found {
+			t.Fatalf("PausedRebaseBranch() = (%t, %v)", found, err)
+		}
+	})
+
+	t.Run("git path lookup failure is classified", func(t *testing.T) {
+		repository, _ := coverageRepository(processResult{err: errors.New("rev-parse failed"), exitCode: 128})
+		_, _, err := repository.PausedRebaseBranch(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("empty marker path is malformed Git output", func(t *testing.T) {
+		repository, _ := coverageRepository(processResult{stdout: " \n"})
+		_, _, err := repository.PausedRebaseBranch(context.Background(), testIdentity())
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+
+	t.Run("unreadable marker path is classified", func(t *testing.T) {
+		repository, _ := coverageRepository(processResult{stdout: "\x00"})
+		_, _, err := repository.PausedRebaseBranch(context.Background(), port.RepositoryIdentity{Root: t.TempDir(), Remote: "origin"})
+		assertProblemCode(t, err, problem.CodeGitCommandFailed)
+	})
+}

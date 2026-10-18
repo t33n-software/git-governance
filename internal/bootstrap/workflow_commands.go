@@ -253,7 +253,19 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			name, err := currentOrSpecified(command.Context(), services, branchRaw, repository)
+			// Resume contract: --resume never takes a branch input; a supplied
+			// --branch is rejected fail-closed and the branch is derived from
+			// the paused rebase state. See
+			// docs/conventions/branches/resume-branch-derivation.md.
+			if resume && command.Flags().Changed("branch") {
+				return invalidOption("branch", branchRaw, "omitted; --resume derives the branch from the paused rebase state")
+			}
+			var name branch.BranchName
+			if resume {
+				name, err = resumeBranch(command.Context(), services, repository)
+			} else {
+				name, err = currentOrSpecified(command.Context(), services, branchRaw, repository)
+			}
 			if err != nil {
 				return err
 			}
@@ -478,7 +490,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 			})
 		}),
 	}
-	registerBranchReferenceFlag(command, &branchRaw, "branch", "ticket branch; defaults to the current branch")
+	registerBranchReferenceFlag(command, &branchRaw, "branch", "ticket branch; defaults to the current branch; rejected with --resume, which derives the branch from the paused rebase state")
 	registerBaseFlag(command, &baseRaw, "for hotfix ticket publication")
 	registerBranchReferenceFlag(command, &scratchTargetRaw, "target", "optional local official target when publishing from scratch")
 	registerCommitTypeFlag(command, &scratchFamilyRaw, "for a scratch squash transfer")

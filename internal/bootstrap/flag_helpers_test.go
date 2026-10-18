@@ -470,7 +470,7 @@ func TestMigratedEndpointsRenderRegisterHelp(t *testing.T) {
 		{path: []string{"branch", "validate"}, flagName: "branch", want: cliparam.BranchReference().WithLead("branch name; defaults to the current branch").HelpText("")},
 		{path: []string{"validate", "pre-push"}, flagName: "branch", want: cliparam.BranchReference().WithLead("branch name; defaults to the current branch").HelpText("")},
 		{path: []string{"commit", "validate"}, flagName: "branch", want: cliparam.BranchReference().WithLead("branch name; defaults to the current branch").HelpText("")},
-		{path: []string{"workflow", "ticket", "publish"}, flagName: "branch", want: cliparam.BranchReference().WithLead("ticket branch; defaults to the current branch").HelpText("")},
+		{path: []string{"workflow", "ticket", "publish"}, flagName: "branch", want: cliparam.BranchReference().WithLead("ticket branch; defaults to the current branch; rejected with --resume, which derives the branch from the paused rebase state").HelpText("")},
 		{path: []string{"workflow", "ticket", "publish"}, flagName: "target", want: cliparam.BranchReference().WithLead("optional local official target when publishing from scratch").HelpText("")},
 		{path: []string{"workflow", "hotfix", "publish"}, flagName: "branch", want: cliparam.BranchReference().WithLead("hotfix branch; defaults to the current branch").HelpText("")},
 		{path: []string{"workflow", "hotfix", "verify-merge"}, flagName: "branch", want: cliparam.BranchReference().WithLead("merged hotfix branch; defaults to the current branch").HelpText("")},
@@ -485,7 +485,7 @@ func TestMigratedEndpointsRenderRegisterHelp(t *testing.T) {
 		{path: []string{"workflow", "release", "align-reconciliation-base"}, flagName: "branch", want: cliparam.BranchReference().WithLead("reconciliation-preparation branch; defaults to the current branch").HelpText("")},
 		{path: []string{"branch", "merge-scratch"}, flagName: "branch", want: cliparam.BranchReference().WithLead("scratch branch; defaults to the current branch").HelpText("")},
 		{path: []string{"branch", "merge-scratch"}, flagName: "target", want: cliparam.BranchReference().WithLead("optional local official ticket branch target").HelpText("")},
-		{path: []string{"branch", "sync-base"}, flagName: "branch", want: cliparam.BranchReference().WithLead("branch name; must match the current branch when supplied").HelpText("")},
+		{path: []string{"branch", "sync-base"}, flagName: "branch", want: cliparam.BranchReference().WithLead("branch name; must match the current branch when supplied; rejected with --resume, which derives the branch from the paused rebase state").HelpText("")},
 	}
 
 	// The subtests navigate the shared tree sequentially on purpose: cobra's
