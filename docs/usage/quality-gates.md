@@ -12,7 +12,7 @@ array; no shell command string is interpreted.
 ```json
 {
   "schemaVersion": 4,
-  "toolchain": { "language": "go", "version": "1.26.6" },
+  "toolchain": { "language": "go", "version": "1.27.2" },
   "extends": [],
   "gates": [
     {
@@ -44,7 +44,7 @@ unknown JSON fields, duplicate gate names, and unbounded configuration are
 rejected.
 
 The `toolchain` block is required and pins the toolchain identity by
-`language` and `version` (for example `go` and `1.26.6`); a missing,
+`language` and `version` (for example `go` and `1.27.2`); a missing,
 malformed, or unpinned identity is rejected. The optional `extends` list
 declares capability pack references in the `<capability>@<major>` form (for
 example `opentofu@1`); entries must be well-formed and unique, and the runner

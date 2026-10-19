@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/t33n-software/git-governance/internal/adapters/gitcli"
+	"github.com/t33n-software/git-governance/internal/application/port"
 	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
@@ -128,7 +129,7 @@ func TestGitCLIAdapterBootstrapOperations(t *testing.T) {
 		t.Skip("lefthook is not installed on this host")
 	}
 	writeFile(t, filepath.Join(local, "lefthook.yml"), "commit-msg:\n  commands:\n    validate:\n      run: echo ok\npre-push:\n  commands:\n    validate:\n      run: echo ok\n")
-	installation, err := adapter.InstallHooks(ctx, identity)
+	installation, err := adapter.InstallHooks(ctx, identity, port.HookManagerInvocation{})
 	if err != nil {
 		t.Fatal(err)
 	}

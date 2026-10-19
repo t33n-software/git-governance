@@ -29,6 +29,38 @@ type CommitSignatureVerifier interface {
 	VerifyCommitSignature(ctx context.Context, repository RepositoryIdentity, revision string) error
 }
 
+// HookManagerToolName is the canonical executable name of the governed hook
+// manager. Every resolution surface — doctor diagnostics, the repository
+// birth preflight, and the hook installation adapter — addresses the hook
+// manager through this single name.
+const HookManagerToolName = "lefthook"
+
+// HookManagerInvocation carries the resolved invocation of the repository's
+// hook manager: the executable to run and the arguments that prefix its
+// command. A repository that declares lefthook as a Go tool resolves to the
+// project form (go tool lefthook); a repository without such a declaration
+// keeps the host form (the bare executable on the PATH). The zero value is
+// the host form.
+type HookManagerInvocation struct {
+	Executable string
+	Arguments  []string
+}
+
+// ExecutableName returns the invocation's executable, defaulting the zero
+// value to the canonical hook-manager tool name.
+func (invocation HookManagerInvocation) ExecutableName() string {
+	if invocation.Executable == "" {
+		return HookManagerToolName
+	}
+	return invocation.Executable
+}
+
+// InstallCommand returns the full argument vector that installs the hook
+// boundary: the invocation prefix followed by the install command.
+func (invocation HookManagerInvocation) InstallCommand() []string {
+	return append(append([]string(nil), invocation.Arguments...), "install")
+}
+
 // HookInstallation proves the installed local hook boundary of a repository.
 type HookInstallation struct {
 	Directory string
@@ -36,11 +68,12 @@ type HookInstallation struct {
 }
 
 // HookInstaller is an optional capability for adapters that can install the
-// repository's hook boundary and prove the installed hooks. The governed
-// repository birth installs the boundary so every subsequent operation is
-// governed from the first commit onward.
+// repository's hook boundary through the resolved hook-manager invocation and
+// prove the installed hooks. The governed repository birth installs the
+// boundary so every subsequent operation is governed from the first commit
+// onward.
 type HookInstaller interface {
-	InstallHooks(ctx context.Context, repository RepositoryIdentity) (HookInstallation, error)
+	InstallHooks(ctx context.Context, repository RepositoryIdentity, invocation HookManagerInvocation) (HookInstallation, error)
 }
 
 // UnbornStateRestorer is an optional capability for adapters that can restore

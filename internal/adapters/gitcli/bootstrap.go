@@ -167,18 +167,22 @@ func (repository *Repository) VerifyCommitSignature(
 }
 
 // InstallHooks installs the canonical local hook boundary through the
-// repository's hook manager and proves the installed hook files. The proof is
-// fail-closed: an installation that does not materialize the canonical hook
-// set is a failed birth step.
+// repository's resolved hook-manager invocation and proves the installed hook
+// files. The invocation carries the project tool form (go tool lefthook) for
+// repositories that declare the tool in their module and the host form
+// otherwise; the zero value keeps the host form. The proof is fail-closed: an
+// installation that does not materialize the canonical hook set is a failed
+// birth step.
 func (repository *Repository) InstallHooks(
 	ctx context.Context,
 	identity port.RepositoryIdentity,
+	invocation port.HookManagerInvocation,
 ) (port.HookInstallation, error) {
 	gitDirectory, err := repository.gitDirectory(ctx, identity)
 	if err != nil {
 		return port.HookInstallation{}, err
 	}
-	result := repository.invokeProgram(ctx, identity.Root, "lefthook", nil, "install")
+	result := repository.invokeProgram(ctx, identity.Root, invocation.ExecutableName(), nil, invocation.InstallCommand()...)
 	if result.err != nil {
 		return port.HookInstallation{}, problem.Wrap(problem.Details{
 			Code:        problem.CodeExternalCommandFailed,

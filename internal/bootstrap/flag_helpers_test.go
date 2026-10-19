@@ -819,3 +819,26 @@ func TestValidateOptionsDerivesGlobalValueDomains(t *testing.T) {
 		})
 	}
 }
+
+// TestPullRequestBodyAnnotationAndShortFallback pins the nil-annotation
+// marking surface and the short-help fallback of the layout finalizer: a
+// command without an annotation map and without a long help still receives the
+// validated pull-request description layout appended from its short help.
+func TestPullRequestBodyAnnotationAndShortFallback(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "publish", Short: "publish a ticket"}
+	markPullRequestBodyCommand(command)
+	if command.Annotations[pullRequestBodyCommandAnnotation] != "true" {
+		t.Fatalf("annotations = %#v, want the pull-request-body mark", command.Annotations)
+	}
+
+	short := command.Short
+	appendDiscoveryReferences(command)
+	if !strings.HasPrefix(command.Long, short) {
+		t.Fatalf("the short fallback did not seed the layout: %q", command.Long)
+	}
+	if !strings.Contains(command.Long, pullRequestBodyLayoutHelp()) {
+		t.Fatalf("long help %q misses the validated layout", command.Long)
+	}
+}

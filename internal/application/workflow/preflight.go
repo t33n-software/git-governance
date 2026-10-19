@@ -95,16 +95,20 @@ func (service *BootstrapService) runBootstrapPreflight(
 	if err := capabilities.signer.ProveSigningCapability(ctx, repository, configuration); err != nil {
 		return BootstrapPreflight{}, err
 	}
-	hookManager, err := service.tools.Version(ctx, "lefthook")
+	hookManager, projectResolved, err := port.ResolveToolVersion(ctx, service.tools, repository.Root, port.HookManagerToolName)
 	if err != nil {
 		return BootstrapPreflight{}, problem.Wrap(problem.Details{
 			Code:        problem.CodeExternalCommandFailed,
 			Category:    problem.CategoryExternal,
 			Field:       "hook manager",
-			Expected:    "the approved lefthook binary",
-			Rule:        "the governed repository birth installs the canonical hook boundary through lefthook",
-			Remediation: "install the approved lefthook binary and retry the bootstrap",
+			Expected:    "the repository-declared lefthook tool or an approved host installation",
+			Rule:        "the governed repository birth installs the canonical hook boundary through the resolved lefthook invocation",
+			Remediation: "declare lefthook as a Go tool in the project module or install the approved binary, then retry the bootstrap",
 		}, err)
+	}
+	hookInvocation := port.HookManagerInvocation{Executable: port.HookManagerToolName}
+	if projectResolved {
+		hookInvocation = port.HookManagerInvocation{Executable: "go", Arguments: []string{"tool", port.HookManagerToolName}}
 	}
 	hookConfig, err := service.tools.FileExists(filepath.Join(repository.Root, "lefthook.yml"))
 	if err != nil {
@@ -165,5 +169,6 @@ func (service *BootstrapService) runBootstrapPreflight(
 		Actor:          configuration.UserEmail,
 		GitVersion:     version,
 		HookManager:    hookManager,
+		HookInvocation: hookInvocation,
 	}, nil
 }

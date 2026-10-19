@@ -180,7 +180,11 @@ func (fake *bootstrapGit) VerifyCommitSignature(context.Context, port.Repository
 	return fake.verifyErr
 }
 
-func (fake *bootstrapGit) InstallHooks(context.Context, port.RepositoryIdentity) (port.HookInstallation, error) {
+func (fake *bootstrapGit) InstallHooks(
+	context.Context,
+	port.RepositoryIdentity,
+	port.HookManagerInvocation,
+) (port.HookInstallation, error) {
 	fake.calls = append(fake.calls, "install-hooks")
 	if fake.installErr != nil {
 		return port.HookInstallation{}, fake.installErr

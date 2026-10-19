@@ -31,7 +31,11 @@ func (fake *verifierCapableGit) VerifyCommitSignature(context.Context, port.Repo
 
 type installerCapableGit struct{ verifierCapableGit }
 
-func (fake *installerCapableGit) InstallHooks(context.Context, port.RepositoryIdentity) (port.HookInstallation, error) {
+func (fake *installerCapableGit) InstallHooks(
+	context.Context,
+	port.RepositoryIdentity,
+	port.HookManagerInvocation,
+) (port.HookInstallation, error) {
 	return port.HookInstallation{}, nil
 }
 
@@ -251,6 +255,81 @@ func TestBootstrapContentSetAndKeyPolicy(t *testing.T) {
 		}
 		if result.Published {
 			t.Fatal("Bootstrap must never publish; publication is a separate confirmed step")
+		}
+	})
+}
+
+// declaringBootstrapTools adds the project-tool capability to the tool fake so
+// the preflight resolves the hook manager through the repository declaration.
+type declaringBootstrapTools struct {
+	*bootstrapTools
+	declared bool
+	version  string
+}
+
+func (tools *declaringBootstrapTools) ResolveProjectToolVersion(
+	context.Context,
+	string,
+	string,
+) (string, bool, error) {
+	if !tools.declared {
+		return "", false, nil
+	}
+	return tools.version, true, nil
+}
+
+// invocationRecordingGit records the hook-manager invocation the birth passes
+// to the installation capability.
+type invocationRecordingGit struct {
+	*bootstrapGit
+	invocation port.HookManagerInvocation
+}
+
+func (fake *invocationRecordingGit) InstallHooks(
+	_ context.Context,
+	_ port.RepositoryIdentity,
+	invocation port.HookManagerInvocation,
+) (port.HookInstallation, error) {
+	fake.calls = append(fake.calls, "install-hooks")
+	fake.invocation = invocation
+	return fake.installation, fake.err
+}
+
+func TestBootstrapPreflightResolvesTheProjectHookTool(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a declared project tool installs through the project form", func(t *testing.T) {
+		t.Parallel()
+		git := &invocationRecordingGit{bootstrapGit: newBootstrapGit()}
+		git.stagedQueue = []bool{false, true}
+		tools := &declaringBootstrapTools{
+			bootstrapTools: newBootstrapTools(),
+			declared:       true,
+			version:        "lefthook version 2.2.2",
+		}
+		result, err := newBootstrapService(git, tools).Bootstrap(context.Background(), bootstrapRequest())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Record.Revision != bootstrapTestRevision {
+			t.Fatalf("record = %#v", result.Record)
+		}
+		if git.invocation.Executable != "go" ||
+			strings.Join(git.invocation.Arguments, " ") != "tool lefthook" {
+			t.Fatalf("install invocation = %#v, want the project tool form", git.invocation)
+		}
+	})
+
+	t.Run("an undeclared repository installs through the host form", func(t *testing.T) {
+		t.Parallel()
+		git := &invocationRecordingGit{bootstrapGit: newBootstrapGit()}
+		git.stagedQueue = []bool{false, true}
+		tools := &declaringBootstrapTools{bootstrapTools: newBootstrapTools()}
+		if _, err := newBootstrapService(git, tools).Bootstrap(context.Background(), bootstrapRequest()); err != nil {
+			t.Fatal(err)
+		}
+		if git.invocation.Executable != "lefthook" || len(git.invocation.Arguments) != 0 {
+			t.Fatalf("install invocation = %#v, want the host form", git.invocation)
 		}
 	})
 }

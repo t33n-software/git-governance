@@ -27,6 +27,7 @@ func (service *BootstrapService) runGenesisMutation(
 	repository port.RepositoryIdentity,
 	request BootstrapRequest,
 	message commitmsg.Message,
+	invocation port.HookManagerInvocation,
 ) (string, port.HookInstallation, error) {
 	if err := git.Stage(ctx, repository, request.StagePaths); err != nil {
 		return "", port.HookInstallation{}, err
@@ -58,7 +59,7 @@ func (service *BootstrapService) runGenesisMutation(
 	if err := git.CreateBranch(ctx, repository, mustDevelop(), developBase, false); err != nil {
 		return "", port.HookInstallation{}, err
 	}
-	installation, err := capabilities.installer.InstallHooks(ctx, repository)
+	installation, err := capabilities.installer.InstallHooks(ctx, repository, invocation)
 	if err != nil {
 		return "", port.HookInstallation{}, err
 	}

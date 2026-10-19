@@ -96,6 +96,11 @@ type BootstrapPreflight struct {
 	Actor          string
 	GitVersion     string
 	HookManager    string
+	// HookInvocation carries the resolved hook-manager invocation the genesis
+	// mutation installs the canonical boundary through: the project tool form
+	// for repositories that declare lefthook as a Go tool, the host form
+	// otherwise.
+	HookInvocation port.HookManagerInvocation
 }
 
 // BootstrapResult carries the evidence record of the completed birth, the
@@ -173,6 +178,7 @@ func (service *BootstrapService) Bootstrap(ctx context.Context, request Bootstra
 		repository,
 		request,
 		message,
+		preflight.HookInvocation,
 	)
 	if err != nil {
 		return BootstrapResult{}, compensateGenesisAbortion(ctx, capabilities.restorer, repository, err)

@@ -24,6 +24,7 @@ type Options struct {
 	LookPath func(string) (string, error)
 	Run      commandRunner
 	Stat     func(string) (os.FileInfo, error)
+	ReadFile func(string) ([]byte, error)
 }
 
 // Inspector implements bounded diagnostic checks without changing the host.
@@ -32,6 +33,7 @@ type Inspector struct {
 	lookPath func(string) (string, error)
 	run      commandRunner
 	stat     func(string) (os.FileInfo, error)
+	readFile func(string) ([]byte, error)
 }
 
 // New constructs a system inspector with production defaults.
@@ -52,11 +54,16 @@ func New(options Options) *Inspector {
 	if stat == nil {
 		stat = os.Stat
 	}
+	readFile := options.ReadFile
+	if readFile == nil {
+		readFile = os.ReadFile
+	}
 	return &Inspector{
 		timeout:  timeout,
 		lookPath: lookPath,
 		run:      run,
 		stat:     stat,
+		readFile: readFile,
 	}
 }
 

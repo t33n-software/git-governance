@@ -16,10 +16,10 @@ does not rely on any external governance repository or unpublished rule set.
 | Item | Status | Evidence |
 |---|---|---|
 | Local repository | VERIFIED | `main` and `origin/main` are initialized; every audit and release gate begins by checking the current Git status |
-| Go toolchain | VERIFIED | Go 1.26.6, Windows amd64 |
+| Go toolchain | VERIFIED | Go 1.27.2, Linux amd64 |
 | Git client | VERIFIED | Git 2.53.0.windows.2 |
 | Legacy scripts and copied hooks | VERIFIED | not present in this repository |
-| Go module | VERIFIED | `github.com/t33n-software/git-governance`, language Go 1.26 and pinned toolchain Go 1.26.6 |
+| Go module | VERIFIED | `github.com/t33n-software/git-governance`, language Go 1.27 and pinned toolchain Go 1.27.2 |
 
 ## Core domain and validation
 
@@ -154,9 +154,9 @@ does not rely on any external governance repository or unpublished rule set.
 | Capability | Status | Notes |
 |---|---|---|
 | Lefthook configuration | IMPLEMENTED | thin `commit-msg` and `pre-push` runners; no duplicated regex |
-| Local Lefthook validation | VERIFIED | Lefthook v2.1.10 returned `All good` |
+| Local Lefthook validation | VERIFIED | Lefthook v2.2.2 resolved through the project tool declaration returned `All good` |
 | Reproducible release configuration | VERIFIED | GoReleaser v2.16.0 installed locally and validated `.goreleaser.yaml` |
-| Controlled Go execution | IMPLEMENTED | CI and release set `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, and `GOVCS=*:off`, then verify Go 1.26.6 before running Go commands |
+| Controlled Go execution | IMPLEMENTED | CI and release set `GOTOOLCHAIN=local`, `GOFLAGS=-mod=readonly`, and `GOVCS=*:off`, then verify the pinned Go toolchain before running Go commands |
 | Exact lifecycle toolchain provisioning | IMPLEMENTED | every lifecycle `actions/setup-go` location resolves exactly one `toolchain goX.Y.Z` directive from the checked-out tenant `go.mod` and receives the resulting exact version through `go-version`; `go-version-file`, the `go` directive, and latest-patch resolution are rejected |
 | Dependency admission review | IMPLEMENTED | immutable `actions/dependency-review-action` gate blocks dependency changes that introduce low-severity-or-higher findings across all dependency scopes |
 | Dependency-review merge enforcement | VERIFIED | `Dependency review / Dependency admission review` is a required status check for `develop`, `main`, `release/*`, and `support/*` in both ruleset class variants; the repository contract test binds the workflow name and every shared-line ruleset class variant |
@@ -203,6 +203,7 @@ does not rely on any external governance repository or unpublished rule set.
 | Single-binding session store blocked capability reads | multi-session capability resolution: several GitHub App sessions may be bound to one repository (one per app class), credential resolution selects the session per required permission class and reports the named capability-missing verdict when no covering session carries it, status carries the app-class dimension per binding, logout disambiguates interactively or fails closed, and the prior single-binding store format is discarded without interpretation on upgrade (a newer-format document stays rejected fail-closed), so the documented re-login remediation works without manual file surgery | IMPLEMENTED |
 | Inline string message transport | route every multi-line message part through a message file passed by absolute path — one canonical loader (absolute-path, existence, regular-file, 1 MiB, UTF-8, verbatim validations) inherited by all thirteen surfaces — and withdraw the inline string flags fail-closed as a declared breaking major change | IMPLEMENTED |
 | Genesis abort without compensation | every aborted genesis step (mutation or finalizer failure) restores the proven unborn pre-state — empty index, no references, unborn HEAD and working tree untouched — through the fail-closed `UnbornStateRestorer` capability; the failure record carries the compensation fact and the retry stays idempotent; a failed compensation blocks the retry with a named record | IMPLEMENTED |
+| Global hook-manager installation | resolve the hook manager through the repository's own Go tool declaration first and the host `PATH` only as fallback; doctor, the birth preflight, and the hook installation share one resolution chain, and the installation invocation carries the resolved form as an explicit contract value | IMPLEMENTED |
 
 ## Explicit non-goals in v1
 

@@ -149,7 +149,7 @@ func (result *DoctorResult) appendToolChecks(ctx context.Context, tools port.Too
 		OK:     operatingSystem != "" && architecture != "",
 		Detail: operatingSystem + "/" + architecture,
 	})
-	version, err := tools.Version(ctx, "lefthook")
+	version, _, err := port.ResolveToolVersion(ctx, tools, result.Repository.Root, port.HookManagerToolName)
 	if err != nil {
 		result.Checks = append(result.Checks, Check{
 			Name:   "Lefthook executable",

@@ -30,8 +30,17 @@ func TestInstallHooks(t *testing.T) {
 			}
 		}
 	}
+	// captureProgram wires a program runner that records the executable the
+	// adapter resolves for each invocation.
+	captureProgram := func(program *fakeRunner) (func(string) processRunner, *string) {
+		captured := ""
+		return func(executable string) processRunner {
+			captured = executable
+			return program
+		}, &captured
+	}
 
-	t.Run("installs and proves the canonical hook set", func(t *testing.T) {
+	t.Run("installs through the repository tool declaration", func(t *testing.T) {
 		t.Parallel()
 		root := t.TempDir()
 		gitDirectory := filepath.Join(root, ".git")
@@ -39,12 +48,17 @@ func TestInstallHooks(t *testing.T) {
 
 		runner := &fakeRunner{results: []processResult{{stdout: gitDirectory + "\n"}}}
 		program := &fakeRunner{results: []processResult{{}}}
+		programRunner, captured := captureProgram(program)
 		repository := &Repository{
 			runner:        runner,
 			timeout:       time.Second,
-			programRunner: func(string) processRunner { return program },
+			programRunner: programRunner,
 		}
-		installation, err := repository.InstallHooks(context.Background(), identity(root))
+		installation, err := repository.InstallHooks(
+			context.Background(),
+			identity(root),
+			port.HookManagerInvocation{Executable: "go", Arguments: []string{"tool", "lefthook"}},
+		)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,8 +66,41 @@ func TestInstallHooks(t *testing.T) {
 			len(installation.Hooks) != 2 || installation.Hooks[0] != "commit-msg" || installation.Hooks[1] != "pre-push" {
 			t.Fatalf("InstallHooks() = %#v", installation)
 		}
-		if program.calls[0].directory != root || strings.Join(program.calls[0].arguments, " ") != "install" {
-			t.Fatalf("lefthook call = %#v", program.calls[0])
+		if *captured != "go" {
+			t.Fatalf("resolved executable = %q, want go", *captured)
+		}
+		if program.calls[0].directory != root ||
+			strings.Join(program.calls[0].arguments, " ") != "tool lefthook install" {
+			t.Fatalf("project tool call = %#v", program.calls[0])
+		}
+	})
+
+	t.Run("installs through the host executable for the zero invocation", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		gitDirectory := filepath.Join(root, ".git")
+		writeHooks(t, filepath.Join(gitDirectory, "hooks"), "commit-msg", "pre-push")
+
+		runner := &fakeRunner{results: []processResult{{stdout: gitDirectory + "\n"}}}
+		program := &fakeRunner{results: []processResult{{}}}
+		programRunner, captured := captureProgram(program)
+		repository := &Repository{
+			runner:        runner,
+			timeout:       time.Second,
+			programRunner: programRunner,
+		}
+		installation, err := repository.InstallHooks(context.Background(), identity(root), port.HookManagerInvocation{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if installation.Directory != filepath.Join(gitDirectory, "hooks") {
+			t.Fatalf("InstallHooks() directory = %q", installation.Directory)
+		}
+		if *captured != "lefthook" {
+			t.Fatalf("resolved executable = %q, want lefthook", *captured)
+		}
+		if strings.Join(program.calls[0].arguments, " ") != "install" {
+			t.Fatalf("host executable call = %#v", program.calls[0])
 		}
 	})
 
@@ -69,7 +116,7 @@ func TestInstallHooks(t *testing.T) {
 			timeout:       time.Second,
 			programRunner: func(string) processRunner { return program },
 		}
-		installation, err := repository.InstallHooks(context.Background(), identity(root))
+		installation, err := repository.InstallHooks(context.Background(), identity(root), port.HookManagerInvocation{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,7 +131,7 @@ func TestInstallHooks(t *testing.T) {
 			runner:  &fakeRunner{results: []processResult{{err: errors.New("failed"), exitCode: 128}}},
 			timeout: time.Second,
 		}
-		_, err := repository.InstallHooks(context.Background(), identity(t.TempDir()))
+		_, err := repository.InstallHooks(context.Background(), identity(t.TempDir()), port.HookManagerInvocation{})
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
 	})
 
@@ -94,7 +141,7 @@ func TestInstallHooks(t *testing.T) {
 			runner:  &fakeRunner{results: []processResult{{stdout: "\n"}}},
 			timeout: time.Second,
 		}
-		_, err := repository.InstallHooks(context.Background(), identity(t.TempDir()))
+		_, err := repository.InstallHooks(context.Background(), identity(t.TempDir()), port.HookManagerInvocation{})
 		assertProblemCode(t, err, problem.CodeGitCommandFailed)
 	})
 
@@ -109,7 +156,7 @@ func TestInstallHooks(t *testing.T) {
 			timeout:       time.Second,
 			programRunner: func(string) processRunner { return program },
 		}
-		_, err := repository.InstallHooks(context.Background(), identity(root))
+		_, err := repository.InstallHooks(context.Background(), identity(root), port.HookManagerInvocation{})
 		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
 	})
 
@@ -126,7 +173,7 @@ func TestInstallHooks(t *testing.T) {
 			timeout:       time.Second,
 			programRunner: func(string) processRunner { return program },
 		}
-		_, err := repository.InstallHooks(context.Background(), identity(root))
+		_, err := repository.InstallHooks(context.Background(), identity(root), port.HookManagerInvocation{})
 		assertProblemCode(t, err, problem.CodeExternalCommandFailed)
 	})
 }

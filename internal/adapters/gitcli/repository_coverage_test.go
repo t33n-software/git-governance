@@ -1099,6 +1099,27 @@ func TestRepositoryCoveragePausedRebaseBranch(t *testing.T) {
 		}
 	})
 
+	t.Run("a branch-prefixed noncanonical name reports not found", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		stateDirectory := filepath.Join(root, ".git", "rebase-merge")
+		if err := os.MkdirAll(stateDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(stateDirectory, "head-name"),
+			[]byte("refs/heads/not a canonical branch\n"),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+		repository, _ := coverageRepository(processResult{stdout: ".git/rebase-merge/head-name\n"})
+		_, found, err := repository.PausedRebaseBranch(context.Background(), port.RepositoryIdentity{Root: root, Remote: "origin"})
+		if err != nil || found {
+			t.Fatalf("PausedRebaseBranch() = (%t, %v)", found, err)
+		}
+	})
+
 	t.Run("git path lookup failure is classified", func(t *testing.T) {
 		repository, _ := coverageRepository(processResult{err: errors.New("rev-parse failed"), exitCode: 128})
 		_, _, err := repository.PausedRebaseBranch(context.Background(), testIdentity())

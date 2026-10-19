@@ -171,11 +171,11 @@ Go remains the right language. The project-specific MCDA prioritizes Go for this
 
 Target state:
 
-- Language version: Go 1.26
-- Pinned build toolchain: Go 1.26.6
+- Language version: Go 1.27
+- Pinned build toolchain: Go 1.27.2
 - cgo: disabled as long as no documented adapter needs it
 
-The toolchain is installed on the development machine as Go 1.26.6. Domain,
+The toolchain is installed on the development machine as Go 1.27.2. Domain,
 adapter, application, CLI, and local Git integration tests are executed.
 Cross-platform release smoke tests and signing remain separate release gates.
 
