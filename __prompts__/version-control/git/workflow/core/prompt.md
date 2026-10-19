@@ -218,14 +218,20 @@ Der Agent führt diese Zustandsflächen jederzeit explizit:
 - mode_notice_emitted = none | question | task
 ```
 
-`mutation_embargo = active` ist der Initialzustand nach
-`BRANCH_CONTEXT_CHECK`, wenn `current_branch_class = shared_line` und der
-Auftrag eine Mutation enthält. Der Übergang nach `released` ist ausschließlich
+`mutation_embargo = active` ist der Initialzustand ab der Bindung eines
+Task-Mode-Turns durch das Turn-Intent-Gate (`TURN_INTENT_CLASSIFICATION`) —
+vor jeder Branch-Prüfung und unabhängig davon, ob eine Branch-Prüfung jemals
+ausgeführt wird. Eine übersprungene oder ausgefallene
+`BRANCH_CONTEXT_CHECK` deaktiviert das Embargo niemals: das Unterlassen der
+Prüfung ist keine Freigabe. Der Übergang nach `released` ist ausschließlich
 über `mutation_release_channel = workflow_start` (ein governeter Workflow hat
 die offizielle Working-Branch erzeugt und der Branch-Kontext wurde erneut
 verifiziert) oder `mutation_release_channel = confirmed_continuation`
 (Benutzer bestätigte die Fortsetzung auf einer bereits validierten offiziellen
-Working-Branch) erlaubt.
+Working-Branch) erlaubt. `not_required` gilt erst für einen über [3.2]
+bewiesenen `official_working`-, `scratch`- oder `unborn`-Kontext; die
+Klassifizierung verfeinert den Embargo-Zustand, sie ist nie dessen
+Voraussetzung.
 
 ### 2.3 Mindestnachweise
 
@@ -401,10 +407,10 @@ Vor jeder Mutation:
 Ermittelt die Branch-Prüfung ein Repository ohne Commits und ohne Refs (der
 `doctor`-Nachweis „repository has no commits" oder ein fehlschlagender
 HEAD-Beweis), bindet der Agent den Branch-Kontext `unborn`: Es existiert noch
-keine Shared Line, die geschützt werden müsste. Der `unborn`-Kontext ist der
-einzige, in dem das Mutations-Embargo nicht aktiviert wird — die Erstellung
-des initialen Content-Sets ist der Input der Geburt, keine Mutation an einer
-Shared Line.
+keine Shared Line, die geschützt werden müsste. Die `unborn`-Klassifizierung
+hebt das ab Task-Bindung aktive Embargo über `not_required` als erste auf —
+die Erstellung des initialen Content-Sets ist der Input der Geburt, keine
+Mutation an einer Shared Line.
 
 Ein frischer, detached Task-Worktree, den ein Akteur für ein Ticket erzeugt
 hat, ist legitimer Pre-Start-Kontext für jeden Akteur, der Ticket-Arbeit
@@ -638,7 +644,7 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `shared_line` | `hotfix` | Embargo aktiv; betroffene Linie fachlich binden; dann `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1]; im Worktree `workflow hotfix start`; erst danach Implementierung |
 | `shared_line` | `release` / `support` | Embargo aktiv; dann `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1] (für Dispatch-Endpunkte ohne lokale Branch-Erzeugung trägt der Worktree den Dispatch); im Worktree der passende `workflow release`-Pfad |
 | `shared_line` | `exploration` | Embargo aktiv; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
-| `shared_line` | `diagnostic` | Kein Embargo nötig; read-only Endpunkte und Help; keine Mutation |
+| `shared_line` | `diagnostic` | Embargo bleibt aktiv und braucht keine Aufhebung; read-only Endpunkte und Help; keine Mutation |
 | `official_working` | Fortsetzung desselben Tickets | Fortsetzungslogik aus [3.3]; fehlende Evidenz ab frühestem Gate nachholen |
 | `official_working` | neue, andere Aufgabe | Pull-Request-Zustand der Branch prüfen ([3.1]): bei `open` oder `merged` abgeschlossene Übergabe — direkter neuer Ticket-Intake ohne Fortsetzungsfrage; bei `none` oder `unknown` Fortsetzungsentscheidung beim Benutzer einholen |
 | `scratch` | `exploration` | Scratch-Regeln aus [4.8]; Überführung nur kontrolliert auf die offizielle Branch |
@@ -661,6 +667,10 @@ Worktree-Capability (Server-/CI-Klasse) bleiben ausgenommen.
 Aus dieser Matrix abgeleitete Hartverbote:
 
 ```text
+- Kein Datei-Erstellen, -Bearbeiten, -Umbenennen oder -Löschen, kein
+  Staging und kein Commit vor `BRANCH_READY` — unbedingt und unabhängig
+  davon, ob ein Branch-Kontext überhaupt je geprüft wurde; eine
+  nicht ausgeführte Prüfung ist niemals eine Embargo-Freigabe.
 - Kein Datei-Edit, kein Staging und kein Commit, solange `shared_line` und
   das Embargo aktiv ist — auch dann nicht, wenn die Implementierung
   fachlich bereits klar erscheint.
@@ -1365,8 +1375,9 @@ Der Agent darf niemals:
 
 ```text
 - auf main, develop, release/* oder support/* Dateien erstellen, bearbeiten,
-  umbenennen, löschen, stagen oder committen, solange das Mutations-Embargo
-  aktiv ist (Mutation vor Workflow);
+  umbenennen, löschen, stagen oder committen — das Mutations-Embargo gilt
+  ab Task-Bindung unbedingt, und eine unterlassene Branch-Prüfung setzt es
+  nie außer Kraft (Mutation vor Workflow);
 - `commit create`, `branch create` oder eine rohe Git-Mutation auf einer
   Shared Line ausführen;
 - `branch create` als Ersatz für `workflow ticket start` oder
