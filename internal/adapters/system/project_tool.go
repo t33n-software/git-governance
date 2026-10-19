@@ -37,9 +37,6 @@ func (inspector *Inspector) ResolveProjectToolVersion(
 	if !goModDeclaresTool(contents, toolName) {
 		return "", false, nil
 	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	ctx, cancel := context.WithTimeout(ctx, inspector.timeout)
 	defer cancel()
 	path, err := inspector.lookPath("go")

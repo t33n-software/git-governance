@@ -196,19 +196,6 @@ func TestResolveProjectToolVersion(t *testing.T) {
 		}
 	})
 
-	t.Run("a nil context resolves through the background fallback", func(t *testing.T) {
-		t.Parallel()
-		inspector := testProjectToolInspector(Options{
-			ReadFile: func(string) ([]byte, error) {
-				return []byte("tool github.com/evilmartians/lefthook/v2\n"), nil
-			},
-		})
-		version, declared, err := inspector.ResolveProjectToolVersion(nil, "/repo", "lefthook")
-		if err != nil || !declared || version != "lefthook version 2.2.2" {
-			t.Fatalf("ResolveProjectToolVersion(nil) = (%q, %t, %v)", version, declared, err)
-		}
-	})
-
 	t.Run("an empty tool output fails closed", func(t *testing.T) {
 		t.Parallel()
 		inspector := testProjectToolInspector(Options{
