@@ -123,4 +123,3 @@ type GitSigningInspector interface {
 	SigningConfiguration(ctx context.Context, repository RepositoryIdentity) (SigningConfiguration, error)
 	ProveSigningCapability(ctx context.Context, repository RepositoryIdentity, configuration SigningConfiguration) error
 }
-
