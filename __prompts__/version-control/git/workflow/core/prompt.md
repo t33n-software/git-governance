@@ -1248,23 +1248,22 @@ Informationsträger deterministisch. Die Pflicht betrifft Vorhandensein und
 Vertragstreue, nicht die Länge — eine schmale Änderung füllt jede Sektion
 mit einem Satz. Die Sprache ist Englisch.
 
-Kanonische Sektionsreihenfolge (alle fünf Sektionen, unveränderlich), jede
-Sektion mit der Markdown-Überschrift `## <Sektionsname>`:
+Kanonische Sektionsreihenfolge, Überschriftsform und Vollständigkeits-
+prüfung sind Eigentum der Binary: Die aktuelle Endpunkt-Hilfe des jeweiligen
+Publish-Endpunkts rendelt den validierten Fünf-Sektionen-Block mit
+vollständig kopierfähigem Beispiel-Skeleton, und nur diese Renderung ist die
+Layoutquelle. Der Core referenziert sie und dupliziert sie nicht.
 
-```text
-1. ## Summary — der eine Gesamt-Intent des Change-Sets;
-2. ## Scope and Non-Goals — Umfang und ausdrückliche Nicht-Ziele;
-3. ## Commit Series — die Betreff-Liste der Serie als Navigation,
-   niemals als Inhaltswiederholung;
-4. ## Risk and Rollback — Gesamt-Risiko, Rollback-Bezug und Lane-Kontext
-   (Ziel-Linie, Hotfix- oder Release-Bezug);
-5. ## Verification and Review Focus — Verifikationsstrategie und
-   Review-Fokus.
-```
+Die Kompositionspflicht bleibt hier: Die Beschreibung trägt die
+Integrationssicht über der Commit-Serie — Gesamt-Intent des Change-Sets;
+Umfang und ausdrückliche Nicht-Ziele; die Betreff-Liste der Serie als
+Navigation, niemals als Inhaltswiederholung; Gesamt-Risiko, Rollback-Bezug
+und Lane-Kontext (Ziel-Linie, Hotfix- oder Release-Bezug);
+Verifikationsstrategie und Review-Fokus.
 
-Die PR-Beschreibung durchläuft niemals den Commit-Parser; die `##`-Form ist
-dennoch verbindlich, damit Layout und Formulierung für den Agent
-deterministisch bleiben.
+Die PR-Beschreibung durchläuft niemals den Commit-Parser; die von der Hilfe
+bindend gerenderte Struktur hält Layout und Formulierung für den Agent
+deterministisch.
 
 Der Agent komponiert die Beschreibung vor der Publikation aus dem
 Acceptance Ledger und der validierten Commit-Serie und setzt

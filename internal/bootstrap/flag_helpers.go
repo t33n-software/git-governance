@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/t33n-software/git-governance/internal/application/cliparam"
@@ -196,9 +198,52 @@ func registerBodyFileFlag(command *cobra.Command, target *string, name, context 
 
 // registerPullRequestBodyFileFlag binds the pull-request description
 // message-file flag (structural-reference); the mandatory coupling with
-// --create-pull-request stays endpoint context.
+// --create-pull-request stays endpoint context. Every consuming command is
+// marked so the tree finalizer renders the validated description layout from
+// the canonical section register into its help: one source, every endpoint.
 func registerPullRequestBodyFileFlag(command *cobra.Command, target *string, context string) {
 	registerPathDomainFlag(command, target, "body-file", cliparam.MessageFile().WithLead("pull request description file"), context)
+	markPullRequestBodyCommand(command)
+}
+
+// pullRequestBodyCommandAnnotation marks commands that consume a validated
+// pull-request description; the tree finalizer appends the canonical layout
+// block rendered from the validator's section register to the help of every
+// marked command. Canonical convention: docs/conventions/cli/help-contract.md.
+const pullRequestBodyCommandAnnotation = "git-governance.t33n-software/pull-request-body-bound"
+
+// markPullRequestBodyCommand records that the command consumes a validated
+// pull-request description.
+func markPullRequestBodyCommand(command *cobra.Command) {
+	if command.Annotations == nil {
+		command.Annotations = map[string]string{}
+	}
+	command.Annotations[pullRequestBodyCommandAnnotation] = "true"
+}
+
+// pullRequestBodySectionPlaceholders carries one example body per canonical
+// section, positionally aligned with the validator's section register; the
+// help contract test pins the alignment so the skeleton can never drift from
+// the validated layout.
+var pullRequestBodySectionPlaceholders = []string{
+	"<one-sentence integration intent of the change set>",
+	"<what this change set does and explicitly does not do>",
+	"- <subject of commit 1>\n- <subject of commit 2>",
+	"<overall risk, rollback reference, and lane context>",
+	"<verification strategy and what reviewers should inspect>",
+}
+
+// pullRequestBodyLayoutHelp renders the validated pull-request description
+// layout from the canonical section register in command_helpers.go: the
+// section names and their immutable order are never copied here.
+func pullRequestBodyLayoutHelp() string {
+	lines := []string{
+		`Pull request description layout (validated fail-closed): the body must carry exactly these markdown sections, in this order, each as "## <Section Name>" with non-empty content, in English. Example skeleton:`,
+	}
+	for index, section := range pullRequestDescriptionSections {
+		lines = append(lines, "## "+section, pullRequestBodySectionPlaceholders[index])
+	}
+	return strings.Join(lines, "\n")
 }
 
 // registerFooterFlag binds a repeatable commit footer flag under the given

@@ -91,6 +91,11 @@ The complete adapter-plus-core bundle must enforce all of the following:
 ```text
 - Every git-governance endpoint is preceded by its current endpoint-specific
   --help invocation.
+- The complete contract of every programmatically validated endpoint input
+  lives in that endpoint's current help; the canonical rule is
+  docs/conventions/cli/help-contract.md (Validated inputs are fully
+  specified in the help), to be taken as the reference value. This prompt
+  bundle never restates or copies those details.
 - The agent names the endpoint and workflow purpose, but learns required
   values, flags and validation details from current help and policy output.
 - Only inputs that cannot be discovered from current help, policy or binary

@@ -107,7 +107,9 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 }
 
 // appendDiscoveryReferences finalizes the help of every register-bound
-// command with the single level-3 deep reference line. Canonical convention:
+// command with the single level-3 deep reference line, and the help of every
+// command that consumes a validated pull-request description with the layout
+// block rendered from the validator's section register. Canonical convention:
 // docs/conventions/cli/help-contract.md.
 func appendDiscoveryReferences(command *cobra.Command) {
 	if command.Annotations[valueDomainCommandAnnotation] == "true" {
@@ -116,6 +118,13 @@ func appendDiscoveryReferences(command *cobra.Command) {
 			long = command.Short
 		}
 		command.Long = long + "\n\n" + discoveryReferenceLine
+	}
+	if command.Annotations[pullRequestBodyCommandAnnotation] == "true" {
+		long := command.Long
+		if long == "" {
+			long = command.Short
+		}
+		command.Long = long + "\n\n" + pullRequestBodyLayoutHelp()
 	}
 	for _, child := range command.Commands() {
 		appendDiscoveryReferences(child)

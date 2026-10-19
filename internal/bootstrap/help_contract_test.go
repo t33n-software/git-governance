@@ -78,3 +78,54 @@ func TestEveryValueCarryingFlagIsRegisterBound(t *testing.T) {
 		t.Fatalf("flags without a register-bound value domain: %v", failures)
 	}
 }
+
+// TestPullRequestBodyEndpointsRenderTheValidatorLayout pins the layout
+// projection channel: every command that consumes a validated pull-request
+// description renders the complete canonical layout block from the
+// validator's section register in its help, and no other command carries it.
+// The placeholder alignment check proves the example skeleton can never
+// drift from the validated section list. Canonical convention:
+// docs/conventions/cli/help-contract.md.
+func TestPullRequestBodyEndpointsRenderTheValidatorLayout(t *testing.T) {
+	if len(pullRequestBodySectionPlaceholders) != len(pullRequestDescriptionSections) {
+		t.Fatalf(
+			"layout placeholders drifted from the section register: %d placeholders for %d sections",
+			len(pullRequestBodySectionPlaceholders),
+			len(pullRequestDescriptionSections),
+		)
+	}
+
+	root := New(BuildInfo{Version: "test"})
+	consumers := [][]string{
+		{"workflow", "ticket", "publish"},
+		{"workflow", "hotfix", "publish"},
+		{"workflow", "hotfix", "propagate"},
+		{"workflow", "release", "publish-stabilization"},
+		{"workflow", "release", "align-promotion-base"},
+		{"workflow", "release", "promote"},
+		{"workflow", "release", "backmerge"},
+		{"workflow", "release", "align-reconciliation-base"},
+	}
+
+	// The subtests navigate the shared tree sequentially on purpose: cobra's
+	// Find lazily initializes command state, so concurrent lookups on one
+	// command tree are not safe.
+	layout := pullRequestBodyLayoutHelp()
+	for _, path := range consumers {
+		command, _, err := root.Find(path)
+		if err != nil || command == nil {
+			t.Fatalf("command path %v not found: %v", path, err)
+		}
+		if !strings.Contains(command.Long, layout) {
+			t.Fatalf("%v help misses the validated pull-request description layout block:\n%s", path, command.Long)
+		}
+	}
+
+	nonConsumer, _, err := root.Find([]string{"branch", "validate"})
+	if err != nil || nonConsumer == nil {
+		t.Fatalf("branch validate not found: %v", err)
+	}
+	if strings.Contains(nonConsumer.Long, "Pull request description layout") {
+		t.Fatalf("branch validate help must not carry the pull-request layout block:\n%s", nonConsumer.Long)
+	}
+}
