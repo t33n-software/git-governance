@@ -871,7 +871,11 @@ func (*commandGit) VerifyCommitSignature(context.Context, port.RepositoryIdentit
 }
 
 // InstallHooks reports the canonical hook boundary as installed.
-func (*commandGit) InstallHooks(context.Context, port.RepositoryIdentity) (port.HookInstallation, error) {
+func (*commandGit) InstallHooks(
+	context.Context,
+	port.RepositoryIdentity,
+	port.HookManagerInvocation,
+) (port.HookInstallation, error) {
 	return port.HookInstallation{
 		Directory: "C:/repo/.git/hooks",
 		Hooks:     []string{"commit-msg", "pre-push"},

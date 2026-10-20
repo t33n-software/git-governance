@@ -83,6 +83,30 @@ Deprecated flags and commands carry the deprecation notice and the removal
 horizon directly in the help text (see
 [compatibility-and-lifecycle.md](compatibility-and-lifecycle.md)).
 
+## 7. Validated inputs are fully specified in the help
+
+Every endpoint input that passes through programmatic validation must be
+fully specified in that endpoint's current `--help`: grammar, value shape,
+mandatory/optional semantics, layout canon, allowed and forbidden forms,
+rejection behavior, and one complete canonical example. The help surface is
+the proactive anchor point: a consumer must be able to compose a
+validation-passing input from the help alone, without a trial-and-error
+round trip through rejection errors.
+
+Binding rules:
+
+1. **Generated, never copied.** The specification renders from the same
+   validator source that enforces the rule (the generation mandate of
+   section 4); a hand-maintained second copy of a layout or grammar is the
+   drift-twin antipattern.
+2. **Complete or blocked.** If the help of a validated input cannot carry
+   the full contract, the endpoint is incomplete: shipping it is a defect
+   that blocks the release, not a documented limitation.
+3. **Every new or edited validated endpoint** is checked against this duty;
+   the layout block of a validated file input includes the whole structure
+   (section names, immutable order, heading form, non-empty-content rule,
+   rejection behavior) plus one copy-ready example skeleton.
+
 ## Positive example
 
 ```text

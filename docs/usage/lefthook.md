@@ -1,11 +1,12 @@
 # Lefthook integration
 
-Install Lefthook through your approved package channel, make
-`git-governance` available on `PATH`, then run:
+This repository declares Lefthook as a Go tool in its root `go.mod`, so no
+global installation is required. Make `git-governance` available on `PATH`,
+then run from the repository root:
 
 ```powershell
-lefthook install
-lefthook validate
+go tool lefthook install
+go tool lefthook validate
 ```
 
 The repository `lefthook.yml` is intentionally thin:

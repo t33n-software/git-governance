@@ -3,7 +3,7 @@
 ## Prerequisites for contributors
 
 - Git 2.53 or newer recommended
-- Go 1.26.6 (enforced by the `toolchain go1.26.6` directive)
+- Go 1.27.2 (enforced by the `go 1.27` and `toolchain go1.27.2` directives)
 
 Check the local environment:
 
@@ -15,7 +15,7 @@ git --version
 Expected Go output begins with:
 
 ```text
-go version go1.26.6
+go version go1.27.2
 ```
 
 ## Build from source

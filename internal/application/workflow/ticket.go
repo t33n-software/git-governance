@@ -586,7 +586,9 @@ func pullRequestPublisherUnavailable() error {
 }
 
 // pullRequestBodyRequired enforces the mandatory pull-request description
-// owned by docs/conventions/pull-requests/description-mandate.md.
+// owned by docs/conventions/pull-requests/description-mandate.md. The layout
+// canon is rendered by the endpoint help from the validator's section
+// register; this error never copies it.
 func pullRequestBodyRequired() error {
 	return problem.New(problem.Details{
 		Code:        problem.CodeInvalidInput,
@@ -594,8 +596,8 @@ func pullRequestBodyRequired() error {
 		Field:       "pull request body",
 		Expected:    "a non-empty pull-request description",
 		Rule:        "every governed pull request carries a mandatory description",
-		Example:     "--body \"Summary: ...\\n\\nScope and Non-Goals: ...\"",
-		Remediation: "compose the canonical pull-request description and pass it as the body input",
+		Example:     "run the publish endpoint with --help; it renders the canonical five-section skeleton verbatim",
+		Remediation: "compose the description from the layout block in the endpoint help and pass it via --body-file",
 	})
 }
 

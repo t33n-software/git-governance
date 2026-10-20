@@ -14,11 +14,12 @@ The invariant register and the package map live in the parent TOC surface
 
 **Description:**
 
-Immediately after branch detection, the core classifies the checked-out branch
-as `shared_line`, `official_working`, `scratch`, `unborn`, `detached`, or
-`unknown`.
-On `main`, `develop`, `release/*`, and `support/*`, a binding mutation embargo
-activates before any other work:
+The mutation embargo is active from task-mode binding onward — before and
+independent of branch detection; a skipped `BRANCH_CONTEXT_CHECK` never
+leaves it unactivated. Immediately after branch detection, the core
+classifies the checked-out branch as `shared_line`, `official_working`,
+`scratch`, `unborn`, `detached`, or `unknown`; the classification refines
+the embargo state and is never its precondition:
 
 ```text
 - no file creation, edit, rename, or deletion;
@@ -38,7 +39,7 @@ carry-over.
 
 || Path | Relevance | Elements |
 ||------|-----------|----------|
-|| `core/prompt.md` | Branch classes and embargo | Sections [3.1] and [3.2] |
+|| `core/prompt.md` | Embargo initial state, branch classes and embargo | Sections [2.2], [3.1] and [3.2] |
 
 ---
 

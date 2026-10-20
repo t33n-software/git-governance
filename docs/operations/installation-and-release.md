@@ -34,9 +34,9 @@ Additional operating systems are not an implicit commitment. They require target
 
 Build properties:
 
-- Go 1.26 as the language version
-- pinned toolchain Go 1.26.6
-- `go 1.26` plus `toolchain go1.26.6` in the module contract
+- Go 1.27 as the language version
+- pinned toolchain Go 1.27.2
+- `go 1.27` plus `toolchain go1.27.2` in the module contract
 - `CGO_ENABLED=0` as long as no documented adapter needs cgo
 - no build or compiler installation on end devices
 - reproducible version metadata from the immutable release commit
@@ -161,12 +161,16 @@ Lefthook remains its own organization-wide standardized product. `git-governance
 
 Repository setup:
 
-1. Install Lefthook through the approved package channel.
-2. Run `lefthook install` in the repository.
-3. Run `lefthook validate`.
+1. The repository declares Lefthook as a Go tool in its root `go.mod`; the
+   pinned version resolves from the module, not from a global installation.
+2. Run `go tool lefthook install` in the repository.
+3. Run `go tool lefthook validate`.
 4. Run `git governance doctor`.
 
-Lefthook itself is available as a standalone binary and supports Homebrew, WinGet, and Scoop, among others. That matches the same distribution principle.
+The governed CLI resolves the hook manager through the same declaration:
+doctor, the repository birth preflight, and the hook installation prefer the
+project tool and fall back to the host `PATH` only when the repository carries
+no declaration.
 
 Sources:
 
@@ -267,7 +271,9 @@ Current artifact contract:
 All third-party actions in CI and release are pinned to full, immutable commit
 IDs. GoReleaser, Syft, and Cosign are additionally bound to concrete versions.
 Govulncheck, Lefthook, and Staticcheck come from the versioned
-`tools/go.mod` module. A release is only built from a SemVer tag or a manual
+`tools/go.mod` module; Lefthook is additionally declared as the product hook
+manager in the root module so every governed repository operation resolves the
+pinned version. A release is only built from a SemVer tag or a manual
 run with an explicit existing SemVer tag.
 
 The normal automated path reads:

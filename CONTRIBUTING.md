@@ -2,7 +2,7 @@
 
 ## Development prerequisites
 
-- Go 1.26.6; `go.mod` pins `toolchain go1.26.6`
+- Go 1.27.2; `go.mod` pins `go 1.27` plus `toolchain go1.27.2`
 - Git 2.53 or newer recommended
 
 ```powershell
@@ -106,7 +106,7 @@ gate:
 ```json
 {
   "schemaVersion": 4,
-  "toolchain": { "language": "go", "version": "1.26.6" },
+  "toolchain": { "language": "go", "version": "1.27.2" },
   "extends": [],
   "gates": [
     {
@@ -173,11 +173,12 @@ release stabilization and hotfix propagation are explicit lifecycle exceptions.
 
 ## Lefthook
 
-Install the approved Lefthook binary, then:
+The repository declares Lefthook as a Go tool in its root `go.mod`; resolve it
+through the project tool surface instead of a global installation:
 
 ```powershell
-lefthook install
-lefthook validate
+go tool lefthook install
+go tool lefthook validate
 ```
 
 The hook configuration is deliberately thin. Do not add regexes, live network
