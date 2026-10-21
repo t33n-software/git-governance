@@ -2,7 +2,7 @@
 
 ## Development prerequisites
 
-- Go 1.27.2; `go.mod` pins `go 1.27` plus `toolchain go1.27.2`
+- Go 1.27.3; `go.mod` pins `go 1.27` plus `toolchain go1.27.3`
 - Git 2.53 or newer recommended
 
 ```powershell
@@ -106,7 +106,7 @@ gate:
 ```json
 {
   "schemaVersion": 4,
-  "toolchain": { "language": "go", "version": "1.27.2" },
+  "toolchain": { "language": "go", "version": "1.27.3" },
   "extends": [],
   "gates": [
     {
