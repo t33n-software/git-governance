@@ -35,8 +35,8 @@ Additional operating systems are not an implicit commitment. They require target
 Build properties:
 
 - Go 1.27 as the language version
-- pinned toolchain Go 1.27.2
-- `go 1.27` plus `toolchain go1.27.2` in the module contract
+- pinned toolchain Go 1.27.3
+- `go 1.27` plus `toolchain go1.27.3` in the module contract
 - `CGO_ENABLED=0` as long as no documented adapter needs cgo
 - no build or compiler installation on end devices
 - reproducible version metadata from the immutable release commit

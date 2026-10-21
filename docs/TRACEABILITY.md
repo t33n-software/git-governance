@@ -16,10 +16,10 @@ does not rely on any external governance repository or unpublished rule set.
 | Item | Status | Evidence |
 |---|---|---|
 | Local repository | VERIFIED | `main` and `origin/main` are initialized; every audit and release gate begins by checking the current Git status |
-| Go toolchain | VERIFIED | Go 1.27.2, Linux amd64 |
+| Go toolchain | VERIFIED | Go 1.27.3, Linux amd64 |
 | Git client | VERIFIED | Git 2.53.0.windows.2 |
 | Legacy scripts and copied hooks | VERIFIED | not present in this repository |
-| Go module | VERIFIED | `github.com/t33n-software/git-governance`, language Go 1.27 and pinned toolchain Go 1.27.2 |
+| Go module | VERIFIED | `github.com/t33n-software/git-governance`, language Go 1.27 and pinned toolchain Go 1.27.3 |
 
 ## Core domain and validation
 
