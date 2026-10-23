@@ -131,9 +131,9 @@ func TestMessageScaffoldFailsWhenTheTemporaryAreaIsUnwritable(t *testing.T) {
 
 func TestMessageScaffoldRemovesTheFileWhenTheWriteFails(t *testing.T) {
 	original := writeScaffoldBody
-	var created string
+	var created *os.File
 	writeScaffoldBody = func(file *os.File, _ string) error {
-		created = file.Name()
+		created = file
 		return os.ErrClosed
 	}
 	t.Cleanup(func() { writeScaffoldBody = original })
@@ -143,7 +143,13 @@ func TestMessageScaffoldRemovesTheFileWhenTheWriteFails(t *testing.T) {
 	if !ok || typed.Code != problem.CodeMessageScaffoldFailed {
 		t.Fatalf("write failure must map to the scaffold code: %+v", err)
 	}
-	if _, statErr := os.Stat(created); !os.IsNotExist(statErr) {
+	// The handle must be released before the cleanup removal: on platforms
+	// where an open file cannot be unlinked, a leaked handle silently keeps
+	// the half-written file alive. A second Close proves the release.
+	if closeErr := created.Close(); !errors.Is(closeErr, os.ErrClosed) {
+		t.Fatalf("the scaffold must release the file handle before cleanup, close error = %v", closeErr)
+	}
+	if _, statErr := os.Stat(created.Name()); !os.IsNotExist(statErr) {
 		t.Fatalf("a partially written scaffold file must be removed, stat: %v", statErr)
 	}
 }

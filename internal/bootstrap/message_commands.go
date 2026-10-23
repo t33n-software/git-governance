@@ -82,6 +82,10 @@ func newMessageScaffoldCommand(application *application) *cobra.Command {
 			}
 			path := file.Name()
 			if err := writeScaffoldBody(file, source()); err != nil {
+				// Release the handle before cleanup: an open file cannot be
+				// removed on every operating system, and the cleanup must not
+				// depend on platform unlink semantics.
+				_ = file.Close()
 				_ = os.Remove(path)
 				return scaffoldFailure(kind, "the scaffolded message file must be written completely", err)
 			}
