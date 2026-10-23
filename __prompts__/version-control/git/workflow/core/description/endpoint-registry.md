@@ -41,6 +41,7 @@ workflow
 branch validation, synchronization, governed synchronization resume, and the
 on-demand shared-line refresh of local checkouts
 commit creation and validation
+canonical message-file construction through the governed scaffold endpoint
 read-only ticket-number allocation inventory (next-free number and holders
 before ticket intake)
 ticket start and publication
@@ -77,7 +78,10 @@ and `workflow bootstrap publish` rows cover the governed pre-birth recovery
 of a foreign or aborted pre-staging state and the governed publication
 resume of a repository born without `--push`, and the `validate pre-push`
 row carries the state-based recognition of the governed remote birth that
-completes the birth publication path.
+completes the birth publication path. The commit family carries the canonical
+message-file constructor: the `message scaffold` registry row covers the
+governed creation of a layout-carrying message file in the operating-system
+temporary area through the atomic collision-safe platform primitive.
 
 **Target State:**
 

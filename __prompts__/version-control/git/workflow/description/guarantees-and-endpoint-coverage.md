@@ -81,6 +81,7 @@ The portable core requires Help-first discovery for the current CLI's:
 
 ```text
 branch, commit, policy, doctor, validation and authentication endpoints
+canonical message-file construction through the governed scaffold endpoint
 ticket start and publication workflows
 worktree acquisition, inventory and removal lifecycle workflows
 governed branch hygiene: controlled removal of one completed local working
