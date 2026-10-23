@@ -198,6 +198,7 @@ func TestAllEnumeratesEveryCanonicalDescriptor(t *testing.T) {
 		"kebab-case branch `description`",
 		"commit description",
 		"message file",
+		"scaffold message kind",
 		"commit footer",
 		"breaking change migration impact",
 		"`commit`",

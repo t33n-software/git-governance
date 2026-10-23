@@ -93,6 +93,7 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 	command.AddCommand(
 		newBranchCommand(application),
 		newCommitCommand(application),
+		newMessageCommand(application),
 		newWorkflowCommand(application),
 		newValidateCommand(application),
 		newAuthCommand(application),
@@ -107,9 +108,11 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 }
 
 // appendDiscoveryReferences finalizes the help of every register-bound
-// command with the single level-3 deep reference line, and the help of every
+// command with the single level-3 deep reference line, the help of every
 // command that consumes a validated pull-request description with the layout
-// block rendered from the validator's section register. Canonical convention:
+// block rendered from the validator's section register, and the help of every
+// command that consumes a commit body message file with the layout block
+// rendered from the commit message domain register. Canonical convention:
 // docs/conventions/cli/help-contract.md.
 func appendDiscoveryReferences(command *cobra.Command) {
 	if command.Annotations[valueDomainCommandAnnotation] == "true" {
@@ -125,6 +128,13 @@ func appendDiscoveryReferences(command *cobra.Command) {
 			long = command.Short
 		}
 		command.Long = long + "\n\n" + pullRequestBodyLayoutHelp()
+	}
+	if command.Annotations[commitBodyCommandAnnotation] == "true" {
+		long := command.Long
+		if long == "" {
+			long = command.Short
+		}
+		command.Long = long + "\n\n" + commitBodyLayoutHelp()
 	}
 	for _, child := range command.Commands() {
 		appendDiscoveryReferences(child)

@@ -517,6 +517,7 @@ func All() []Domain {
 		BranchSlug(),
 		CommitSubject(),
 		MessageFile(),
+		MessageScaffoldKind(),
 		CommitFooter(),
 		BreakingDescription(),
 		CommitSHA(),
