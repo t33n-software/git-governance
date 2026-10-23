@@ -157,6 +157,8 @@ git governance
 ├── commit
 │   ├── create
 │   └── validate
+├── message
+│   └── scaffold
 ├── workflow
 │   ├── ticket
 │   │   ├── start
@@ -518,7 +520,7 @@ state to refresh.
                                  mandatory in non-interactive mode
 --ticket <KEY-NUMBER>            compatibility check against the branch
 --subject <text>                 commit description (never with the metadata envelope)
---body <text>                    mandatory with breaking, on the hotfix lane, on
+--body-file <path>               mandatory with breaking, on the hotfix lane, on
                                  release stabilization, and on the scratch squash transfer
 --breaking
 --breaking-description <text>
@@ -606,7 +608,35 @@ Checks:
 For `commit-msg`, `--message-file` is always used. The file is read bounded;
 NUL and inadmissible control characters are rejected.
 
-## 13. `workflow ticket start`
+## 13. `message scaffold`
+
+```text
+git governance message scaffold --kind commit-body|pr-description
+```
+
+Constructs the governed message file inside the tool: it creates the file in
+the operating-system temporary area through the atomic platform primitive
+(environment-resolved root, collision-safe unique name, no pre-existence
+probe), pre-fills the canonical layout for the selected kind from the same
+registers the help and the validators render from, and reports the created
+absolute path. The human output names the path; `--output json` carries it as
+the `path` field together with the `kind`.
+
+The scaffold is a construction aid, never a gate: editing or removing
+pre-filled sections stays the author's decision, and the content contract
+remains owned by validation. Pass the reported path unchanged to
+`--body-file`, `--merge-body-file`, or `--commit-body-file` for a commit body,
+or to the pull-request `--body-file`. Where this endpoint exists, it is the
+only lawful origin of a layout-carrying message file; hand-created message
+files are contract violations per
+`docs/conventions/cli/message-file-transport.md`, section 5.
+
+An unknown kind fails closed with `INVALID_INPUT` naming the complete accepted
+value set. A creation or write failure is reported as `MESSAGE_SCAFFOLD_FAILED`
+(category `external`); a partially written file is removed, so the endpoint
+never reports a half-written message.
+
+## 14. `workflow ticket start`
 
 ### 10.1 Purpose
 
@@ -650,7 +680,7 @@ working branch. Transfer stable results later in a controlled manner via
 squash or cherry-pick into the official ticket branch.
 ```
 
-## 14. `workflow ticket publish`
+## 15. `workflow ticket publish`
 
 This command is called after development and local tests. It is not an
 automatically continuing part of `ticket start`.
@@ -739,7 +769,7 @@ git governance --interactive never --yes workflow ticket publish \
 On `scratch/*`, the original `--type`/`--subject` and `--commit-body-file` inputs
 remain required; with ambiguity, `--target` remains mandatory.
 
-## 15. `workflow hotfix start`
+## 16. `workflow hotfix start`
 
 Mandatory options:
 
@@ -849,7 +879,7 @@ ephemeral checkout after the created pull request; the post-publication
 transition to `develop` (see `workflow ticket publish`) is a local operator
 behavior only.
 
-## 16. Release commands
+## 17. Release commands
 
 ### 13.1 `workflow release cut`
 
@@ -1113,7 +1143,7 @@ A born repository is refused fail-closed (`REPOSITORY_ALREADY_BORN`); the
 local genesis is reversible until publication. `--dry-run` prints the complete
 preflight result and the full plan without mutating Git.
 
-## 17. `validate pre-push`
+## 18. `validate pre-push`
 
 This command is the Lefthook and manual pre-push surface.
 
@@ -1152,7 +1182,7 @@ applicable to the genesis publication. There is no flag, environment marker,
 or `--no-verify` path, and every push outside the proven predicate keeps the
 unchanged shared-line prohibition.
 
-## 18. Configuration commands
+## 19. Configuration commands
 
 ```text
 git governance config key add PLATFORM2
@@ -1169,7 +1199,7 @@ Rules:
 - ticket numbers are not stored as a global default
 - commits derive the ticket from the current branch
 
-## 19. `policy describe`
+## 20. `policy describe`
 
 Outputs the active executable policy versioned:
 
@@ -1182,6 +1212,8 @@ Included are:
 - the policy schema version
 - the branch families
 - the commit types
+- the canonical commit body sections
+- the message scaffold kinds
 - the regex/grammar IDs
 - the active key policy (`syntax-only` or `bundle`)
 - the technical limits
@@ -1190,7 +1222,7 @@ Included are:
 Documentation and conformance tests use this output so that no second regex
 truth arises in hooks or examples.
 
-## 20. `doctor`
+## 21. `doctor`
 
 Read-only diagnostics:
 
@@ -1217,7 +1249,7 @@ API sessions remain separate from this and are checked through
 `doctor` installs, repairs, or mutates nothing without a separate explicit
 command.
 
-## 21. Human and JSON output
+## 22. Human and JSON output
 
 ### 19.1 Human
 
@@ -1276,7 +1308,7 @@ How to fix it:
 JSON field names and exit codes are public contracts and are versioned
 compatibly.
 
-## 22. Internal composition
+## 23. Internal composition
 
 Delivery adapters collect inputs and produce commands. Workflows call
 application services directly:
@@ -1300,7 +1332,7 @@ workflow command
 
 Only external consumers and automation use the CLI surface.
 
-## 23. Adoption from the previous tool
+## 24. Adoption from the previous tool
 
 | Existing capability | Target decision |
 |---|---|

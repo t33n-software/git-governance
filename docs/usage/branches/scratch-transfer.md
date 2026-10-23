@@ -33,16 +33,19 @@ needed. If no local official branch exists, the command stops with
 branches for the ticket, specify the intended target explicitly:
 
 ```powershell
+git governance message scaffold --kind commit-body
+# the scaffold reports the absolute path of the pre-filled file; edit it in place
 git governance branch merge-scratch `
   --target feature/ABC-123-add-export-button `
   --type feat `
   --subject "add export button" `
-  --body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt"
+  --body-file "<reported absolute path>"
 ```
 
 The body crosses the CLI boundary through a message file: an absolute path to
 an existing plain UTF-8 text file of at most 1 MiB (relative paths are
-rejected); the content is carried verbatim.
+rejected); the content is carried verbatim. Message files originate from
+`message scaffold`; hand-created message files are contract violations.
 
 The standard human flow first displays the fixed target branch, ticket key, and
 ticket ID. It then presents every supported commit family and asks for the
@@ -57,7 +60,7 @@ separate `--silent` flag:
 git governance --interactive never --yes branch merge-scratch `
   --type feat `
   --subject "add export button" `
-  --body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt"
+  --body-file "<reported absolute path>"
 ```
 
 The command switches to the official branch, applies `git merge --squash`, and

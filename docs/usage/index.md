@@ -15,6 +15,8 @@ git governance branch sync-base
 git governance commit create
 git governance commit validate
 
+git governance message scaffold
+
 git governance workflow ticket start
 git governance workflow ticket publish
 git governance workflow hotfix start

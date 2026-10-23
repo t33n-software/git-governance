@@ -14,16 +14,19 @@ same `branch merge-scratch` application component before validating and
 optionally pushing the official branch:
 
 ```powershell
+git governance message scaffold --kind commit-body
+# the scaffold reports the absolute path of the pre-filled file; edit it in place
 git governance workflow ticket publish `
   --type feat `
   --subject "add export button" `
-  --commit-body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
+  --commit-body-file "<reported absolute path>" `
   --push
 ```
 
 The commit body crosses the CLI boundary through a message file: an absolute
 path to an existing plain UTF-8 text file of at most 1 MiB (relative paths are
-rejected); the content is carried verbatim.
+rejected); the content is carried verbatim. Message files originate from
+`message scaffold`; hand-created message files are contract violations.
 
 The workflow validates the commit series, checks base freshness, and
 conditionally rebases only an unpublished branch. It then runs the configured
@@ -59,7 +62,7 @@ git governance --interactive never --output json --yes workflow ticket publish `
 git governance --interactive never --output json --yes workflow ticket publish `
   --type feat `
   --subject "add export button" `
-  --commit-body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
+  --commit-body-file "<reported absolute path>" `
   --push
 ```
 
