@@ -11,8 +11,6 @@ import (
 	"testing"
 )
 
-const macOSKeychainRunnerHelperEnvironment = "GIT_GOVERNANCE_MACOS_KEYCHAIN_RUNNER_HELPER"
-
 func TestMacOSKeychainStorePreservesRefreshSessionsWithoutSecretArguments(t *testing.T) {
 	runner := &fakeMacOSKeychainRunner{values: make(map[string][]byte)}
 	store := &macOSKeychainStore{runner: runner}
@@ -118,24 +116,14 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 		if got := (macOSSecurityRunner{binary: os.Args[0]}).executable(); got != os.Args[0] {
 			t.Fatalf("configured security binary = %q", got)
 		}
-		t.Setenv(macOSKeychainRunnerHelperEnvironment, "success")
-		if _, err := (macOSSecurityRunner{binary: os.Args[0]}).run(
-			context.Background(),
-			nil,
-			"-test.run=^TestMacOSKeychainRunnerProcess$",
-		); err != nil {
+		if _, err := (macOSSecurityRunner{binary: "go"}).run(context.Background(), nil, "version"); err != nil {
 			t.Fatalf("native runner success error = %v", err)
+		}
+		if _, err := (macOSSecurityRunner{binary: "go"}).run(context.Background(), nil, "tool", "definitely-not-a-go-tool"); err == nil || errors.Is(err, errSessionStoreUnavailable) {
+			t.Fatalf("controlled native runner failure = %v", err)
 		}
 		if _, err := (macOSSecurityRunner{binary: "git-governance-missing-security"}).run(context.Background(), nil, "version"); !errors.Is(err, errSessionStoreUnavailable) {
 			t.Fatalf("missing native runner error = %v", err)
-		}
-		t.Setenv(macOSKeychainRunnerHelperEnvironment, "failure")
-		if _, err := (macOSSecurityRunner{binary: os.Args[0]}).run(
-			context.Background(),
-			nil,
-			"-test.run=^TestMacOSKeychainRunnerProcess$",
-		); err == nil {
-			t.Fatal("native runner accepted a failing command")
 		}
 	})
 
@@ -400,15 +388,6 @@ func TestMacOSKeychainStoreWhiteboxErrorPaths(t *testing.T) {
 			t.Fatalf("missing Keychain argument = %q", got)
 		}
 	})
-}
-
-func TestMacOSKeychainRunnerProcess(t *testing.T) {
-	switch os.Getenv(macOSKeychainRunnerHelperEnvironment) {
-	case "success":
-		return
-	case "failure":
-		os.Exit(1)
-	}
 }
 
 func TestMacOSKeychainStoreRepositoryBindings(t *testing.T) {
