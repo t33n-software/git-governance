@@ -72,10 +72,21 @@ self-explanatory, and the omission is reported as justified.
 
 ## 5. Single Input Representation
 
-Commit creation speaks structured values only: `--type`, `--subject`,
-`--body-file`, `--footer`, `--breaking`, and `--breaking-description`. The project
-deliberately defines no second input level on which a complete pre-assembled
-message could be supplied; the envelope can therefore never be authored by
-callers at all. Raw complete messages exist only at the verification boundary
-— `commit validate` and the `commit-msg` hook — where an already-assembled
-message is handed over for validation.
+Commit creation and pull-request creation speak structured values only:
+`--type`, `--subject`, `--body-file`, `--footer`, `--breaking`, and
+`--breaking-description` on the commit side, and the single `--body-file`
+description flag on the pull-request side. The project deliberately defines
+no second input level on which a complete pre-assembled message could be
+supplied in either direction; the envelope can therefore never be authored
+by callers at all. Multi-line content never crosses the boundary as a flag
+value: no inline body, no per-section flags, no complete-message flag. Raw
+complete messages exist only at the verification boundary — `commit
+validate` and the `commit-msg` hook — where an already-assembled message is
+handed over for validation.
+
+The lawful origin of a layout-carrying message file is the canonical
+constructor (`message scaffold`; see
+`docs/conventions/cli/message-file-transport.md`, section 5): the endpoint
+creates the pre-filled file in the operating-system temporary area and
+reports its absolute path, which the author edits in place and passes
+unchanged. Hand-created message files are contract violations.

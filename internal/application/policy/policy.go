@@ -8,6 +8,7 @@ import (
 	branchapp "github.com/t33n-software/git-governance/internal/application/branch"
 	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
@@ -68,11 +69,16 @@ type Description struct {
 	BranchFamilies []branchapp.FamilyInfo `json:"branchFamilies"`
 	CommitTypes    []string               `json:"commitTypes"`
 	// CommitFamilies carries the commit-family selection metadata (label and
-	// description) alongside the plain type list; the JSON contract evolves
-	// additively only. Canonical convention:
+	// description) alongside the plain type list; CommitBodySections carries
+	// the canonical commit-body layout register and MessageScaffoldKinds the
+	// closed value set of the message scaffold endpoint, so machine consumers
+	// discover both from the same registers every other channel renders from.
+	// The JSON contract evolves additively only. Canonical convention:
 	// docs/conventions/cli/compatibility-and-lifecycle.md.
-	CommitFamilies []CommitFamilyMetadata `json:"commitFamilies"`
-	Limits         Limits                 `json:"limits"`
+	CommitFamilies       []CommitFamilyMetadata `json:"commitFamilies"`
+	CommitBodySections   []string               `json:"commitBodySections"`
+	MessageScaffoldKinds []string               `json:"messageScaffoldKinds"`
+	Limits               Limits                 `json:"limits"`
 }
 
 // CommitFamilyMetadata describes one commit family to machine consumers with
@@ -105,13 +111,20 @@ func Describe() Description {
 			Description: family.Description,
 		})
 	}
+	sections := commitmsg.BodySections()
+	commitBodySections := make([]string, 0, len(sections))
+	for _, section := range sections {
+		commitBodySections = append(commitBodySections, section.Name)
+	}
 	return Description{
-		SchemaVersion:  schemaVersion,
-		KeyPolicy:      "syntax-only",
-		CommitSigning:  CommitSigningRequired,
-		BranchFamilies: cliparam.BranchFamilyMetadata(),
-		CommitTypes:    cliparam.CommitType().Values,
-		CommitFamilies: commitFamilies,
+		SchemaVersion:        schemaVersion,
+		KeyPolicy:            "syntax-only",
+		CommitSigning:        CommitSigningRequired,
+		BranchFamilies:       cliparam.BranchFamilyMetadata(),
+		CommitTypes:          cliparam.CommitType().Values,
+		CommitFamilies:       commitFamilies,
+		CommitBodySections:   commitBodySections,
+		MessageScaffoldKinds: cliparam.MessageScaffoldKind().Values,
 		Limits: Limits{
 			TicketKeyMaximumLength:    32,
 			TicketNumberMaximumLength: 18,

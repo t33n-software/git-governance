@@ -58,6 +58,7 @@ contributor build from source is described in
 - `branch list`, `branch create`, `branch validate`, `branch merge-scratch`,
   and `branch sync-base`
 - `commit create` and `commit validate`
+- `message scaffold`
 - `workflow ticket start` and `workflow ticket publish`
 - `workflow bootstrap`
 - `workflow hotfix start`, `workflow hotfix publish`, and

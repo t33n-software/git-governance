@@ -22,10 +22,13 @@ is ambiguous:
 git governance --interactive never --output json --yes workflow ticket publish `
   --type feat `
   --subject "add export button" `
-  --commit-body-file "$env:TEMP\commit-body-7c9e6679-7425-40de-944b-e07fc1f90ae7.txt" `
+  --commit-body-file "<reported absolute path>" `
   --resume `
   --push
 ```
+
+The commit body file originates from `message scaffold --kind commit-body`;
+hand-created message files are contract violations.
 
 Use `--create-pull-request` only together with `--push` and an explicitly
 configured hosting provider. A failed resume leaves the Git operation intact

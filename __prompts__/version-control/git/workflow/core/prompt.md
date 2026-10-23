@@ -892,6 +892,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `branch sync-base` | E2 | Bewusste, isolierte Basis-Synchronisation und governeter Wiedereinstieg in ihre konfliktpausierte Rebase- oder Merge-Operation | Nach Mutation und nach Resume Quality erneut prüfen |
 | `branch refresh-shared-lines` | E2 | Ausdrücklich benötigte Frische lokaler Shared-Line-Checkouts, etwa weil ein nachgelagerter Prozess den lokalen Baum liest | Nur Fast-Forward, fail-closed, keine Remote-Mutation, kein Checkout-Wechsel, keine Linien-Erzeugung |
 | `commit create` | E2 | Einen explizit abgegrenzten semantischen Commit erzeugen; nur auf einer verifizierten offiziellen Working-Branch nach freigegebenem Embargo | Nur explizite Pfade, kein implizites Staging |
+| `message scaffold` | E2 | Eine mehrzeilige Nachrichtendatei (Commit-Body oder Pull-Request-Beschreibung) kanonisch konstruieren, bevor ein Body- oder Description-Flag befüllt wird | Erzeugt die vorausgefüllte Datei im OS-Temporärbereich und meldet ihren absoluten Pfad; keine Git-Mutation; der Content-Vertrag bleibt bei Validierung und [6.4] |
 | `workflow cleanup` | E1 | Ausschließlich lokal übertragene private Scratch-Branches aufräumen | Löscht keine Remote- oder offiziellen Branches |
 | `workflow worktree start` | E1 | Einen detached Task-Worktree für ein Ticket governet akquirieren und den Branch-Kontext daran binden | Erzeugt den Worktree aus der aktuellen `origin/develop`-Revision; keine Branch-Erzeugung; die erste Mutation im Worktree bleibt `workflow ticket start` |
 | `workflow worktree list` | RO | Lokale Task-Worktrees inventarisieren | Keine Mutation |
@@ -1157,41 +1158,53 @@ vollständig bestandenem Gate setzt der Agent `commit_content_verified`.
 
 #### 6.4.6 Nachrichten-Transport über temporäre Dateien
 
-Die Nachrichtendatei eines mehrzeiligen Nachrichtenteils entsteht im
-temporären Bereich des jeweiligen Betriebssystems — niemals im Repository
-(kein Staging-Rauschen, kein Git-Zustandskontakt). Die Disziplin ist
-verbindlich:
+Die Nachrichtendatei eines mehrzeiligen Nachrichtenteils entsteht
+ausschließlich durch den kanonischen Konstruktor der Binary:
+`message scaffold`. Der Endpunkt erzeugt die Datei im temporären Bereich
+des jeweiligen Betriebssystems über die atomare Plattform-Primitive
+(umgebungsauflöste Wurzel, kollisionssicherer eindeutiger Name, keine
+vorgelagerte Existenzprüfung), befüllt sie mit dem kanonischen Layout der
+gewählten Art aus denselben Registern, die auch Hilfe und Validierung
+speisen, und meldet den erzeugten absoluten Pfad. Die konkrete
+Argumentform — insbesondere die Artenauswahl — wird aus der unmittelbar
+vorher gelesenen Hilfe abgeleitet; dieser Abschnitt dupliziert sie nicht.
+
+Die Disziplin bleibt verbindlich:
 
 ```text
-1. Namensform: <zweck>-<uuid>.txt mit einer intern je Nachrichteneinheit
-   generierten UUID; ticketbasierte Namen werden nicht verwendet, damit
-   parallele Agents und gleichzeitige Commit- und Publikationsbedarfe
-   nicht kollidieren.
+1. Edit-in-place: der Agent bearbeitet die gemeldete Datei an Ort und
+   Stelle — zutreffende Kategorien ausfüllen, nicht zutreffende
+   entfernen, Slots niemals mit erfundenem Inhalt lassen — und übergibt
+   den Pfad unverändert.
 2. Such- und Orientierungsverbot: im temporären Bereich wird nicht
    gesucht, nicht gelistet und sich nicht an Beständen orientiert — er
    ist niemals eine Informations-, Orientierungs- oder
-   Infrastruktur-Quelle.
-3. Prüfen-dann-Schreiben: vor dem Schreiben wird proaktiv geprüft, dass
-   die Zieldatei nicht existiert; erst danach wird geschrieben.
-4. Tool-Priorität: Existenzprüfung und Schreiben laufen mit den
-   Kontext-Tools in dieser Reihenfolge; die Shell ist ausschließlich
-   der Fallback.
-5. Einmal-Nutzung: die Datei wird frisch je Nachricht erstellt, von
-   genau einer Endpunkt-Invocation konsumiert und niemals gecacht oder
-   wiederverwendet.
-6. Der Content-Vertrag bleibt [6.4]: die Datei ändert nichts daran, was
-   die Nachricht tragen muss.
+   Infrastruktur-Quelle; für den Agenten ist er ausschließlich
+   Schreibziel des Konstruktors.
+3. Einmal-Nutzung: je Nachricht wird frisch konstruiert; die Datei wird
+   von genau einer Endpunkt-Invocation konsumiert und niemals gecacht
+   oder wiederverwendet.
+4. Hand-Erstellung ist Vertragsverletzung: das manuelle Anlegen einer
+   Nachrichtendatei — im Repository, im temporären Bereich oder sonst
+   wo — statt über den Konstruktor ist verboten; es reimportiert genau
+   die Kollisions-, Platzierungs- und Plattformklasse, die der
+   Konstruktor abschafft.
+5. Der Content-Vertrag bleibt [6.4]: die Datei ändert nichts daran, was
+   die Nachricht tragen muss; der Konstruktor ist Konstruktionshilfe,
+   niemals Gate.
 ```
 
 Der Transport — welche Argumente Betreff, Body, Footer und Breaking-Angaben
-tragen — wird ausschließlich aus der unmittelbar vorher gelesenen
-`commit create`-Hilfe abgeleitet. Mehrzeilige Nachrichtenteile (der Body)
+tragen — wird ausschließlich aus der unmittelbar vorher gelesenen Hilfe des
+jeweiligen Endpunkts abgeleitet. Mehrzeilige Nachrichtenteile (der Body)
 werden über eine Nachrichtendatei überführt: das Help-Flag trägt einen
 absoluten Pfad zu einer existierenden Plain-UTF-8-Textdatei von höchstens
 1 MiB, und der Dateiinhalt wird verbatim als Body übernommen. Skalare
 Angaben (Betreff, Footer, Breaking-Description) bleiben Flag-Argumente.
-Bietet die aktuelle Hilfe keinen Body-Transport, ist der Zustand `BLOCKED`
-mit benannter Lücke; es gibt keinen Roh-Git- oder Editor-Ersatz.
+Bietet die aktuelle Hilfe keinen Body-Transport oder keinen
+Scaffold-Konstruktor für eine benötigte Art, ist der Zustand `BLOCKED`
+mit benannter Lücke; es gibt keinen Roh-Git-, Editor- oder
+Handdatei-Ersatz.
 
 ## [7] KONFLIKT- UND SICHERHEITSPROTOKOLL
 [INTENT: ANWEISUNG]
@@ -1429,6 +1442,9 @@ Der Agent darf niemals:
 - im temporären Bereich nach Dateien zu suchen, ihn zu listen oder sich an
   seinen Beständen zu orientieren — der temporäre Bereich ist niemals eine
   Informations-, Orientierungs- oder Infrastruktur-Quelle;
+- eine Nachrichtendatei für einen Endpunkt von Hand zu erzeugen statt den
+  kanonischen Konstruktor `message scaffold` zu verwenden — handerzeugte
+  Nachrichtendateien sind Vertragsverletzungen nach [6.4.6];
 - die Workflow-Initialisierung für einen Turn starten, den das
   Turn-Intent-Gate als Frage gebunden hat;
 - im Question-Mode eine Mutation, ein Staging, einen Commit, eine

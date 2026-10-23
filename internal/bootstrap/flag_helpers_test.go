@@ -842,3 +842,26 @@ func TestPullRequestBodyAnnotationAndShortFallback(t *testing.T) {
 		t.Fatalf("long help %q misses the validated layout", command.Long)
 	}
 }
+
+// TestCommitBodyAnnotationAndShortFallback pins the commit-body marking
+// surface and the short-help fallback of the layout finalizer: a command
+// without an annotation map and without a long help still receives the
+// canonical commit body layout appended from its short help.
+func TestCommitBodyAnnotationAndShortFallback(t *testing.T) {
+	t.Parallel()
+
+	command := &cobra.Command{Use: "create", Short: "create a governed commit"}
+	markCommitBodyCommand(command)
+	if command.Annotations[commitBodyCommandAnnotation] != "true" {
+		t.Fatalf("annotations = %#v, want the commit-body mark", command.Annotations)
+	}
+
+	short := command.Short
+	appendDiscoveryReferences(command)
+	if !strings.HasPrefix(command.Long, short) {
+		t.Fatalf("the short fallback did not seed the commit body layout: %q", command.Long)
+	}
+	if !strings.Contains(command.Long, commitBodyLayoutHelp()) {
+		t.Fatalf("long help %q misses the canonical commit body layout", command.Long)
+	}
+}

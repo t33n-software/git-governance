@@ -7,6 +7,7 @@ import (
 
 	"github.com/t33n-software/git-governance/internal/application/cliparam"
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 	"github.com/t33n-software/git-governance/internal/domain/ticket"
 )
@@ -93,6 +94,21 @@ func TestDescriptionIsSelfContained(t *testing.T) {
 		actual_family := actual.CommitFamilies[index]
 		if actual_family.Type != family.Type.String() || actual_family.Label != family.Label || actual_family.Description != family.Description {
 			t.Fatalf("Describe() commitFamilies[%d] = %#v, want the canonical surface %+v", index, actual_family, family)
+		}
+	}
+
+	if len(actual.CommitBodySections) != 5 || len(actual.MessageScaffoldKinds) != 2 {
+		t.Fatalf("Describe() body sections = %d, scaffold kinds = %d", len(actual.CommitBodySections), len(actual.MessageScaffoldKinds))
+	}
+	for index, section := range commitmsg.BodySections() {
+		if actual.CommitBodySections[index] != section.Name {
+			t.Fatalf("Describe() commitBodySections[%d] = %q, want %q", index, actual.CommitBodySections[index], section.Name)
+		}
+	}
+	kinds := cliparam.MessageScaffoldKind()
+	for index, value := range kinds.Values {
+		if actual.MessageScaffoldKinds[index] != value {
+			t.Fatalf("Describe() messageScaffoldKinds[%d] = %q, want %q", index, actual.MessageScaffoldKinds[index], value)
 		}
 	}
 }

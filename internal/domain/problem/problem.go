@@ -65,6 +65,7 @@ const (
 	CodeBreakingChangeInvalid         Code = "BREAKING_CHANGE_INVALID"
 	CodeCommitBodyRequired            Code = "COMMIT_BODY_REQUIRED"
 	CodePullRequestDescriptionInvalid Code = "PULL_REQUEST_DESCRIPTION_INVALID"
+	CodeMessageScaffoldFailed         Code = "MESSAGE_SCAFFOLD_FAILED"
 	CodeWorktreeNotClean              Code = "WORKTREE_NOT_CLEAN"
 	CodeWorktreeRequired              Code = "WORKTREE_REQUIRED"
 	CodeWorktreeConflict              Code = "WORKTREE_CONFLICT"

@@ -66,11 +66,13 @@ exclusively through a message file passed by absolute path — an existing
 plain UTF-8 text file of at most 1 MiB whose content is carried verbatim;
 scalar parts (subject, footers, breaking impact) stay flag arguments. The
 composing agent derives the carrying arguments from the immediately
-preceding `commit create` or publish-endpoint help and creates the message
-file in the OS temp area under the [6.4.6] discipline. If the current binary
-exposes no body transport for a commit or no description transport for a
-pull request, the agent blocks with the named gap instead of falling back to
-raw Git, an external PR CLI, raw provider calls, or manual web edits.
+preceding `commit create` or publish-endpoint help and obtains the message
+file from the binary's canonical constructor `message scaffold` under the
+[6.4.6] discipline; hand-created message files are contract violations. If
+the current binary exposes no body transport for a commit, no description
+transport for a pull request, or no scaffold kind for a needed message, the
+agent blocks with the named gap instead of falling back to raw Git, an
+external PR CLI, raw provider calls, or manual web edits.
 
 **Current State:**
 

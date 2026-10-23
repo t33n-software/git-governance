@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/t33n-software/git-governance/internal/application/cliparam"
+	"github.com/t33n-software/git-governance/internal/domain/commitmsg"
 )
 
 // This file holds the shared flag-registration helpers: one helper per value
@@ -192,8 +193,12 @@ func registerSubjectFlag(command *cobra.Command, target *string, name, context s
 
 // registerBodyFileFlag binds a commit body message-file flag under the given
 // name (structural-reference); mandatory-body contexts stay endpoint context.
+// Every consuming command is marked so the tree finalizer renders the
+// canonical commit body layout from the commit message domain register into
+// its help: one source, every endpoint.
 func registerBodyFileFlag(command *cobra.Command, target *string, name, context string) {
 	registerPathDomainFlag(command, target, name, cliparam.MessageFile().WithLead("file containing the commit body"), context)
+	markCommitBodyCommand(command)
 }
 
 // registerPullRequestBodyFileFlag binds the pull-request description
@@ -242,6 +247,51 @@ func pullRequestBodyLayoutHelp() string {
 	}
 	for index, section := range pullRequestDescriptionSections {
 		lines = append(lines, "## "+section, pullRequestBodySectionPlaceholders[index])
+	}
+	return strings.Join(lines, "\n")
+}
+
+// pullRequestBodySkeleton renders the copy-ready pull request description
+// file from the same canonical section register and placeholder alignment the
+// help and the structural validator render from; the message scaffold
+// materializes it for the pr-description kind.
+func pullRequestBodySkeleton() string {
+	blocks := make([]string, 0, len(pullRequestDescriptionSections))
+	for index, section := range pullRequestDescriptionSections {
+		blocks = append(blocks, "## "+section+"\n\n"+pullRequestBodySectionPlaceholders[index])
+	}
+	return strings.Join(blocks, "\n\n") + "\n"
+}
+
+// commitBodyCommandAnnotation marks commands that consume a commit body
+// message file; the tree finalizer appends the canonical commit body layout
+// block rendered from the commit message domain register to the help of every
+// marked command. The layout is a content contract: validation enforces the
+// header, subject, and footer grammar but never the body layout, and the
+// block states that distinction. Canonical convention:
+// docs/conventions/cli/help-contract.md.
+const commitBodyCommandAnnotation = "git-governance.t33n-software/commit-body-bound"
+
+// markCommitBodyCommand records that the command consumes a commit body
+// message file.
+func markCommitBodyCommand(command *cobra.Command) {
+	if command.Annotations == nil {
+		command.Annotations = map[string]string{}
+	}
+	command.Annotations[commitBodyCommandAnnotation] = "true"
+}
+
+// commitBodyLayoutHelp renders the canonical commit body layout from the
+// commit message domain register: the category names, their slots, and their
+// immutable order are never copied here. The block labels the layout as a
+// content contract that validation does not enforce, keeping "rejected by
+// validation" and "convention-violating" distinguishable.
+func commitBodyLayoutHelp() string {
+	lines := []string{
+		`Commit body layout (content contract; validation does not enforce body layout): applicable units carry these markdown sections, in this order, each as "## <Section Name>" with non-empty content, in English. Omissions are justified in the commit series narrative, never by emptying a section. Skeleton:`,
+	}
+	for _, section := range commitmsg.BodySections() {
+		lines = append(lines, "## "+section.Name, section.Slot)
 	}
 	return strings.Join(lines, "\n")
 }

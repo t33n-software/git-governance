@@ -75,3 +75,22 @@ and they surface to agents through the endpoint help at invocation time.
 Workflow prompts and adapters do not restate them. A prompt that copies
 validation rules drifts silently when the tool evolves; the help, read
 before every call, always carries the current contract.
+
+## 5. Ownership of construction
+
+The transport contract binds how a message file crosses the boundary; it
+does not bind who creates the file. A conforming CLI may own the canonical
+constructor of the message file it demands: a single governed endpoint that
+creates the file in the operating-system temporary area through the atomic
+platform primitive (environment-resolved root, collision-safe unique name,
+no pre-existence probe), pre-fills the canonical layout for the selected
+message kind from the same registers the help and the validators render
+from, and reports the created absolute path unchanged.
+
+Where such a constructor exists, it is the only lawful origin of a
+layout-carrying message file: hand-created message files reintroduce the
+collision, placement, and operating-system asymmetry failure class the
+constructor exists to eliminate, and the temporary area stays write-only
+for every other actor. The constructor is a construction aid, never a
+gate: editing or removing pre-filled sections stays the author's decision,
+and the content contract remains owned by validation.
