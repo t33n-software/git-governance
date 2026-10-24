@@ -1,0 +1,1 @@
+../../__prompts__/version-control/git/workflow/prompt-affectedness-guard/prompt.md

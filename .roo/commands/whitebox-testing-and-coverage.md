@@ -1,0 +1,1 @@
+../../__prompts__/testing/coverage/prompt.md
