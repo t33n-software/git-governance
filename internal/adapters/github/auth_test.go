@@ -894,7 +894,7 @@ func TestAuthServiceStatusMeasurementFailurePaths(t *testing.T) {
 	now := time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
 	target := CredentialTarget{Host: "github.com", Owner: "acme", Repository: "governance"}
 
-	t.Run("a store failure and a missing binding fail closed", func(t *testing.T) {
+	t.Run("a store failure and an uncoverable repository fail closed", func(t *testing.T) {
 		service := newTestAuthService(t, AuthOptions{
 			Store: &memorySessionStore{loadErr: errors.New("store broken")},
 			Now:   func() time.Time { return now },
@@ -902,9 +902,16 @@ func TestAuthServiceStatusMeasurementFailurePaths(t *testing.T) {
 		_, err := service.Status(context.Background(), target)
 		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
 
+		// A repository that no host session covers stays fail-closed even
+		// though the discovery fallback now probes every stored session.
+		server := capabilityCardServer(t, nil, nil)
+		defer server.Close()
 		service = newTestAuthService(t, AuthOptions{
-			Store: capabilityTestStore(t),
-			Now:   func() time.Time { return now },
+			Store:        capabilityTestStore(t),
+			OAuthBaseURL: server.URL,
+			APIBaseURL:   server.URL,
+			HTTPClient:   server.Client(),
+			Now:          func() time.Time { return now },
 		})
 		_, err = service.Status(context.Background(), CredentialTarget{Host: "github.com", Owner: "acme", Repository: "unbound"})
 		assertAuthProblem(t, err, problem.CodeConfigurationUnavailable)
