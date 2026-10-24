@@ -169,8 +169,10 @@ type AuthProvider interface {
 	Login(context.Context, LoginRequest) (SessionStatus, error)
 	// Status reports every session bound to the given repository target — one
 	// entry per bound GitHub App class, each with its freshly measured public
-	// app registration. The zero target reports the most recently used host
-	// session without any measurement.
+	// app registration. A repository without a binding yet is answered by the
+	// same host-wide discovery the credential paths use, reporting every
+	// covering session without binding it. The zero target reports the most
+	// recently used host session without any measurement.
 	Status(context.Context, CredentialTarget) ([]SessionStatus, error)
 	// Logout removes one session selected from the bindings of the given
 	// repository target. When several sessions are bound, the request's
@@ -378,10 +380,13 @@ func (service *AuthService) Login(ctx context.Context, request LoginRequest) (Se
 
 // Status reports every session bound to the given repository target — one
 // entry per bound GitHub App class, each with its freshly measured public app
-// registration. The zero target reports the most recently used host session
-// without any measurement. A repository target fails closed when a bound
-// session cannot be measured; a missing binding fails closed with the
-// re-login remediation.
+// registration. When the repository has no binding yet, the status falls back
+// to the same host-wide discovery the credential-resolution paths use and
+// reports every covering session; the query never binds a session itself.
+// The zero target reports the most recently used host session without any
+// measurement. A repository target fails closed when a candidate cannot be
+// measured, and with the re-login remediation when no session covers the
+// repository.
 func (service *AuthService) Status(ctx context.Context, repository CredentialTarget) ([]SessionStatus, error) {
 	if err := service.contextError(ctx, "GitHub App status"); err != nil {
 		return nil, err
@@ -402,7 +407,7 @@ func (service *AuthService) Status(ctx context.Context, repository CredentialTar
 		return nil, sessionStoreProblem("load", err)
 	}
 	if len(sessions) == 0 {
-		return nil, sessionStoreProblem("load", errSessionNotFound)
+		return service.discoveredStatuses(ctx, validated)
 	}
 	statuses := make([]SessionStatus, 0, len(sessions))
 	for _, session := range sessions {
@@ -421,6 +426,76 @@ func (service *AuthService) Status(ctx context.Context, repository CredentialTar
 		statuses = append(statuses, status)
 	}
 	return statuses, nil
+}
+
+// discoveredStatuses answers a repository target that has no binding yet with
+// the same host-wide discovery the credential-resolution paths use: the
+// stored sessions of the host are probed in deterministic client-ID order and
+// every session whose GitHub App installation covers the repository is
+// reported with its freshly measured registration. The status query never
+// binds a session — binding remains the exclusive side effect of the
+// publication-time resolution paths. Candidates that do not cover the
+// repository are skipped; a covering candidate whose measurement fails fails
+// the whole status closed; when no candidate covers the repository the
+// re-login remediation verdict is preserved.
+func (service *AuthService) discoveredStatuses(
+	ctx context.Context,
+	validated CredentialTarget,
+) ([]SessionStatus, error) {
+	sessions, err := service.store.ListForHost(ctx, validated.Host)
+	if err != nil {
+		return nil, sessionStoreProblem("load", err)
+	}
+	// Client IDs are unique per host scope by store construction, so the sort
+	// key is total and the probe order deterministic.
+	ordered := append([]Session(nil), sessions...)
+	sort.Slice(ordered, func(left, right int) bool {
+		return ordered[left].ClientID < ordered[right].ClientID
+	})
+	statuses := make([]SessionStatus, 0, len(ordered))
+	var hardErr error
+	refreshFailures := 0
+	for _, session := range ordered {
+		token, err := service.accessToken(ctx, session)
+		if err != nil {
+			if value, ok := problem.As(err); ok && value.Category == problem.CategoryExternal {
+				if hardErr == nil {
+					hardErr = err
+				}
+			} else {
+				refreshFailures++
+			}
+			continue
+		}
+		if err := service.ensureRepositoryAuthorization(ctx, session, token, validated); err != nil {
+			if errors.Is(err, errRepositoryNotCovered) {
+				continue
+			}
+			if hardErr == nil {
+				hardErr = err
+			}
+			continue
+		}
+		registration, err := service.sessionAppRegistration(ctx, session, token.value)
+		if err != nil {
+			return nil, err
+		}
+		status := sessionStatus(session, service.now())
+		status.Repository = validated.Owner + "/" + validated.Repository
+		status.AppSlug = registration.Slug
+		status.Capabilities = sortedPermissionNames(registration.Permissions)
+		statuses = append(statuses, status)
+	}
+	if len(statuses) > 0 {
+		return statuses, nil
+	}
+	if hardErr != nil {
+		return nil, hardErr
+	}
+	if len(ordered) > 0 && refreshFailures == len(ordered) {
+		return nil, oauthProblem("refresh_token_expired", "run auth login github again")
+	}
+	return nil, sessionStoreProblem("load", errSessionNotFound)
 }
 
 // Logout removes one protected local refresh session selected by the given
