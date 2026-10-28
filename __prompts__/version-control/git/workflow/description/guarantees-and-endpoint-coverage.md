@@ -18,7 +18,7 @@ requires Help-first discovery for. It is a child of the modularized
 
 | ID | Type | Description | Change | Status |
 |----|------|-------------|--------|--------|
-| GUA-001 | INFORMATION | Architectural guarantees of the combined adapter and core | No | Active |
+| GUA-001 | INFORMATION | Architectural guarantees of the combined adapter and core | Yes | Active |
 | COV-001 | INFORMATION | Current endpoint coverage classes of the portable core | No | Active |
 
 ---
@@ -46,6 +46,13 @@ The combined adapter and core guarantee:
 - branch and commit conventions are obtained from the live policy and validators;
 - regular ticket, hotfix, release, support and conflict paths are all explicit;
 - shared lines are guarded by the core's mutation embargo before any edit;
+- the mutation embargo is repository-scope-bound: read-only discovery, the
+  report obligations of injected prompts, and writes to non-repository
+  targets are never gated, while every repository mutation — in this or
+  another governed repository — waits for that repository's worktree chain;
+- the task report and the ticket-key proposal are released in one user
+  decision before worktree acquisition, and no report, answer, or
+  question-release obligation may be demoted behind the worktree machinery;
 - task-bound worktree isolation is actor-agnostic and lane-spanning: ticket,
   hotfix, and release lane work acquires its detached worktree through the
   governed `workflow worktree start` endpoint from the lane's own base, and

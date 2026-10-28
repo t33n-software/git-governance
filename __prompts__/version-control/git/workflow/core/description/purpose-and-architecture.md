@@ -19,7 +19,7 @@ responsibilities between prompt, running binary, and optional adapter.
 || ID | Type | Description | Change | Status |
 ||----|------|-------------|--------|--------|
 || PUR-001 | INFORMATION | Portable self-contained core purpose | No | Active |
-|| PUR-002 | CONSTRAINT | Responsibility separation between prompt, binary, and adapter | No | Active |
+|| PUR-002 | CONSTRAINT | Responsibility separation between prompt, binary, and adapter | Yes | Active |
 || PUR-003 | CONSTRAINT | The running binary is the only runtime authority | No | Active |
 
 ---
@@ -79,7 +79,9 @@ The runtime architecture is:
 Agent
   -> loads core/prompt.md completely
   -> classifies the checked-out branch and binds the shared-line guard
-     before any mutation
+     before any repository mutation
+  -> runs the read-only discovery and releases the active task's report
+     obligations before any worktree acquisition
   -> classifies the task pattern and binds the execution level
   -> discovers each required git-governance endpoint through --help
   -> uses the current binary for syntax and validation

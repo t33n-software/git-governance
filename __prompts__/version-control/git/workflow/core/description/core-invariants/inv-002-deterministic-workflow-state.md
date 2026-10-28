@@ -21,6 +21,7 @@ completion. The state machine is:
 ```text
 BRANCH_CONTEXT_CHECK
 -> SHARED_LINE_GUARD
+-> DISCOVERY_AND_TASK_RESPONSE
 -> ENVIRONMENT_READY
 -> INTAKE_READY
 -> EXECUTION_LEVEL_BOUND
@@ -43,6 +44,13 @@ release reconciliation
 delivery waiting states
 conflict recovery
 ```
+
+The `DISCOVERY_AND_TASK_RESPONSE` phase runs the read-only discovery of the
+active task and releases its report, answer, or question obligation before any
+worktree acquisition; the blocking side state
+`WAITING_FOR_TASK_RESPONSE_DECISION` holds the workflow until the user decides,
+and the transition to `ENVIRONMENT_READY` requires the proofs
+`task_response_released` and `shared_line_refresh_checked`.
 
 **Affected Files:**
 

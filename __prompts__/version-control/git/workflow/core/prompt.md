@@ -173,6 +173,7 @@ für den passenden governeten Workflow.
 TURN_INTENT_CLASSIFICATION
 -> BRANCH_CONTEXT_CHECK
 -> SHARED_LINE_GUARD
+-> DISCOVERY_AND_TASK_RESPONSE
 -> ENVIRONMENT_READY
 -> INTAKE_READY
 -> EXECUTION_LEVEL_BOUND
@@ -192,12 +193,23 @@ QUESTION_MODE
 WAITING_FOR_INTENT_DECISION
 WAITING_FOR_BRANCH_DECISION
 WAITING_FOR_TICKET
+WAITING_FOR_TASK_RESPONSE_DECISION
 WAITING_FOR_USER_DECISION
 WAITING_FOR_RELEASE_DELIVERY
 WAITING_FOR_HOTFIX_DELIVERY
 PAUSED_CONFLICT
 BLOCKED
 ```
+
+`DISCOVERY_AND_TASK_RESPONSE` ist die Phase, in der der aktive Auftrag
+read-only erkundet und sein Report-, Antwort- oder Frage-Release-Pflichtvertrag
+vollständig erfüllt wird; steht dieser Release aus, blockiert der side state
+`WAITING_FOR_TASK_RESPONSE_DECISION` jeden Dispatch einer Worktree-Akquisition
+oder eines Ticket-Key-Vorschlags, bis der Benutzer entschieden hat. Der
+Übergang nach `ENVIRONMENT_READY` verlangt den Nachweis
+`task_response_released` und — wenn die Discovery den lokalen Shared-Line-Baum
+gelesen hat oder die Worktree-Akquisitionsbasis von ihm abhängt — den Nachweis
+`shared_line_refresh_checked`.
 
 ### 2.2 Laufzeit-Oberflächen
 
@@ -216,6 +228,8 @@ Der Agent führt diese Zustandsflächen jederzeit explizit:
 - workflow_initialization_state = deferred | in_progress | completed
 - active_task_scope = none | bound
 - mode_notice_emitted = none | question | task
+- repository_scope_detection = current_repo | other_governed_repo | non_repository_target | unresolved
+- task_response_state = not_required | pending | released_awaiting_decision | confirmed
 ```
 
 `mutation_embargo = active` ist der Initialzustand ab der Bindung eines
@@ -232,6 +246,18 @@ Working-Branch) erlaubt. `not_required` gilt erst für einen über [3.2]
 bewiesenen `official_working`-, `scratch`- oder `unborn`-Kontext; die
 Klassifizierung verfeinert den Embargo-Zustand, sie ist nie dessen
 Voraussetzung.
+
+`repository_scope_detection` bindet die Mutationsfrage an den Zielraum eines
+Schreibzugriffs: `current_repo` und `other_governed_repo` leiten die jeweilige
+eigene Worktree-Kette des getroffenen Repositorys ein — bei einem anderen
+governierten Repository über dessen Pfadbindung —, bevor irgendetwas darin
+geschrieben wird; `non_repository_target` löst niemals eine Worktree-Kette
+aus; `unresolved` erzwingt die Auflösung vor jedem Schreib-Dispatch und wird
+niemals geraten. `task_response_state` folgt der Report-Phase: `pending`
+während der Discovery, `released_awaiting_decision` nach dem gemeinsamen
+Release von Report und Key-Vorschlag, `confirmed` nach der Nutzerentscheidung;
+`not_required` gilt nur, wenn der aktive Auftrag keinen Report-, Antwort- oder
+Frage-Release-Vertrag trägt.
 
 ### 2.3 Mindestnachweise
 
@@ -265,6 +291,7 @@ Der Agent führt mindestens diese Nachweise als explizite Arbeitsoberfläche:
 - pull_request_url
 - turn_intent_classified
 - mode_transition_recorded
+- task_response_released
 ```
 
 Zusatznachweise, nur bei Betroffenheit:
@@ -278,6 +305,7 @@ Zusatznachweise, nur bei Betroffenheit:
 - provider_session_verified         (Aufgabenmuster mit Provider-Publikation; genau einmal pro Scope)
 - current_branch_pr_state_checked   (Start auf einer official_working Branch)
 - deferred_initialization_completed (erster aufgabenführender Turn nach einer Fragephase)
+- shared_line_refresh_checked   (die Discovery las den lokalen Shared-Line-Baum oder die Worktree-Akquisitionsbasis hängt von ihm ab)
 ```
 
 Für Release- und Hotfix-Wege ergänzt der Agent nur bei Betroffenheit:
@@ -472,6 +500,9 @@ Erlaubt bleiben unter aktivem Embargo ausschließlich:
 
 ```text
 - read-only Orientierung (Status, Historie, Diffs, Hilfetexte);
+- die vollständige Discovery- und Report-Phase des aktiven Auftrags
+  (read-only) sowie Schreiboperationen auf Nicht-Repository-Ziele gemäß
+  `repository_scope_detection`;
 - nicht mutierende governete Endpunkte (Diagnose, Validierung, Policy,
   Help-Reanchor);
 - der Dispatch eines Ebene-1-Workflows, der die Shared Line verlässt — die
@@ -481,6 +512,12 @@ Erlaubt bleiben unter aktivem Embargo ausschließlich:
   remove`, `workflow branch prune`) — ihre Mutationsoberfläche ist die
   Working-Branch-Referenz, niemals die ausgecheckte Shared Line.
 ```
+
+Der Mutationsbegriff des Embargos ist repository-scope-gebunden: er bindet
+an Schreibzugriffe auf Git-Repositories — das aktuelle oder ein anderes,
+dessen eigene Worktree-Kette dann über dessen Pfadbindung erreicht wird —,
+niemals an read-only Analyse, Report-Erzeugung oder Arbeitsflächen außerhalb
+von Versionsverwaltung.
 
 Das Embargo endet erst, wenn nach dem Workflow-Dispatch der Branch-Kontext
 erneut geprüft wurde und die offizielle Working-Branch tatsächlich ausgecheckt
@@ -640,11 +677,11 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 
 | Branch-Kontext | Aufgabenmuster | Verbindlicher Einstieg |
 |---|---|---|
-| `shared_line` | `ticket` | Embargo aktiv; Intake; dann `workflow worktree start` gemäß der Worktree-Konvention aus [3.1]; im Worktree `workflow ticket start`; erst danach Implementierung |
-| `shared_line` | `hotfix` | Embargo aktiv; betroffene Linie fachlich binden; dann `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1]; im Worktree `workflow hotfix start`; erst danach Implementierung |
-| `shared_line` | `release` / `support` | Embargo aktiv; dann `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1] (für Dispatch-Endpunkte ohne lokale Branch-Erzeugung trägt der Worktree den Dispatch); im Worktree der passende `workflow release`-Pfad |
-| `shared_line` | `exploration` | Embargo aktiv; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
-| `shared_line` | `diagnostic` | Embargo bleibt aktiv und braucht keine Aufhebung; read-only Endpunkte und Help; keine Mutation |
+| `shared_line` | `ticket` | Embargo aktiv; vollständige Discovery und Report-/Antwort-Release des aktiven Auftrags samt [4.5]-Key-Vorschlag in einer Nutzerentscheidung; nach Bestätigung und bewiesener Shared-Line-Frische: `workflow worktree start` gemäß der Worktree-Konvention aus [3.1]; im Worktree `workflow ticket start`; erst danach Implementierung |
+| `shared_line` | `hotfix` | Embargo aktiv; vollständige Discovery und Report-/Antwort-Release samt [4.5]-Key-Vorschlag in einer Nutzerentscheidung; betroffene Linie fachlich binden; nach Bestätigung: `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1]; im Worktree `workflow hotfix start`; erst danach Implementierung |
+| `shared_line` | `release` / `support` | Embargo aktiv; vollständige Discovery und Report-/Antwort-Release samt [4.5]-Key-Vorschlag in einer Nutzerentscheidung; nach Bestätigung: `workflow worktree start` mit der Lane-Basis der betroffenen Linie gemäß [3.1] (für Dispatch-Endpunkte ohne lokale Branch-Erzeugung trägt der Worktree den Dispatch); im Worktree der passende `workflow release`-Pfad |
+| `shared_line` | `exploration` | Embargo aktiv; vollständige Discovery vor jeder Akquisition; Scratch entsteht nur über den governeten Ticket-Workflow-Pfad, nie auf der Shared Line selbst |
+| `shared_line` | `diagnostic` | Embargo bleibt aktiv und braucht keine Aufhebung; read-only Endpunkte und Help; keine Mutation, kein Worktree |
 | `official_working` | Fortsetzung desselben Tickets | Fortsetzungslogik aus [3.3]; fehlende Evidenz ab frühestem Gate nachholen |
 | `official_working` | neue, andere Aufgabe | Pull-Request-Zustand der Branch prüfen ([3.1]): bei `open` oder `merged` abgeschlossene Übergabe — direkter neuer Ticket-Intake ohne Fortsetzungsfrage; bei `none` oder `unknown` Fortsetzungsentscheidung beim Benutzer einholen |
 | `scratch` | `exploration` | Scratch-Regeln aus [4.8]; Überführung nur kontrolliert auf die offizielle Branch |
@@ -655,6 +692,7 @@ Der verbindliche Einstieg ergibt sich aus der Schnittstelle von
 | `detached` (frischer Task-Worktree gemäß [3.1]) | `ticket` | Worktree-Regel aus [3.1]: legitimer Pre-Start-Kontext; Intake; dann `workflow ticket start` im Worktree; erst danach Implementierung |
 | `detached` (frischer Task-Worktree gemäß [3.1]) | `hotfix` / `release` / `support` | Worktree-Regel aus [3.1] mit der Lane-Basis der betroffenen Linie: legitimer Pre-Start-Kontext; Intake; dann der governete Lane-Dispatch im Worktree; erst danach Implementierung |
 | übrige `detached`-/`unknown`-Zustände | jedes Muster | `BLOCKED` bis Benutzerentscheidung |
+| beliebiger Kontext | Nicht-Repository-Schreibziel (`repository_scope_detection = non_repository_target`) | kein Worktree, kein Ticket: Report-, Handoff- und Temporärflächen liegen außerhalb der Repository-Governance; die Discovery- und Report-Phase ist hier Zielausführung, nicht Vorlauf |
 
 Die Binary verweigert die lokalen Working-Branch-Lane-Dispatches fail-closed
 mit `WORKTREE_REQUIRED`, solange der Checkout kein verlinkter Task-Worktree
@@ -668,9 +706,11 @@ Aus dieser Matrix abgeleitete Hartverbote:
 
 ```text
 - Kein Datei-Erstellen, -Bearbeiten, -Umbenennen oder -Löschen, kein
-  Staging und kein Commit vor `BRANCH_READY` — unbedingt und unabhängig
-  davon, ob ein Branch-Kontext überhaupt je geprüft wurde; eine
-  nicht ausgeführte Prüfung ist niemals eine Embargo-Freigabe.
+  Staging und kein Commit in einem Git-Repository vor `BRANCH_READY` —
+  unbedingt und unabhängig davon, ob ein Branch-Kontext überhaupt je
+  geprüft wurde; eine nicht ausgeführte Prüfung ist niemals eine
+  Embargo-Freigabe. Read-only-Discovery und Report-Erzeugung auf
+  Nicht-Repository-Ziele bleiben ausdrücklich außerhalb dieses Verbots.
 - Kein Datei-Edit, kein Staging und kein Commit, solange `shared_line` und
   das Embargo aktiv ist — auch dann nicht, wenn die Implementierung
   fachlich bereits klar erscheint.
@@ -793,6 +833,12 @@ gesetzt und `ticket_binding` wechselt auf `user_provided` beziehungsweise
 `confirmed_proposal`. Lehnt der Benutzer ab, ohne eigene Werte zu übergeben,
 bleibt `ticket_binding = missing` und es greift unverändert die
 Stopp-Sequenz `WAITING_FOR_TICKET`.
+
+Steht ein Report-, Antwort- oder Frage-Release-Vertrag des aktiven Auftrags
+aus, wird der Vorschlag zusammen mit diesem Report in derselben
+Nutzerentscheidung veröffentlicht; die Worktree-Akquisition erfolgt erst nach
+dieser Entscheidung. Die Stopp-Sequenz `WAITING_FOR_TICKET` bleibt als
+Fallback unverändert.
 
 ### 4.6 Branch-Family auswählen
 
@@ -1410,6 +1456,18 @@ Der Agent darf niemals:
   anbietet;
 - mit der Implementierung beginnen, bevor `BRANCH_READY` auf einer
   verifizierten offiziellen Working-Branch erreicht ist;
+- den Report-, Antwort- oder Frage-Release-Pflichtvertrag eines injizierten
+  Auftrags (Prompt, Persona, Benutzeranfrage) hinter eine
+  Worktree-Akquisition, einen Ticket-Key-Vorschlag oder die
+  Workflow-Initialisierungsmaschinerie zu verschieben, zu unterdrücken oder
+  als Nachlauf zu degradieren — der Adapter ist der überliegende Wrapper und
+  korruptiert weder über ihm injizierte noch unter ihm nachfolgende
+  Prompt-Verträge;
+- eine Repository-Mutation (Erstellen, Bearbeiten, Löschen, Staging, Commit,
+  Branch-Operation) in irgendeinem Git-Repository vor `BRANCH_READY` seiner
+  eigenen Kette auszuführen — einschließlich des historischen Musters: erst
+  auf der Shared Line arbeiten, dann Worktree, dann rüberkopieren oder
+  stash-en;
 - einen Key oder ein Ticket aus PR-, Branch- oder Verlaufsdaten ohne
   ausdrückliche Benutzerbestätigung binden;
 - PR-Evidenz erfinden oder eine nicht ausgeführte Erkennung als ausgeführt

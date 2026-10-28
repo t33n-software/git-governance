@@ -18,7 +18,7 @@ TOC.
 
 | ID | Type | Description | Change | Status |
 |----|------|-------------|--------|--------|
-| ACT-001 | INFORMATION | Activation contract, state chain and pre-action embargo | No | Active |
+| ACT-001 | INFORMATION | Activation contract, state chain and pre-action embargo | Yes | Active |
 | ACT-002 | INFORMATION | Invocation binding and invalidation rules | No | Active |
 
 ---
@@ -60,12 +60,19 @@ ADAPTER_ACTIVATED
 ```
 
 Each transition requires its bound proof surface. Before
-`CORE_WORKFLOW_EXECUTING`, a pre-action embargo permits only the bootstrap
-operations themselves: resolving the relative core path, reading the core
+`CORE_WORKFLOW_EXECUTING`, a pre-action embargo permits the bootstrap
+operations themselves — resolving the relative core path, reading the core
 completely, verifying the source entrypoint, and emitting bootstrap status
-lines. Task analysis, file search beyond the core path, edits, staging,
-commits, branch operations, and raw Git are all embargoed until the core is
-the active control plane.
+lines — plus the full read-only discovery of the assigned task: analysis,
+file and repository search, read-only terminal use, the complete execution of
+injected prompt or task contracts with their report, answer, and
+question-release obligations, and writes to targets outside governed Git
+repositories. Embargoed until the core is the active control plane remain
+every mutation inside a Git repository (this one or another governed
+repository, then its own worktree chain), staging, commits, branch or
+worktree operations outside the governed path, and raw Git. No report
+obligation of an injected task may be delayed, suppressed, or demoted behind
+a worktree acquisition or a ticket-key proposal.
 
 ---
 
