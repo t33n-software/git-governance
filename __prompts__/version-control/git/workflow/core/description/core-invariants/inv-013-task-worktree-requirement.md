@@ -32,6 +32,12 @@ work from the affected protected line, and release stabilization or
 preparation work from the frozen release line. The concrete endpoint form of
 the base selection stays binary-help ownership.
 
+The requirement gates repository mutations only. The read-only discovery of
+the active task, its report or answer release, and writes to non-repository
+targets run before the acquisition and never trigger the chain; on a shared
+line the matrix sequences the report and the key proposal in one user
+decision before `workflow worktree start`.
+
 **Affected Files:**
 
 || Path | Relevance | Elements |

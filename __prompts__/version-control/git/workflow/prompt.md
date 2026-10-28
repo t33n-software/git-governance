@@ -35,9 +35,22 @@ core/prompt.md
    Adapter dormant, und die Initialisierung läuft erst beim ersten
    aufgabenführenden Turn vollständig ab. Bei jedem Zweifel und bei jedem
    Arbeitsauftrag ist der erste sichtbare Schritt die
-   Adapter-Initialisierung. Der Agent beginnt weder mit der fachlichen
-   Analyse eines Arbeitsauftrags noch mit Datei-Suche, Datei-Edits,
-   Commit-Vorbereitung oder einem manuellen Workflow-Nachbau.
+   Adapter-Initialisierung (read-only: Core-Load, Entrypoint-Help,
+   Branch-Kontext). Die Initialisierung verbietet keine read-only
+   fachliche Arbeit: die Discovery-Phase des erteilten Auftrags —
+   Analyse, Datei- und Repository-Suche, read-only Terminal, die
+   vollständige Ausführung injizierter Prompt-Workflows samt ihrer
+   Report- und Antwortpflichten sowie Schreibziele außerhalb governeter
+   Git-Repositories — ist vor jeder Worktree-Akquisition verpflichtend.
+   Verboten bleiben ausschließlich Repository-Mutationen (Datei-Edits,
+   Staging, Commits, Branch-Operationen, manueller Workflow-Nachbau) bis
+   `CORE_WORKFLOW_EXECUTING` delegiert und `BRANCH_READY` auf einer
+   verifizierten offiziellen Working-Branch erreicht ist. Kein Report-,
+   Antwort- oder Frage-Release-Pflichtvertrag eines injizierten Auftrags
+   darf hinter eine Worktree-Akquisition oder einen Ticket-Key-Vorschlag
+   verschoben, unterdrückt oder zu einem Nachlauf degradiert werden; der
+   Adapter ist der überliegende Wrapper und korruptiert weder über ihm
+   injizierte noch unter ihm nachfolgende Prompt-Verträge.
 4. Ein Auslassen der Adapter-Initialisierung ist kein alternativer Pfad,
    sondern ein Vertragsbruch. Erkennt der Agent nachträglich, dass er ohne
    abgeschlossene Initialisierung gearbeitet hat, stoppt er, meldet die
@@ -130,9 +143,20 @@ Bootstrap-Operationen erlaubt:
 - Bootstrap-Statusmeldungen mit dem Symbol 🔌 ausgeben.
 ```
 
-Jede andere Operation — fachliche Analyse der Benutzeraufgabe, Datei-Suche
-über den Core-Pfad hinaus, Datei-Edits, Staging, Commits, Branch-Operationen
-oder rohes Git — ist bis `CORE_WORKFLOW_EXECUTING` embargoed.
+Zusätzlich zur Initialisierung ist die vollständige read-only Discovery des
+erteilten Auftrags erlaubt: fachliche Analyse, Datei- und Repository-Suche
+über den Core-Pfad hinaus, Lektüre, read-only Terminal, die vollständige
+Ausführung injizierter Prompt-/Task-Verträge inklusive ihrer Report-,
+Antwort- und Frage-Release-Pflichten, sowie Schreiboperationen auf Ziele
+außerhalb governeter Git-Repositories (Handoff- und Referenzberichte auf
+dem Desktop, temporäre Bereiche, Nicht-Git-Arbeitsflächen) — sie sind keine
+Repository-Mutation und lösen die Worktree-Kette niemals aus.
+
+Verboten bis `CORE_WORKFLOW_EXECUTING` bleibt unverändert absolut: jede
+Mutation innerhalb eines Git-Repositories (dieses Repository oder ein
+anderes, wenn erreicht — dann dessen eigene Worktree-Kette), jedes Staging,
+jeder Commit, jede Branch- oder Worktree-Operation ohne den governeten Pfad
+und jedes rohe Git.
 
 Ausnahme für den Question-Mode des Kerns: Solange das Turn-Intent-Gate den
 aktuellen Turn eindeutig als Frage ohne Änderungsabsicht gebunden hat, sind
@@ -362,10 +386,14 @@ Der Agent darf niemals:
 
 ```text
 - diese Datei als passive Referenz behandeln, obwohl sie im Kontext präsent ist;
-- vor CORE_WORKFLOW_EXECUTING eine fachliche Analyse eines Arbeitsauftrags,
-  Datei-Suche über den Core-Pfad hinaus, Datei-Editierung, Staging, Commits,
-  Branch-Operationen oder rohes Git beginnen — ausgenommen die ausdrücklich
-  in [1.4] erlaubten Question-Mode-Operationen;
+- vor CORE_WORKFLOW_EXECUTING eine Mutation innerhalb eines Git-Repositories,
+  Datei-Editierung, Staging, Commits, Branch-Operationen oder rohes Git
+  beginnen — die in [1.4] ausdrücklich erlaubte read-only Discovery,
+  Report-Erzeugung und Nicht-Repository-Schreibziele sind davon nicht
+  betroffen;
+- den Report-, Antwort- oder Frage-Release-Pflichtvertrag eines injizierten
+  Auftrags hinter eine Worktree-Akquisition oder einen Ticket-Key-Vorschlag
+  verschieben, unterdrücken oder als Nachlauf degradieren;
 - den Core nur auszugsweise, zusammengefasst oder aus dem Gedächtnis übernehmen;
 - den Core durch Repository-Dokumentation, Quellcode oder externe
   Dokumentation substituieren;

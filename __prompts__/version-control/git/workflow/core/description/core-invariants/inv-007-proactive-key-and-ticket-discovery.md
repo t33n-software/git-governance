@@ -47,7 +47,11 @@ intake gates. The proposal binds
 nothing: only an explicit user confirmation or user-supplied replacement
 values set `ticket_binding` to `user_provided` or `confirmed_proposal`. If
 discovery fails or the proposal is declined without replacement values, the
-`WAITING_FOR_TICKET` stop sequence applies unchanged.
+`WAITING_FOR_TICKET` stop sequence applies unchanged. When an outstanding
+report, answer, or question-release contract of the active task exists, the
+proposal is published together with that report in the same user decision,
+and the worktree acquisition happens only after that decision — never ahead
+of the report.
 
 **Affected Files:**
 

@@ -17,7 +17,7 @@ evidence rules that decide when a workflow may claim completion.
 
 || ID | Type | Description | Change | Status |
 ||----|------|-------------|--------|--------|
-|| SEC-001 | CONSTRAINT | Security and evidence requirements | No | Active |
+|| SEC-001 | CONSTRAINT | Security and evidence requirements | Yes | Active |
 
 ---
 
@@ -48,6 +48,14 @@ The core requires:
 - no broad main-to-develop merge as hotfix propagation;
 - no key or ticket binding from pull-request, branch, or history evidence
   without explicit user confirmation;
+- no delaying, suppressing, or demoting the report, answer, or
+  question-release obligation of an injected task behind a worktree
+  acquisition, a ticket-key proposal, or the workflow initialization
+  machinery;
+- no repository mutation — file creation, edit, deletion, staging, commit, or
+  branch operation — in any Git repository before that repository's own
+  `BRANCH_READY`, including the historical pattern of working on a shared
+  line first and copying or stashing into a worktree afterwards;
 - no fabricated discovery evidence and no anonymous API access to
   non-public repositories;
 - no repeated provider-session probing within a bound task scope and no

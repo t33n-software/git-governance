@@ -29,6 +29,14 @@ the embargo state and is never its precondition:
 - no raw Git mutation.
 ```
 
+The mutation concept is repository-scope-bound: it binds to write access on
+Git repositories — the current one or another governed repository, whose own
+worktree chain is then reached through its path binding — and never to
+read-only analysis, report generation, or work surfaces outside version
+control. Under an active embargo the full discovery and report phase of the
+active task stays allowed and required, including writes to non-repository
+targets resolved through `repository_scope_detection`.
+
 The embargo lifts only after a governed level-1 workflow has created or
 confirmed the official working branch and the branch context has been
 re-verified. Pre-existing uncommitted damage found on a shared line escalates
