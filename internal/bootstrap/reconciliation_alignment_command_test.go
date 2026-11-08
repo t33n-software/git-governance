@@ -205,7 +205,7 @@ func TestReleaseAlignReconciliationBaseCommand(t *testing.T) {
 		output, err := executeBootstrapCommand(
 			t,
 			command,
-			"--interactive", "never", "--output", "json", "--yes", "--pull-request-provider", "github",
+			"--interactive", "never", "--output", "json", "--yes",
 			"workflow", "release", "align-reconciliation-base",
 			"--release", "release/1.0.1", "--push", "--create-pull-request",
 			"--body-file", writeMessageFile(t, pullRequestDescriptionFiveSections),

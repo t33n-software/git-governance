@@ -21,19 +21,18 @@ import (
 // context, and the interactive helpers live in the companion runtime files.
 
 type appOptions struct {
-	interactive         string
-	output              string
-	quiet               bool
-	color               string
-	accessible          bool
-	remote              string
-	repository          string
-	config              string
-	qualityConfig       string
-	pullRequestProvider string
-	dryRun              bool
-	yes                 bool
-	timeout             time.Duration
+	interactive   string
+	output        string
+	quiet         bool
+	color         string
+	accessible    bool
+	remote        string
+	repository    string
+	config        string
+	qualityConfig string
+	dryRun        bool
+	yes           bool
+	timeout       time.Duration
 }
 
 type Runtime struct {

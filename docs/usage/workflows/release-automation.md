@@ -21,12 +21,12 @@ git governance --interactive never --output json --yes workflow release publish-
   --push
 
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release promote `
+  workflow release promote `
   --release release/2.8.0 `
   --create-pull-request
 
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release backmerge `
+  workflow release backmerge `
   --release release/2.8.0 `
   --create-pull-request
 

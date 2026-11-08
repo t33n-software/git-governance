@@ -393,13 +393,13 @@ func registerRequesterFlag(command *cobra.Command, target *string) {
 }
 
 // registerGlobalValueDomainFlags binds the global persistent flags that carry
-// value domains to the canonical register: color, interactive, output, pull
-// request provider, remote, and timeout.
+// value domains to the canonical register: color, interactive, output, remote,
+// and timeout. The hosting provider carries no flag: it is derived from the
+// selected remote and its bound authentication session.
 func registerGlobalValueDomainFlags(command *cobra.Command, options *appOptions) {
 	registerPersistentValueDomainFlag(command, &options.interactive, "interactive", options.interactive, cliparam.InteractiveMode())
 	registerPersistentValueDomainFlag(command, &options.output, "output", options.output, cliparam.OutputMode())
 	registerPersistentValueDomainFlag(command, &options.color, "color", options.color, cliparam.ColorMode())
-	registerPersistentValueDomainFlag(command, &options.pullRequestProvider, "pull-request-provider", options.pullRequestProvider, cliparam.PullRequestProvider())
 	registerPersistentValueDomainFlag(command, &options.remote, "remote", options.remote, cliparam.RemoteName())
 	command.PersistentFlags().DurationVar(&options.timeout, "timeout", options.timeout, cliparam.Timeout().HelpText(""))
 	markValueDomainFlag(command.PersistentFlags(), "timeout")

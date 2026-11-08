@@ -330,10 +330,10 @@ required.
 
 ## Pull-request publication after login
 
-With `--pull-request-provider github`, the publisher resolves credentials
-from the stored session bound to the target repository immediately before
-every GitHub API call. No environment variable, flag, or repeated client-ID
-input participates:
+The provider is derived from the selected remote; the publisher then resolves
+credentials from the stored session bound to the target repository immediately
+before every GitHub API call. No environment variable, flag, or repeated
+client-ID input participates:
 
 1. It parses the selected Git remote into host, owner, and repository — the
    canonical repository identity that keys the tenant binding.
@@ -355,7 +355,7 @@ The explicit publish command remains unchanged:
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow ticket publish `
+  workflow ticket publish `
   --push `
   --create-pull-request
 ```

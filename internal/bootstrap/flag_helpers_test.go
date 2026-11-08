@@ -748,12 +748,11 @@ func TestRegisterGlobalValueDomainFlags(t *testing.T) {
 	t.Parallel()
 
 	options := &appOptions{
-		interactive:         "auto",
-		output:              "human",
-		color:               "auto",
-		remote:              "origin",
-		pullRequestProvider: "none",
-		timeout:             30 * time.Second,
+		interactive: "auto",
+		output:      "human",
+		color:       "auto",
+		remote:      "origin",
+		timeout:     30 * time.Second,
 	}
 	command := &cobra.Command{Use: "root"}
 	registerGlobalValueDomainFlags(command, options)
@@ -766,7 +765,6 @@ func TestRegisterGlobalValueDomainFlags(t *testing.T) {
 		{flagName: "interactive", wantUsage: cliparam.InteractiveMode().HelpText(""), wantDefault: "auto"},
 		{flagName: "output", wantUsage: cliparam.OutputMode().HelpText(""), wantDefault: "human"},
 		{flagName: "color", wantUsage: cliparam.ColorMode().HelpText(""), wantDefault: "auto"},
-		{flagName: "pull-request-provider", wantUsage: cliparam.PullRequestProvider().HelpText(""), wantDefault: "none"},
 		{flagName: "remote", wantUsage: cliparam.RemoteName().HelpText(""), wantDefault: "origin"},
 		{flagName: "timeout", wantUsage: cliparam.Timeout().HelpText(""), wantDefault: "30s"},
 	}
@@ -797,7 +795,6 @@ func TestValidateOptionsDerivesGlobalValueDomains(t *testing.T) {
 	}{
 		{name: "interactive", mutate: func(options *appOptions) { options.interactive = "sometimes" }, wantField: "interactive"},
 		{name: "color", mutate: func(options *appOptions) { options.color = "neon" }, wantField: "color"},
-		{name: "pull request provider", mutate: func(options *appOptions) { options.pullRequestProvider = "gitlab" }, wantField: "pull-request-provider"},
 		{name: "timeout", mutate: func(options *appOptions) { options.timeout = 0 }, wantField: "timeout"},
 	}
 

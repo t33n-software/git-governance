@@ -75,8 +75,8 @@ contributor build from source is described in
 
 For automation, use `--interactive never --output json`, supply every required
 value as a flag, and add `--yes` for mutations. GitHub pull-request creation is
-an explicit opt-in through `--pull-request-provider github` and
-`--create-pull-request`. After a created pull request, a local invocation
+an explicit opt-in through `--create-pull-request`; the hosting provider is
+derived from the selected remote. After a created pull request, a local invocation
 returns the workspace to the `develop` integration line and reports the
 transition outcome; server-side controllers never switch their ephemeral
 checkout.

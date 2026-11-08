@@ -182,7 +182,7 @@ func TestReleaseDryRunsNeverPublishPullRequests(t *testing.T) {
 				t,
 				command,
 				append(
-					[]string{"--interactive", "never", "--output", "json", "--yes", "--dry-run", "--pull-request-provider", "github"},
+					[]string{"--interactive", "never", "--output", "json", "--yes", "--dry-run"},
 					testCase.args...,
 				)...,
 			)
@@ -694,7 +694,6 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 			t,
 			command,
 			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
 			"workflow", "release", "cut",
 			"--version", "2.8.0", "--dispatch",
 		)
@@ -724,7 +723,6 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 			t,
 			command,
 			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
 			"workflow", "release", "backmerge",
 			"--release", "release/2.8.0", "--create-pull-request",
 			"--body-file", writeMessageFile(t, pullRequestDescriptionFiveSections),
@@ -745,7 +743,6 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 			t,
 			command,
 			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
 			"workflow", "release", "support",
 			"--version", "2.8", "--dispatch",
 		)
@@ -761,7 +758,6 @@ func TestReleaseCommandsRejectUnboundProtectedLineDispatchAndSkipNoopBackmerges(
 			t,
 			command,
 			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
 			"workflow", "release", "cut",
 			"--version", "2.8.0", "--dispatch",
 		)

@@ -31,7 +31,6 @@ The old names `mkbranch` and `mkcommit` do not become the target surface. A sing
 --repo <path>                    default: current directory
 --config <path>                  explicit configuration file
 --quality-config <path>          explicit repository quality gate file
---pull-request-provider none|github
 --dry-run                        show the plan, mutate nothing
 --yes                            approve confirmable steps
 --timeout <duration>             limit for external processes
@@ -49,9 +48,11 @@ Rules:
   color and `never` uses plain text output.
 - In JSON mode, prompts are forbidden; with `--interactive=auto`, JSON therefore behaves like `never`.
 - Secrets are managed neither via flags nor via this configuration file.
-- `--pull-request-provider=github` activates exclusively the GitHub adapter;
-  it resolves a GitHub App session or a managed credential broker only
-  immediately before the API call.
+- The hosting provider carries no flag: it is derived. The GitHub adapter is
+  active exactly when the selected remote resolves to a GitHub hosting
+  identity; it resolves a GitHub App session or a managed credential broker
+  only immediately before the API call. Selecting the authoritative remote
+  with `--remote` is the single platform decision of every invocation.
 - `--create-pull-request` is an explicit workflow flag, additionally requires
   `--push` in publish workflows, and produces no silent fallback without a
   provider.
@@ -750,8 +751,8 @@ is a stable handover surface for GitHub, GitLab, Bitbucket, or other adapters.
 A user confirmation can therefore only produce a real PR when such an adapter
 is configured at runtime.
 
-For a GitHub PR, the automation sets `--pull-request-provider github`,
-`--push`, and `--create-pull-request`. It uses an already existing GitHub App
+For a GitHub PR, the automation sets `--push` and `--create-pull-request`; the
+provider is derived from the selected remote. It uses an already existing GitHub App
 session or a CI credential broker; it never starts a browser and accepts no
 static GitHub token. The adapter derives host, owner, and repository from the
 selected Git remote, verifies the exact repository authorization, and returns
@@ -822,10 +823,10 @@ ordered complete SHA manifest, and declared additional propagation targets.
 ### 13.3 `workflow hotfix verify-merge` and `verify-delivery`
 
 ```text
-git governance --pull-request-provider github workflow hotfix verify-merge \
+git governance workflow hotfix verify-merge \
   --branch hotfix/<KEY-NUMBER>-<slug>
 
-git governance --pull-request-provider github workflow hotfix verify-delivery \
+git governance workflow hotfix verify-delivery \
   --branch hotfix/<KEY-NUMBER>-<slug>
 ```
 
@@ -957,7 +958,7 @@ created pull request, the local workspace returns to `develop` (see
 ### 13.4 `workflow release align-promotion-base`
 
 ```text
-git governance --pull-request-provider github workflow release align-promotion-base \
+git governance workflow release align-promotion-base \
   --release release/<semver> \
   [--branch chore/<KEY-NUMBER>-<slug>] \
   [--resume] \
@@ -994,9 +995,9 @@ release/<semver> -> main
 Tagging and artifact creation follow only after the protected merge in the
 release pipeline. The CI workflow creates `v<semver>` directly on the merge
 commit and then starts the artifact workflow for exactly this immutable tag. A
-real provider PR is only possible with `--pull-request-provider github
---create-pull-request` and the explicit mutation approval. After a created
-pull request, the local workspace returns to `develop` (see
+real provider PR is only possible with `--create-pull-request` against the
+provider derived from the selected remote and the explicit mutation approval.
+After a created pull request, the local workspace returns to `develop` (see
 `workflow ticket publish` for the transition contract).
 
 ### 13.6 `workflow release backmerge`

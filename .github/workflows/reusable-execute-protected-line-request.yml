@@ -116,7 +116,6 @@ jobs:
             --interactive never \
             --output json \
             --yes \
-            --pull-request-provider github \
             workflow release execute-request \
             --request-id "$REQUEST_ID" \
             --executor-run "$EXECUTOR_RUN")"
@@ -233,7 +232,6 @@ jobs:
             --interactive never \
             --output json \
             --yes \
-            --pull-request-provider github \
             workflow release finalize-request \
             --request-id "$REQUEST_ID" \
             --executor-run "$EXECUTOR_RUN"
@@ -321,7 +319,6 @@ jobs:
             --interactive never \
             --output json \
             --yes \
-            --pull-request-provider github \
             workflow release finalize-request \
             --request-id "$REQUEST_ID" \
             --recovery

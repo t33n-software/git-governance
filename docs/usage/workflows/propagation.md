@@ -21,8 +21,8 @@ git governance --interactive never --output json --yes workflow hotfix propagate
   --push
 ```
 
-Add `--pull-request-provider github --create-pull-request` to publish the
-resulting PR after its branch is pushed. After a created pull request, the
+Add `--create-pull-request` to publish the resulting PR after its branch is
+pushed; the provider is derived from the selected remote. After a created pull request, the
 local workspace returns to `develop`; see
 [the ticket publication transition](tickets/publish.md). The server-side
 `propagate-manifest --publish` controller never switches its ephemeral

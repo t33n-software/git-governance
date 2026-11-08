@@ -204,7 +204,6 @@ jobs:
               --interactive never \
               --output json \
               --yes \
-              --pull-request-provider github \
               workflow release stabilize \
               --release "$RELEASE" \
               --kind release-prep \
@@ -216,7 +215,6 @@ jobs:
               --interactive never \
               --output json \
               --yes \
-              --pull-request-provider github \
               workflow release align-reconciliation-base \
               --release "$RELEASE" \
               --push \
@@ -237,7 +235,6 @@ jobs:
             --interactive never \
             --output json \
             --yes \
-            --pull-request-provider github \
             workflow release align-reconciliation-base \
             --branch "$RESOLUTION_BRANCH" \
             --release "$RELEASE" \

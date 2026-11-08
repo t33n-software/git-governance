@@ -43,11 +43,7 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		color:       "auto",
 		remote:      "origin",
 		repository:  ".",
-		// The empty default derives the hosting provider from the selected
-		// remote and the bound authentication session; none and github are
-		// explicit overrides only.
-		pullRequestProvider: "",
-		timeout:             30 * time.Second,
+		timeout:     30 * time.Second,
 	}
 	application := newApplication(runtime, options)
 

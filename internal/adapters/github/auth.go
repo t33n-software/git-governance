@@ -45,15 +45,6 @@ type CredentialTarget struct {
 	Repository string
 }
 
-// IsCanonicalGitHubHost reports whether a parsed hosting identity is the
-// canonical GitHub.com host the local authentication provider stores sessions
-// for. Provider derivation constructs the GitHub publisher only for this
-// host; other hosts stay provider-neutral unless an explicit override names
-// the provider.
-func IsCanonicalGitHubHost(host string) bool {
-	return sameHost(host, defaultGitHubHost)
-}
-
 // ParseCredentialTarget derives the canonical repository identity from a Git
 // remote URL. It is the single entry point that turns a working-context
 // remote into the tenant key used for session selection.

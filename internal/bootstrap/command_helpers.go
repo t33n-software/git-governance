@@ -42,9 +42,6 @@ func (application *application) validateOptions() error {
 	if !slices.Contains(cliparam.ColorMode().Values, application.options.color) {
 		return invalidOption("color", application.options.color, cliparam.ColorMode().ValueList())
 	}
-	if application.options.pullRequestProvider != "" && !slices.Contains(cliparam.PullRequestProvider().Values, application.options.pullRequestProvider) {
-		return invalidOption("pull-request-provider", application.options.pullRequestProvider, cliparam.PullRequestProvider().ValueList())
-	}
 	if application.options.timeout <= 0 {
 		return invalidOption("timeout", application.options.timeout.String(), cliparam.Timeout().Rule)
 	}

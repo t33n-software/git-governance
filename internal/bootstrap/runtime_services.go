@@ -121,21 +121,22 @@ func (application *application) services() services {
 }
 
 // derivePublisher resolves the hosting-provider publisher for the selected
-// working context. The provider is a derived quantity: with no explicit
-// override, the GitHub publisher is constructed exactly when the selected
-// remote resolves to the canonical GitHub.com hosting identity the local
-// authentication provider stores sessions for. The explicit values stay
-// scope-locked overrides: none forces the provider-neutral intent path, and
-// github forces the GitHub publisher for the bounded migration-cutover window
-// with two candidate remotes. Session availability is decided at the
-// publication boundary by the adapter's credential resolution, which fails
-// closed with the authentication remediation; the composition never probes the
-// network. The remote resolution runs only inside a bound command execution
-// (the framework binds the command context before any endpoint runs); a
-// composition outside a command stays provider-neutral. An injected runtime
-// publisher (the server-side controller compositions and the tests) always
-// wins. The verdict is memoized per application instance because the service
-// graph composes repeatedly.
+// working context. The provider is a derived quantity with no declaration
+// surface: the GitHub publisher is constructed exactly when the selected
+// remote resolves to a parseable GitHub hosting identity. Host and credential
+// correctness stay boundary decisions — the local session store accepts only
+// github.com, the managed broker resolves per host, and the adapter verifies
+// the remote host against its API base — so GitHub Enterprise publications run
+// through the broker without any per-invocation provider input. Session
+// availability is decided at the publication boundary by the adapter's
+// credential resolution, which fails closed with the authentication
+// remediation; the composition never probes the network. The remote
+// resolution runs only inside a bound command execution (the framework binds
+// the command context before any endpoint runs); a composition outside a
+// command stays provider-neutral. An injected runtime publisher (the
+// server-side controller compositions and the tests) always wins. The verdict
+// is memoized per application instance because the service graph composes
+// repeatedly.
 func (application *application) derivePublisher(
 	git port.GitRepository,
 	credentialResolver github.CredentialResolver,
@@ -147,24 +148,13 @@ func (application *application) derivePublisher(
 		return application.publisherMemo
 	}
 	application.publisherResolved = true
-	newPublisher := func() port.PullRequestPublisher {
-		return github.New(github.Options{
-			Resolver: credentialResolver,
-			Timeout:  application.options.timeout,
-		})
-	}
-	switch application.options.pullRequestProvider {
-	case "none":
-		application.publisherMemo = nil
-	case "github":
-		application.publisherMemo = newPublisher()
-	default:
-		application.publisherMemo = nil
-		if application.commandContext != nil {
-			if target, ok := application.repositoryCredentialTarget(application.commandContext, git); ok &&
-				github.IsCanonicalGitHubHost(target.Host) {
-				application.publisherMemo = newPublisher()
-			}
+	application.publisherMemo = nil
+	if application.commandContext != nil {
+		if _, ok := application.repositoryCredentialTarget(application.commandContext, git); ok {
+			application.publisherMemo = github.New(github.Options{
+				Resolver: credentialResolver,
+				Timeout:  application.options.timeout,
+			})
 		}
 	}
 	return application.publisherMemo

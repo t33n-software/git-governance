@@ -21,7 +21,6 @@ func All() []Domain {
 		ColorMode(),
 		InteractiveMode(),
 		OutputMode(),
-		PullRequestProvider(),
 		CompletionShell(),
 		ReleaseVersion(),
 		SupportVersion(),

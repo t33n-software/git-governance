@@ -151,7 +151,6 @@ jobs:
           ./.build/bin/git-governance \
             --interactive never \
             --output json \
-            --pull-request-provider github \
             workflow hotfix verify-merge \
             --branch "$SOURCE_BRANCH" \
             "${record_args[@]}" >"$response"
@@ -189,7 +188,6 @@ jobs:
           ./.build/bin/git-governance \
             --interactive never \
             --output json \
-            --pull-request-provider github \
             workflow hotfix verify-delivery \
             --branch "$SOURCE_BRANCH" \
             "${record_args[@]}"

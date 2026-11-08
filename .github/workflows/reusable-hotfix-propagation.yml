@@ -166,7 +166,6 @@ jobs:
           ./.build/bin/git-governance \
             --interactive never \
             --output json \
-            --pull-request-provider github \
             workflow hotfix verify-delivery \
             --branch "$SOURCE_BRANCH" \
             --record "$RECORD"
@@ -334,7 +333,6 @@ jobs:
             --interactive never \
             --output json \
             --yes \
-            --pull-request-provider github \
             workflow hotfix propagate-manifest \
             --source "$SOURCE_BRANCH" \
             --target-line "$TARGET_LINE" \

@@ -84,7 +84,6 @@ func TestProtectedLineRequestCommandsBindControllerInputs(t *testing.T) {
 		t,
 		command,
 		"--interactive", "never", "--output", "json", "--yes",
-		"--pull-request-provider", "github",
 		"workflow", "release", "request",
 		"--kind", "release",
 		"--version", "1.2.0",
@@ -108,7 +107,6 @@ func TestProtectedLineRequestCommandsBindControllerInputs(t *testing.T) {
 		t,
 		command,
 		"--interactive", "never", "--output", "json", "--yes",
-		"--pull-request-provider", "github",
 		"workflow", "release", "execute-request",
 		"--request-id", "request-50",
 		"--executor-run", "456",
@@ -121,7 +119,6 @@ func TestProtectedLineRequestCommandsBindControllerInputs(t *testing.T) {
 		t,
 		command,
 		"--interactive", "never", "--output", "json", "--yes",
-		"--pull-request-provider", "github",
 		"workflow", "release", "finalize-request",
 		"--request-id", "request-50",
 		"--executor-run", "456",
@@ -151,7 +148,6 @@ func TestProtectedLineRequestCommandFailurePaths(t *testing.T) {
 	}
 	requestArgs := []string{
 		"--interactive", "never", "--output", "json", "--yes",
-		"--pull-request-provider", "github",
 		"workflow", "release", "request",
 		"--kind", "release",
 		"--version", "1.2.0",
@@ -206,14 +202,12 @@ func TestProtectedLineRequestCommandFailurePaths(t *testing.T) {
 	t.Run("execution and finalization retain controller, input, confirmation, recovery, and provider failures", func(t *testing.T) {
 		executeArgs := []string{
 			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
 			"workflow", "release", "execute-request",
 			"--request-id", "request-50",
 			"--executor-run", "456",
 		}
 		finalizeArgs := []string{
 			"--interactive", "never", "--output", "json", "--yes",
-			"--pull-request-provider", "github",
 			"workflow", "release", "finalize-request",
 			"--request-id", "request-50",
 			"--executor-run", "456",
@@ -266,14 +260,12 @@ func TestProtectedLineRequestCommandFailurePaths(t *testing.T) {
 			requestArgs,
 			{
 				"--interactive", "never", "--output", "json", "--yes",
-				"--pull-request-provider", "github",
 				"workflow", "release", "execute-request",
 				"--request-id", "request-50",
 				"--executor-run", "456",
 			},
 			{
 				"--interactive", "never", "--output", "json", "--yes",
-				"--pull-request-provider", "github",
 				"workflow", "release", "finalize-request",
 				"--request-id", "request-50",
 				"--executor-run", "456",

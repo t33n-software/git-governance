@@ -242,8 +242,7 @@ func TestServicesWireDependenciesAndQualityFallback(t *testing.T) {
 		t.Fatalf("quality fallback = calls %d, path %q, timeout %s", fallbackCalls, qualityPath, qualityTimeout)
 	}
 
-	githubOptions := runtimeTestOptions()
-	githubOptions.pullRequestProvider = "github"
+	git.remoteURL = "https://github.com/owner/repository.git"
 	githubApplication := newApplication(Runtime{
 		GitFactory: func(time.Duration) port.GitRepository {
 			return git
@@ -262,17 +261,18 @@ func TestServicesWireDependenciesAndQualityFallback(t *testing.T) {
 		GitHubWorkloadIdentity: func() string {
 			return "workload-identity"
 		},
-	}, githubOptions)
+	}, runtimeTestOptions())
+	githubApplication.commandContext = context.Background()
 	if !githubApplication.services().tickets.HasPullRequestPublisher() {
-		t.Fatal("GitHub provider selection did not construct a pull-request publisher")
+		t.Fatal("the derived GitHub posture did not construct a pull-request publisher")
 	}
 }
 
 // TestDerivedPublisherComposition pins the provider-derivation posture of the
-// composition root: the canonical GitHub remote of a bound command execution
-// constructs the publisher, the none override forces the provider-neutral
-// intent path, a non-GitHub remote stays neutral, a composition outside a
-// command execution stays neutral, and the verdict is memoized per instance.
+// composition root: a parseable hosting remote of a bound command execution
+// constructs the publisher, an unparseable remote stays neutral, a
+// composition outside a command execution stays neutral, and the verdict is
+// memoized per instance.
 func TestDerivedPublisherComposition(t *testing.T) {
 	t.Run("derives the publisher from a canonical GitHub remote", func(t *testing.T) {
 		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
@@ -285,27 +285,14 @@ func TestDerivedPublisherComposition(t *testing.T) {
 		}
 	})
 
-	t.Run("the none override forces the provider-neutral intent path", func(t *testing.T) {
-		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
-		options := runtimeTestOptions()
-		options.pullRequestProvider = "none"
-		application := newApplication(Runtime{
-			GitFactory: func(time.Duration) port.GitRepository { return git },
-		}, options)
-		application.commandContext = context.Background()
-		if application.services().tickets.HasPullRequestPublisher() {
-			t.Fatal("the none override unexpectedly constructed a pull-request publisher")
-		}
-	})
-
-	t.Run("a non-GitHub remote stays provider-neutral", func(t *testing.T) {
-		git := &runtimeTestGit{remoteURL: "https://git.example.com/owner/repository.git"}
+	t.Run("an unparseable remote stays provider-neutral", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://example.invalid/repository.git"}
 		application := newApplication(Runtime{
 			GitFactory: func(time.Duration) port.GitRepository { return git },
 		}, runtimeTestOptions())
 		application.commandContext = context.Background()
 		if application.services().tickets.HasPullRequestPublisher() {
-			t.Fatal("a non-GitHub remote unexpectedly derived a pull-request publisher")
+			t.Fatal("an unparseable remote unexpectedly derived a pull-request publisher")
 		}
 	})
 
@@ -335,21 +322,12 @@ func TestDerivedPublisherComposition(t *testing.T) {
 }
 
 // TestPullRequestPublicationIntentCauseVocabulary pins the derived
-// intent-only report vocabulary to the resolved provider posture.
+// intent-only report vocabulary rendered from the single cause register.
 func TestPullRequestPublicationIntentCauseVocabulary(t *testing.T) {
-	derived := runtimeTestOptions()
-	application := newApplication(Runtime{}, derived)
+	application := newApplication(Runtime{}, runtimeTestOptions())
 	if got := application.pullRequestPublicationIntentCause(); got !=
 		"intent-only; no supported hosting identity derived from the selected remote" {
-		t.Fatalf("derived intent cause = %q", got)
-	}
-
-	overridden := runtimeTestOptions()
-	overridden.pullRequestProvider = "none"
-	application = newApplication(Runtime{}, overridden)
-	if got := application.pullRequestPublicationIntentCause(); got !=
-		"intent-only; provider disabled by the explicit --pull-request-provider none override" {
-		t.Fatalf("override intent cause = %q", got)
+		t.Fatalf("intent cause = %q", got)
 	}
 }
 

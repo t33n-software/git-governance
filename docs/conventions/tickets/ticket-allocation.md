@@ -24,7 +24,7 @@ Allocation truth is derived from exactly these surfaces:
 | 3 | Hotfix release records | `.git-governance/hotfix-release-records/<KEY>-<NUMBER>.json` | Git/file transport (always) | schema-validated record |
 | 4 | Genesis evidence record | repo evidence record (`workflow bootstrap`) | Git/file transport (always) | ticket-bound genesis envelope + record |
 | 5 | Worktree registry | local sibling task worktrees (`../<repo>-<KEY>-<NUMBER>`) | Git transport (always) | path-basename grammar `<repo>-<KEY>-<NUMBER>` (worktree acquisition convention) |
-| 6 | PR / MR titles (open AND closed) | hosting platform | provider capability port (`PullRequestProvider`) | `<KEY>-<NUMBER>: <slug>` |
+| 6 | PR / MR titles (open AND closed) | hosting platform | provider capability port (`PullRequestPublisher`) | `<KEY>-<NUMBER>: <slug>` |
 | 7 | Protected-line request records | hosting platform durable records | provider lifecycle port (`ReleaseLifecycleProvider`) | ticket-bound request record (REL-R019) |
 
 Excluded surfaces (never allocation evidence, false-positive guard):
@@ -58,7 +58,8 @@ category, exit 3).
 Surfaces 1–5 are read through the Git transport and are platform-neutral by
 construction. Platform surfaces (6–7) are read exclusively through provider
 capability ports — never through platform-native tooling hardwired into the
-core. A provider-less repository (`--pull-request-provider none`) runs the
+core. A provider-less repository (no supported hosting identity derived from
+the selected remote) runs the
 git-core surfaces and fails closed (named degraded mode) on the
 platform-only surfaces; a degraded scan never reports a platform-bound
 number as "free". Future hosting platforms (GitLab, Bitbucket) are adopted

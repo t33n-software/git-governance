@@ -37,9 +37,9 @@ It reuses that proof only when its revision, base, quality configuration,
 toolchain, gate selection, remote, and clean-worktree bindings still match;
 otherwise it runs the full suite as a fallback. Interactive publication reports
 whether a rebase happened or why it did not. After a push, it asks before
-creating a pull request only when a hosting-provider adapter is configured.
-Without such an adapter, it reports the provider-neutral pull-request intent
-targeting `develop`.
+creating a pull request only when a provider was derived from the selected
+remote. Without such a provider, it reports the provider-neutral pull-request
+intent targeting `develop`.
 
 The local proof is not committed, contains no credentials, and does not replace
 remote CI, required checks, review, or protected-branch policy. Do not bypass
@@ -68,11 +68,12 @@ git governance --interactive never --output json --yes workflow ticket publish `
 
 To create the GitHub pull request as part of the same explicit operation, log
 in first with `auth login github` or configure the managed credential broker,
-then set the provider and add `--create-pull-request`:
+then add `--create-pull-request`; the provider is derived from the selected
+remote:
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow ticket publish `
+  workflow ticket publish `
   --push `
   --create-pull-request
 ```
