@@ -70,15 +70,6 @@ func TestCommandHelpersValidateOptions(t *testing.T) {
 			field:          "color",
 		},
 		{
-			name: "rejects an unknown pull request provider",
-			configure: func(options *appOptions) {
-				options.pullRequestProvider = "gitlab"
-			},
-			inputTerminal:  true,
-			outputTerminal: true,
-			field:          "pull-request-provider",
-		},
-		{
 			name: "rejects a zero timeout",
 			configure: func(options *appOptions) {
 				options.timeout = 0

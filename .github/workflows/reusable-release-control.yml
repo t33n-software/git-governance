@@ -221,7 +221,6 @@ jobs:
             --interactive never \
             --output json \
             --yes \
-            --pull-request-provider github \
             workflow release request \
             --kind "$KIND" \
             --version "$VERSION" \

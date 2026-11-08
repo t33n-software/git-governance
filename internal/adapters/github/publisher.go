@@ -110,8 +110,8 @@ func (publisher *Publisher) publicationTarget(
 	if publisher == nil {
 		return nil, repositoryRef{}, configurationProblem(
 			"GitHub publisher",
-			"a configured GitHub publisher",
-			"configure --pull-request-provider github before requesting pull-request creation",
+			"a GitHub publisher derived from the selected remote",
+			"select a remote with a supported hosting identity, or bind an authentication session with auth login github, before requesting pull-request creation",
 		)
 	}
 	if publisher.resolver == nil {

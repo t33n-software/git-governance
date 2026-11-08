@@ -43,8 +43,8 @@ git governance --interactive never --output json --yes workflow hotfix publish `
   --push
 ```
 
-Add `--pull-request-provider github --create-pull-request` to create the
-explicit provider-backed pull request after the push. The target remains the
+Add `--create-pull-request` to create the explicit provider-backed pull
+request after the push; the provider is derived from the selected remote. The target remains the
 specified affected line; it is never silently redirected to `develop`.
 Authenticate before local publication with `auth login github`, or configure
 the managed credential broker for automation. See
@@ -140,11 +140,11 @@ The read-only verification commands are available to the trusted controller and
 for diagnosis:
 
 ```powershell
-git governance --interactive never --output json --pull-request-provider github `
+git governance --interactive never --output json `
   workflow hotfix verify-merge `
   --branch hotfix/ABC-999-payment-timeout
 
-git governance --interactive never --output json --pull-request-provider github `
+git governance --interactive never --output json `
   workflow hotfix verify-delivery `
   --branch hotfix/ABC-999-payment-timeout
 ```

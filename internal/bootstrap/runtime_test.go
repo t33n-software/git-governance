@@ -242,8 +242,7 @@ func TestServicesWireDependenciesAndQualityFallback(t *testing.T) {
 		t.Fatalf("quality fallback = calls %d, path %q, timeout %s", fallbackCalls, qualityPath, qualityTimeout)
 	}
 
-	githubOptions := runtimeTestOptions()
-	githubOptions.pullRequestProvider = "github"
+	git.remoteURL = "https://github.com/owner/repository.git"
 	githubApplication := newApplication(Runtime{
 		GitFactory: func(time.Duration) port.GitRepository {
 			return git
@@ -262,9 +261,73 @@ func TestServicesWireDependenciesAndQualityFallback(t *testing.T) {
 		GitHubWorkloadIdentity: func() string {
 			return "workload-identity"
 		},
-	}, githubOptions)
+	}, runtimeTestOptions())
+	githubApplication.commandContext = context.Background()
 	if !githubApplication.services().tickets.HasPullRequestPublisher() {
-		t.Fatal("GitHub provider selection did not construct a pull-request publisher")
+		t.Fatal("the derived GitHub posture did not construct a pull-request publisher")
+	}
+}
+
+// TestDerivedPublisherComposition pins the provider-derivation posture of the
+// composition root: a parseable hosting remote of a bound command execution
+// constructs the publisher, an unparseable remote stays neutral, a
+// composition outside a command execution stays neutral, and the verdict is
+// memoized per instance.
+func TestDerivedPublisherComposition(t *testing.T) {
+	t.Run("derives the publisher from a canonical GitHub remote", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		application.commandContext = context.Background()
+		if !application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("canonical GitHub remote did not derive a pull-request publisher")
+		}
+	})
+
+	t.Run("an unparseable remote stays provider-neutral", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://example.invalid/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		application.commandContext = context.Background()
+		if application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("an unparseable remote unexpectedly derived a pull-request publisher")
+		}
+	})
+
+	t.Run("a composition outside a command execution stays provider-neutral", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		if application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("an unbound composition unexpectedly derived a pull-request publisher")
+		}
+	})
+
+	t.Run("the derivation verdict is memoized per instance", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		application.commandContext = context.Background()
+		application.services()
+		firstCalls := git.discoverCalls
+		application.services()
+		if git.discoverCalls != firstCalls {
+			t.Fatalf("second composition re-resolved the remote: discover calls %d, want %d", git.discoverCalls, firstCalls)
+		}
+	})
+}
+
+// TestPullRequestPublicationIntentCauseVocabulary pins the derived
+// intent-only report vocabulary rendered from the single cause register.
+func TestPullRequestPublicationIntentCauseVocabulary(t *testing.T) {
+	application := newApplication(Runtime{}, runtimeTestOptions())
+	if got := application.pullRequestPublicationIntentCause(); got !=
+		"intent-only; no supported hosting identity derived from the selected remote" {
+		t.Fatalf("intent cause = %q", got)
 	}
 }
 
@@ -776,15 +839,28 @@ type runtimeTestGit struct {
 	discoverErr     error
 	receivedContext context.Context
 	directory       string
+	remoteURL       string
+	discoverCalls   int
 }
 
 func (git *runtimeTestGit) Discover(ctx context.Context, directory string) (port.RepositoryIdentity, error) {
 	git.receivedContext = ctx
 	git.directory = directory
+	git.discoverCalls++
 	if git.discoverErr != nil {
 		return port.RepositoryIdentity{}, git.discoverErr
 	}
 	return git.identity, nil
+}
+
+// RemoteURL keeps the derived-provider composition resolvable for the fake:
+// the configured remoteURL drives the derivation verdict; the default stays
+// an unresolvable remote so unrelated tests keep the provider-neutral path.
+func (git *runtimeTestGit) RemoteURL(_ context.Context, _ port.RepositoryIdentity) (string, error) {
+	if git.remoteURL == "" {
+		return "", errors.New("no configured remote")
+	}
+	return git.remoteURL, nil
 }
 
 type runtimeTestStore struct {

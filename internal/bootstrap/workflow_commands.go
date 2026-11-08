@@ -469,7 +469,7 @@ func newTicketPublishCommand(application *application) *cobra.Command {
 			case services.tickets.HasPullRequestPublisher():
 				fields["pullRequestPublication"] = "not requested"
 			default:
-				fields["pullRequestPublication"] = "intent-only; no hosting-provider adapter is configured"
+				fields["pullRequestPublication"] = application.pullRequestPublicationIntentCause()
 			}
 			if result.ScratchMerge != nil {
 				fields["scratchBranch"] = result.ScratchMerge.Source.String()

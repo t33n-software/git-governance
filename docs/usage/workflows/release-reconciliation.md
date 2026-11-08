@@ -24,7 +24,7 @@ Run the governed reconciliation:
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release backmerge `
+  workflow release backmerge `
   --release release/2.8.0 `
   --create-pull-request
 ```

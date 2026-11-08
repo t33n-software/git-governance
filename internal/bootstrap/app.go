@@ -38,13 +38,12 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		version = "devel"
 	}
 	options := &appOptions{
-		interactive:         "auto",
-		output:              "human",
-		color:               "auto",
-		remote:              "origin",
-		repository:          ".",
-		pullRequestProvider: "none",
-		timeout:             30 * time.Second,
+		interactive: "auto",
+		output:      "human",
+		color:       "auto",
+		remote:      "origin",
+		repository:  ".",
+		timeout:     30 * time.Second,
 	}
 	application := newApplication(runtime, options)
 
@@ -56,7 +55,8 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
 	}
-	command.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+	command.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
+		application.commandContext = command.Context()
 		return application.validateOptions()
 	}
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {

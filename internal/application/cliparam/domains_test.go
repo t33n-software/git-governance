@@ -143,7 +143,6 @@ func TestGlobalEnumDomainsPinTheCliOwnedValueSets(t *testing.T) {
 		{name: "color", domain: ColorMode(), want: []string{"auto", "always", "never"}},
 		{name: "interactive", domain: InteractiveMode(), want: []string{"auto", "always", "never"}},
 		{name: "output", domain: OutputMode(), want: []string{"human", "json"}},
-		{name: "pull request provider", domain: PullRequestProvider(), want: []string{"none", "github"}},
 		{name: "completion shell", domain: CompletionShell(), want: []string{"bash", "zsh", "fish", "powershell"}},
 	}
 
@@ -182,7 +181,6 @@ func TestAllEnumeratesEveryCanonicalDescriptor(t *testing.T) {
 		"color mode",
 		"interactive mode",
 		"output mode",
-		"pull request provider",
 		"shell",
 		"release semantic version",
 		"support major.minor version",

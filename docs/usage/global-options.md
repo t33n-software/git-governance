@@ -10,7 +10,6 @@
 --repo <path>                     default: current directory
 --config <path>                   explicit preferences file
 --quality-config <path>           repository-local quality gate configuration
---pull-request-provider none|github  default: none
 --dry-run                         generate a plan without Git mutation
 --yes                             confirm a mutation non-interactively
 --timeout <duration>              default: 30s
@@ -31,8 +30,11 @@
 
 For automation, use `--interactive never --output json`. A pull request is
 created only when `--create-pull-request` is supplied to a workflow.
-GitHub requires `--pull-request-provider github` and either an existing
-GitHub App session or a managed credential broker. The interactive
+The hosting provider carries no flag: it is derived from the selected remote.
+When that remote resolves to a GitHub hosting identity, the CLI uses the
+GitHub App session bound to that repository or a managed credential broker,
+and it fails closed with the authentication remediation when none is bound.
+The interactive
 `auth login github` command is intentionally unavailable in automation; see
 [GitHub App authentication](authentication.md). Never pass a GitHub token as a
 flag or save credentials in preferences.

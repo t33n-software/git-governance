@@ -220,7 +220,7 @@ stabilization branch from the frozen line, then run the dedicated alignment:
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release align-promotion-base `
+  workflow release align-promotion-base `
   --release release/2.8.0 `
   --push `
   --create-pull-request
@@ -240,7 +240,7 @@ explicitly, then continue through the CLI:
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release align-promotion-base `
+  workflow release align-promotion-base `
   --release release/2.8.0 `
   --resume `
   --push `
@@ -266,7 +266,7 @@ request through GitHub, use explicit provider configuration and confirmation:
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release promote `
+  workflow release promote `
   --release release/2.8.0 `
   --create-pull-request
 ```
@@ -282,7 +282,7 @@ were published successfully.
 
 ```powershell
 git governance --interactive never --output json --yes `
-  --pull-request-provider github workflow release backmerge `
+  workflow release backmerge `
   --release release/2.8.0 `
   --create-pull-request
 ```
