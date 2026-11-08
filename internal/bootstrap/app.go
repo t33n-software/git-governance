@@ -38,12 +38,15 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		version = "devel"
 	}
 	options := &appOptions{
-		interactive:         "auto",
-		output:              "human",
-		color:               "auto",
-		remote:              "origin",
-		repository:          ".",
-		pullRequestProvider: "none",
+		interactive: "auto",
+		output:      "human",
+		color:       "auto",
+		remote:      "origin",
+		repository:  ".",
+		// The empty default derives the hosting provider from the selected
+		// remote and the bound authentication session; none and github are
+		// explicit overrides only.
+		pullRequestProvider: "",
 		timeout:             30 * time.Second,
 	}
 	application := newApplication(runtime, options)
@@ -56,7 +59,8 @@ func NewWithRuntime(build BuildInfo, runtime Runtime) *cobra.Command {
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
 	}
-	command.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+	command.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
+		application.commandContext = command.Context()
 		return application.validateOptions()
 	}
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {

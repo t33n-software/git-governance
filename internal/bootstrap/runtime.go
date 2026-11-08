@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"time"
 
 	"github.com/t33n-software/git-governance/internal/adapters/browser"
@@ -59,6 +60,16 @@ type Runtime struct {
 type application struct {
 	runtime Runtime
 	options *appOptions
+	// commandContext is bound by the framework's PersistentPreRunE before any
+	// endpoint runs and lets the composition root resolve the selected remote
+	// with the live command cancellation instead of an unbound background
+	// context.
+	commandContext context.Context
+	// publisherResolved and publisherMemo cache the derived-publisher verdict
+	// for one application instance, so the remote resolution runs at most
+	// once per process regardless of how often the service graph is composed.
+	publisherResolved bool
+	publisherMemo     port.PullRequestPublisher
 }
 
 type services struct {

@@ -284,10 +284,22 @@ func pullRequestPublisherUnavailable() error {
 		Code:        problem.CodeExternalCommandFailed,
 		Category:    problem.CategoryExternal,
 		Field:       "pull request publisher",
-		Expected:    "a configured hosting-provider adapter",
-		Rule:        "a real pull request can be created only through an explicit provider adapter",
-		Remediation: "set --pull-request-provider github and complete auth login github or configure the managed credential broker",
+		Expected:    "a hosting provider derived from the selected remote and its bound authentication session",
+		Rule:        "a real pull request can be created only through the provider adapter derived from the selected remote",
+		Remediation: "complete auth login github for the selected remote or configure the managed credential broker; an explicit --pull-request-provider github override addresses the migration-cutover window only",
 	})
+}
+
+// pullRequestPublicationIntentCause renders the precise cause of the
+// intent-only publication result from the resolved provider posture, so the
+// report vocabulary exists exactly once: the explicit none override disables
+// the provider, and an unresolvable remote simply carries no supported
+// hosting identity.
+func (application *application) pullRequestPublicationIntentCause() string {
+	if application.options.pullRequestProvider == "none" {
+		return "intent-only; provider disabled by the explicit --pull-request-provider none override"
+	}
+	return "intent-only; no supported hosting identity derived from the selected remote"
 }
 
 func pullRequestConfirmationRequired() error {

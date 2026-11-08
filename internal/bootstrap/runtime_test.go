@@ -268,6 +268,91 @@ func TestServicesWireDependenciesAndQualityFallback(t *testing.T) {
 	}
 }
 
+// TestDerivedPublisherComposition pins the provider-derivation posture of the
+// composition root: the canonical GitHub remote of a bound command execution
+// constructs the publisher, the none override forces the provider-neutral
+// intent path, a non-GitHub remote stays neutral, a composition outside a
+// command execution stays neutral, and the verdict is memoized per instance.
+func TestDerivedPublisherComposition(t *testing.T) {
+	t.Run("derives the publisher from a canonical GitHub remote", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		application.commandContext = context.Background()
+		if !application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("canonical GitHub remote did not derive a pull-request publisher")
+		}
+	})
+
+	t.Run("the none override forces the provider-neutral intent path", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		options := runtimeTestOptions()
+		options.pullRequestProvider = "none"
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, options)
+		application.commandContext = context.Background()
+		if application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("the none override unexpectedly constructed a pull-request publisher")
+		}
+	})
+
+	t.Run("a non-GitHub remote stays provider-neutral", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://git.example.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		application.commandContext = context.Background()
+		if application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("a non-GitHub remote unexpectedly derived a pull-request publisher")
+		}
+	})
+
+	t.Run("a composition outside a command execution stays provider-neutral", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		if application.services().tickets.HasPullRequestPublisher() {
+			t.Fatal("an unbound composition unexpectedly derived a pull-request publisher")
+		}
+	})
+
+	t.Run("the derivation verdict is memoized per instance", func(t *testing.T) {
+		git := &runtimeTestGit{remoteURL: "https://github.com/owner/repository.git"}
+		application := newApplication(Runtime{
+			GitFactory: func(time.Duration) port.GitRepository { return git },
+		}, runtimeTestOptions())
+		application.commandContext = context.Background()
+		application.services()
+		firstCalls := git.discoverCalls
+		application.services()
+		if git.discoverCalls != firstCalls {
+			t.Fatalf("second composition re-resolved the remote: discover calls %d, want %d", git.discoverCalls, firstCalls)
+		}
+	})
+}
+
+// TestPullRequestPublicationIntentCauseVocabulary pins the derived
+// intent-only report vocabulary to the resolved provider posture.
+func TestPullRequestPublicationIntentCauseVocabulary(t *testing.T) {
+	derived := runtimeTestOptions()
+	application := newApplication(Runtime{}, derived)
+	if got := application.pullRequestPublicationIntentCause(); got !=
+		"intent-only; no supported hosting identity derived from the selected remote" {
+		t.Fatalf("derived intent cause = %q", got)
+	}
+
+	overridden := runtimeTestOptions()
+	overridden.pullRequestProvider = "none"
+	application = newApplication(Runtime{}, overridden)
+	if got := application.pullRequestPublicationIntentCause(); got !=
+		"intent-only; provider disabled by the explicit --pull-request-provider none override" {
+		t.Fatalf("override intent cause = %q", got)
+	}
+}
+
 func TestRepositoryOverwritesRemoteAndPropagatesCancellation(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		git := &runtimeTestGit{
@@ -776,15 +861,28 @@ type runtimeTestGit struct {
 	discoverErr     error
 	receivedContext context.Context
 	directory       string
+	remoteURL       string
+	discoverCalls   int
 }
 
 func (git *runtimeTestGit) Discover(ctx context.Context, directory string) (port.RepositoryIdentity, error) {
 	git.receivedContext = ctx
 	git.directory = directory
+	git.discoverCalls++
 	if git.discoverErr != nil {
 		return port.RepositoryIdentity{}, git.discoverErr
 	}
 	return git.identity, nil
+}
+
+// RemoteURL keeps the derived-provider composition resolvable for the fake:
+// the configured remoteURL drives the derivation verdict; the default stays
+// an unresolvable remote so unrelated tests keep the provider-neutral path.
+func (git *runtimeTestGit) RemoteURL(_ context.Context, _ port.RepositoryIdentity) (string, error) {
+	if git.remoteURL == "" {
+		return "", errors.New("no configured remote")
+	}
+	return git.remoteURL, nil
 }
 
 type runtimeTestStore struct {

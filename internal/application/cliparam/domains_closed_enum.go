@@ -158,13 +158,16 @@ func OutputMode() Domain {
 	}
 }
 
-// PullRequestProvider is the closed-enum domain of the hosting provider used
-// for pull request publication.
+// PullRequestProvider is the closed-enum domain of the explicit hosting
+// provider override for pull request publication. The empty default is not a
+// value of this domain: it selects the derived posture, where the provider
+// comes from the selected remote and its bound authentication session.
 func PullRequestProvider() Domain {
 	return Domain{
-		Concept: "pull request provider",
+		Concept: "pull request provider override",
 		Class:   ClassClosedEnum,
 		Values:  []string{"none", "github"},
+		Rule:    "empty derives the provider from the selected remote and its bound session; none forces the provider-neutral intent path; github is the migration-cutover override",
 	}
 }
 

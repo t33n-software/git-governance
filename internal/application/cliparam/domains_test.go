@@ -182,7 +182,7 @@ func TestAllEnumeratesEveryCanonicalDescriptor(t *testing.T) {
 		"color mode",
 		"interactive mode",
 		"output mode",
-		"pull request provider",
+		"pull request provider override",
 		"shell",
 		"release semantic version",
 		"support major.minor version",

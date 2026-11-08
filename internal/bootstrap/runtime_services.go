@@ -35,13 +35,7 @@ func (application *application) services() services {
 			HTTPClient:       &http.Client{Timeout: application.options.timeout},
 		})
 	}
-	publisher := application.runtime.Publisher
-	if publisher == nil && application.options.pullRequestProvider == "github" {
-		publisher = github.New(github.Options{
-			Resolver: credentialResolver,
-			Timeout:  application.options.timeout,
-		})
-	}
+	publisher := application.derivePublisher(git, credentialResolver)
 	// The allocation inventory is a derived read model over the resolved
 	// adapter capabilities: the Git-transport surfaces always, the platform
 	// surfaces exactly when a hosting provider is configured. A missing
@@ -124,4 +118,54 @@ func (application *application) services() services {
 		doctor:        policy.NewDoctorServiceWithDependencies(git, store, policyInspector, application.runtime.Tools),
 		githubAuth:    githubAuth,
 	}
+}
+
+// derivePublisher resolves the hosting-provider publisher for the selected
+// working context. The provider is a derived quantity: with no explicit
+// override, the GitHub publisher is constructed exactly when the selected
+// remote resolves to the canonical GitHub.com hosting identity the local
+// authentication provider stores sessions for. The explicit values stay
+// scope-locked overrides: none forces the provider-neutral intent path, and
+// github forces the GitHub publisher for the bounded migration-cutover window
+// with two candidate remotes. Session availability is decided at the
+// publication boundary by the adapter's credential resolution, which fails
+// closed with the authentication remediation; the composition never probes the
+// network. The remote resolution runs only inside a bound command execution
+// (the framework binds the command context before any endpoint runs); a
+// composition outside a command stays provider-neutral. An injected runtime
+// publisher (the server-side controller compositions and the tests) always
+// wins. The verdict is memoized per application instance because the service
+// graph composes repeatedly.
+func (application *application) derivePublisher(
+	git port.GitRepository,
+	credentialResolver github.CredentialResolver,
+) port.PullRequestPublisher {
+	if application.runtime.Publisher != nil {
+		return application.runtime.Publisher
+	}
+	if application.publisherResolved {
+		return application.publisherMemo
+	}
+	application.publisherResolved = true
+	newPublisher := func() port.PullRequestPublisher {
+		return github.New(github.Options{
+			Resolver: credentialResolver,
+			Timeout:  application.options.timeout,
+		})
+	}
+	switch application.options.pullRequestProvider {
+	case "none":
+		application.publisherMemo = nil
+	case "github":
+		application.publisherMemo = newPublisher()
+	default:
+		application.publisherMemo = nil
+		if application.commandContext != nil {
+			if target, ok := application.repositoryCredentialTarget(application.commandContext, git); ok &&
+				github.IsCanonicalGitHubHost(target.Host) {
+				application.publisherMemo = newPublisher()
+			}
+		}
+	}
+	return application.publisherMemo
 }

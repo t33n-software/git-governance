@@ -240,8 +240,8 @@ func (publisher *Publisher) lifecycleTarget(remoteURL string) (*url.URL, reposit
 	if publisher == nil {
 		return nil, repositoryRef{}, lifecycleConfigurationProblem(
 			"GitHub release lifecycle",
-			"a configured GitHub lifecycle provider",
-			"configure --pull-request-provider github before requesting release dispatch or reconciliation",
+			"a GitHub lifecycle provider derived from the selected remote",
+			"select a remote with a supported hosting identity, or bind an authentication session with auth login github, before requesting release dispatch or reconciliation",
 		)
 	}
 	if publisher.resolver == nil {
