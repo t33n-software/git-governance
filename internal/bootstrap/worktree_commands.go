@@ -34,6 +34,8 @@ func newWorktreeStartCommand(application *application) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "start",
 		Short: "Acquire a detached task worktree for one ticket from the current revision of the selected base line",
+		Long: "Acquire a detached task worktree for one ticket from the current revision of the selected base line.\n\n" +
+			"The tool cannot change the invoking shell's working directory; change into the reported worktreePath before the next in-worktree step.",
 		RunE: withWorkflowInputs(func(command *cobra.Command, inputs *workflowInputSummary) error {
 			services := application.services()
 			repository, err := application.discover(command.Context(), services)

@@ -18,7 +18,9 @@ git governance --yes workflow worktree start `
 
 The endpoint fetches the selected remote and creates a detached worktree at
 `../<repository>-<KEY>-<NUMBER>` from the lane's acquisition base; no branch
-is created in this step. The lane-to-base mapping binds the base: regular
+is created in this step. The endpoint reports the absolute `worktreePath`;
+change into it before the next in-worktree step — the tool cannot move the
+invoking shell's working directory. The lane-to-base mapping binds the base: regular
 ticket work acquires from `develop`, hotfix work from the protected base
 line, and release stabilization work from the frozen release line. Pass
 `--base main`, `--base release/1.2.0`, or `--base support/1.2` explicitly
