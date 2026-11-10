@@ -446,6 +446,34 @@ type doctorGitWithoutAuth struct {
 	port.GitRepository
 }
 
+// doctorGitFreshness adds the shared-line surfaces the freshness check
+// consumes: the checked-out branch and the optional behind counter.
+type doctorGitFreshness struct {
+	doctorGit
+	current    string
+	currentErr error
+	behind     int
+	behindErr  error
+	counterSet bool
+}
+
+func (git doctorGitFreshness) CurrentBranch(context.Context, port.RepositoryIdentity) (branch.BranchName, error) {
+	if git.currentErr != nil {
+		return branch.BranchName{}, git.currentErr
+	}
+	if git.current == "" {
+		return git.doctorGit.CurrentBranch(context.Background(), port.RepositoryIdentity{})
+	}
+	return branch.ParseName(git.current)
+}
+
+func (git doctorGitFreshness) CountCommitsBehindBase(context.Context, port.RepositoryIdentity, branch.TargetBase) (int, error) {
+	if !git.counterSet {
+		return 0, errors.New("counter must not be called")
+	}
+	return git.behind, git.behindErr
+}
+
 type remoteDoctorGit struct {
 	doctorGit
 	authenticatedRemote string
@@ -467,6 +495,93 @@ func checkByName(t *testing.T, checks []Check, name string) Check {
 	return Check{}
 }
 
+func TestDoctorSharedLineFreshnessCheck(t *testing.T) {
+	t.Parallel()
+
+	store := &memoryStore{preferences: port.Preferences{SchemaVersion: schemaVersion}}
+	run := func(git port.GitRepository) DoctorResult {
+		t.Helper()
+		result, err := NewDoctorServiceWithDependencies(git, store, nil, nil).Run(context.Background(), "C:/repo")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	t.Run("a lagging shared line reports the count without gating", func(t *testing.T) {
+		result := run(doctorGitFreshness{
+			doctorGit:  doctorGit{commits: true, signingConfig: validSigningConfiguration()},
+			current:    "develop",
+			behind:     7,
+			counterSet: true,
+		})
+		check := checkByName(t, result.Checks, "shared-line freshness")
+		if !check.OK {
+			t.Fatalf("a lagging line must stay informational: %#v", check)
+		}
+		if check.Detail != "develop is behind origin/develop by 7 commits; branch refresh-shared-lines fast-forwards it" {
+			t.Fatalf("lagging detail = %q", check.Detail)
+		}
+		if result.AuthenticationError() != nil || result.SigningError() != nil {
+			t.Fatal("the freshness check must never gate the doctor exit")
+		}
+	})
+
+	t.Run("a current shared line reports the match", func(t *testing.T) {
+		result := run(doctorGitFreshness{
+			doctorGit:  doctorGit{commits: true, signingConfig: validSigningConfiguration()},
+			current:    "main",
+			counterSet: true,
+		})
+		check := checkByName(t, result.Checks, "shared-line freshness")
+		if !check.OK || check.Detail != "main matches origin/main" {
+			t.Fatalf("current detail = %#v", check)
+		}
+	})
+
+	t.Run("a working branch is reported as no shared line", func(t *testing.T) {
+		result := run(doctorGitFreshness{doctorGit: doctorGit{commits: true}})
+		check := checkByName(t, result.Checks, "shared-line freshness")
+		if !check.OK || check.Detail != "the checked-out branch is not a shared line" {
+			t.Fatalf("working branch detail = %#v", check)
+		}
+	})
+
+	t.Run("an unresolvable checkout is reported as no shared line", func(t *testing.T) {
+		result := run(doctorGitFreshness{
+			doctorGit:  doctorGit{commits: true},
+			currentErr: errors.New("detached HEAD"),
+		})
+		check := checkByName(t, result.Checks, "shared-line freshness")
+		if !check.OK || check.Detail != "no shared line is checked out" {
+			t.Fatalf("detached detail = %#v", check)
+		}
+	})
+
+	t.Run("a failed count is reported without gating the exit", func(t *testing.T) {
+		result := run(doctorGitFreshness{
+			doctorGit:  doctorGit{commits: true},
+			current:    "develop",
+			behindErr:  errors.New("rev-list failed"),
+			counterSet: true,
+		})
+		check := checkByName(t, result.Checks, "shared-line freshness")
+		if check.OK || result.AuthenticationError() != nil {
+			t.Fatalf("failed count = %#v, exit error = %v", check, result.AuthenticationError())
+		}
+	})
+
+	t.Run("without the counting capability the check stays absent", func(t *testing.T) {
+		result := run(doctorGit{commits: true})
+		for _, check := range result.Checks {
+			if check.Name == "shared-line freshness" {
+				t.Fatalf("the check must require the optional capability: %#v", check)
+			}
+		}
+	})
+}
+
 var _ port.GitRepository = doctorGit{}
 var _ port.GitTransportAuthenticator = doctorGit{}
+var _ port.CommitsBehindBaseCounter = doctorGitFreshness{}
 var _ port.ToolInspector = doctorTools{}
