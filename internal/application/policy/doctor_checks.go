@@ -3,8 +3,10 @@ package policy
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 
 	"github.com/t33n-software/git-governance/internal/application/port"
+	"github.com/t33n-software/git-governance/internal/domain/branch"
 	"github.com/t33n-software/git-governance/internal/domain/problem"
 )
 
@@ -69,8 +71,75 @@ func (result *DoctorResult) appendRepositoryChecks(ctx context.Context, git port
 		})
 	}
 
+	result.appendSharedLineFreshnessCheck(ctx, git, repository)
 	result.appendGitAuthenticationCheck(ctx, git, repository)
 	result.appendSigningChecks(ctx, git, repository)
+}
+
+// appendSharedLineFreshnessCheck reports, read-only, how far the checked-out
+// shared line lags its fetched remote-tracking reference. A lagging line is
+// an expected state for governed operations — every freshness decision binds
+// to the fetched base — so the check stays informational and never gates the
+// doctor exit. Without the optional counting capability the check is absent,
+// mirroring the degraded diagnostics of the other optional Git surfaces.
+func (result *DoctorResult) appendSharedLineFreshnessCheck(
+	ctx context.Context,
+	git port.GitRepository,
+	repository port.RepositoryIdentity,
+) {
+	counter, ok := git.(port.CommitsBehindBaseCounter)
+	if !ok {
+		return
+	}
+	name, branchErr := git.CurrentBranch(ctx, repository)
+	if branchErr != nil {
+		result.Checks = append(result.Checks, Check{
+			Name:   "shared-line freshness",
+			OK:     true,
+			Detail: "no shared line is checked out",
+		})
+		return
+	}
+	if !name.Family().IsSharedLine() {
+		result.Checks = append(result.Checks, Check{
+			Name:   "shared-line freshness",
+			OK:     true,
+			Detail: "the checked-out branch is not a shared line",
+		})
+		return
+	}
+	base, err := branch.NewTargetBase(repository.Remote, name)
+	if err != nil {
+		result.Checks = append(result.Checks, Check{
+			Name:   "shared-line freshness",
+			OK:     false,
+			Detail: err.Error(),
+		})
+		return
+	}
+	behind, err := counter.CountCommitsBehindBase(ctx, repository, base)
+	if err != nil {
+		result.Checks = append(result.Checks, Check{
+			Name:   "shared-line freshness",
+			OK:     false,
+			Detail: err.Error(),
+		})
+		return
+	}
+	if behind == 0 {
+		result.Checks = append(result.Checks, Check{
+			Name:   "shared-line freshness",
+			OK:     true,
+			Detail: name.String() + " matches " + base.String(),
+		})
+		return
+	}
+	result.Checks = append(result.Checks, Check{
+		Name: "shared-line freshness",
+		OK:   true,
+		Detail: name.String() + " is behind " + base.String() + " by " + strconv.Itoa(behind) +
+			" commits; branch refresh-shared-lines fast-forwards it",
+	})
 }
 
 func (result *DoctorResult) appendGitAuthenticationCheck(

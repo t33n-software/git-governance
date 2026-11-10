@@ -98,6 +98,14 @@ type GitTransportAuthenticator interface {
 	CheckTransportAuthentication(context.Context, RepositoryIdentity) error
 }
 
+// CommitsBehindBaseCounter is an optional diagnostic capability. It counts the
+// commits the checked-out HEAD lacks from one remote-tracking base. The
+// doctor shared-line freshness check derives its read-only behind indicator
+// from this count; the count never gates a governed mutation.
+type CommitsBehindBaseCounter interface {
+	CountCommitsBehindBase(ctx context.Context, repository RepositoryIdentity, base branch.TargetBase) (int, error)
+}
+
 // SigningConfiguration carries the effective commit-signing facts of one
 // repository context. It never carries key material, only references and
 // readiness facts.

@@ -10,9 +10,17 @@ Generate scripts for `bash`, `zsh`, `fish`, or `powershell`.
 
 `doctor` is read-only with respect to Git refs and the worktree. It reports the
 Git version, repository and history state, selected remote availability, active
-rebase/merge/cherry-pick state, Git transport authentication, commit-signing
-readiness, Lefthook binary/configuration status, local policy mode, and user
-configuration status.
+rebase/merge/cherry-pick state, the shared-line freshness indicator, Git
+transport authentication, commit-signing readiness, Lefthook
+binary/configuration status, local policy mode, and user configuration status.
+
+The shared-line freshness check counts, read-only, how far the checked-out
+shared line lags its fetched remote-tracking reference and names
+`branch refresh-shared-lines` as the governed fast-forward. A lagging line is
+an expected and harmless state for governed operations — every freshness
+decision binds to the fetched base — so the check stays informational and
+never gates the doctor exit; without a checked-out shared line it reports that
+state instead.
 
 The Git authentication check performs a non-interactive
 `git push --dry-run --no-verify --porcelain` that creates the reserved probe
