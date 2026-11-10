@@ -455,6 +455,14 @@ type doctorGitFreshness struct {
 	behind     int
 	behindErr  error
 	counterSet bool
+	remote     string
+}
+
+func (git doctorGitFreshness) Discover(context.Context, string) (port.RepositoryIdentity, error) {
+	if git.remote == "" {
+		return git.doctorGit.Discover(context.Background(), "C:/repo")
+	}
+	return port.RepositoryIdentity{Root: "C:/repo", Remote: git.remote}, nil
 }
 
 func (git doctorGitFreshness) CurrentBranch(context.Context, port.RepositoryIdentity) (branch.BranchName, error) {
@@ -555,6 +563,18 @@ func TestDoctorSharedLineFreshnessCheck(t *testing.T) {
 		check := checkByName(t, result.Checks, "shared-line freshness")
 		if !check.OK || check.Detail != "no shared line is checked out" {
 			t.Fatalf("detached detail = %#v", check)
+		}
+	})
+
+	t.Run("an invalid remote name reports the base problem", func(t *testing.T) {
+		result := run(doctorGitFreshness{
+			doctorGit: doctorGit{commits: true},
+			current:   "develop",
+			remote:    "not a remote",
+		})
+		check := checkByName(t, result.Checks, "shared-line freshness")
+		if check.OK || result.AuthenticationError() != nil {
+			t.Fatalf("invalid remote = %#v, exit error = %v", check, result.AuthenticationError())
 		}
 	})
 
