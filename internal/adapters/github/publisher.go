@@ -632,16 +632,19 @@ const (
 
 // pullRequestInventoryResponse is the bounded projection of one listed
 // pull request: the identifier, the title, the author, the creation time,
-// and the lifecycle facts of the neutral state mapping.
+// and the lifecycle facts of the neutral state mapping. The list endpoint
+// carries the merge fact as the nullable merged_at timestamp; the merged
+// boolean exists only on the merge-check and single-resource surfaces, so
+// reading it here would decode every merged pull request as closed.
 type pullRequestInventoryResponse struct {
 	Number int    `json:"number"`
 	Title  string `json:"title"`
 	User   struct {
 		Login string `json:"login"`
 	} `json:"user"`
-	CreatedAt time.Time `json:"created_at"`
-	State     string    `json:"state"`
-	Merged    bool      `json:"merged"`
+	CreatedAt time.Time  `json:"created_at"`
+	State     string     `json:"state"`
+	MergedAt  *time.Time `json:"merged_at"`
 }
 
 // ListPullRequests enumerates the complete open and closed pull-request
@@ -683,7 +686,7 @@ func (publisher *Publisher) ListPullRequests(
 				Title:     pullRequest.Title,
 				Author:    pullRequest.User.Login,
 				CreatedAt: pullRequest.CreatedAt,
-				State:     pullRequestInventoryState(pullRequest.State, pullRequest.Merged),
+				State:     pullRequestInventoryState(pullRequest.State, pullRequest.MergedAt),
 			})
 		}
 		if len(listed) < pullRequestInventoryPageSize {
@@ -702,12 +705,13 @@ func (publisher *Publisher) ListPullRequests(
 }
 
 // pullRequestInventoryState maps the provider pull-request facts onto the
-// neutral lifecycle state: the provider merge fact wins over the raw state
+// neutral lifecycle state: the provider merge fact — the non-null
+// merged_at timestamp of the list response — wins over the raw state
 // value, a closed record without a merge stays closed, and everything else
 // remains open.
-func pullRequestInventoryState(state string, merged bool) port.PullRequestState {
+func pullRequestInventoryState(state string, mergedAt *time.Time) port.PullRequestState {
 	switch {
-	case merged:
+	case mergedAt != nil:
 		return port.PullRequestStateMerged
 	case strings.EqualFold(strings.TrimSpace(state), "closed"):
 		return port.PullRequestStateClosed
