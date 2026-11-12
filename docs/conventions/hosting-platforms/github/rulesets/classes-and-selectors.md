@@ -9,7 +9,7 @@ The fleet is partitioned through the repository custom property
 | Class | Property value | Meaning |
 |---|---|---|
 | `full` | Quality gates for Linux, Windows, and macOS | Projects that ship binaries for all three operating systems (CLI tools) |
-| `linux-only` | Quality gate exclusively for Linux | Projects that produce pure Linux/Docker/CI/CD artifacts and do not ship operating-system-specific binaries |
+| `linux-only` | Quality gate exclusively for Linux | Projects that produce pure Linux/Podman/CI/CD artifacts and do not ship operating-system-specific binaries |
 
 The architectural rationale of the classes: projects with real
 operating-system deliveries need the full matrix, because every platform is

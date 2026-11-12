@@ -18,7 +18,7 @@ The fleet is partitioned by the repository custom property `quality-gates`:
 | Class | Property value | Meaning | Current members |
 |---|---|---|---|
 | full | `full` | Quality gates run on Linux, macOS, and Windows | `git-governance`, `license-hub` |
-| linux-only | `linux-only` | Quality gates run on Linux only (Docker/CI/CD artifacts, no per-OS binaries) | all other governed repositories |
+| linux-only | `linux-only` | Quality gates run on Linux only (Podman/CI/CD artifacts, no per-OS binaries) | all other governed repositories |
 
 Class membership is assigned through the repository custom property, never by
 editing a ruleset. The two class rulesets of the same shared line use mutually
