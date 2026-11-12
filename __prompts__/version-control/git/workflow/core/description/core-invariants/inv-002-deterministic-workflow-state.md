@@ -50,7 +50,12 @@ active task and releases its report, answer, or question obligation before any
 worktree acquisition; the blocking side state
 `WAITING_FOR_TASK_RESPONSE_DECISION` holds the workflow until the user decides,
 and the transition to `ENVIRONMENT_READY` requires the proofs
-`task_response_released` and `shared_line_refresh_checked`.
+`task_response_released` and `shared_line_refresh_checked`. The phase entry
+binds the freshness proof ahead of the first read: the first read access to the
+local shared-line tree requires the prior `shared_line_refresh_checked` proof,
+and the governed refresh capability restores freshness on lag as part of the
+same entry action, so no read-only analysis step runs against an unchecked
+local tree.
 
 **Affected Files:**
 

@@ -206,6 +206,13 @@ read-only erkundet und sein Report-, Antwort- oder Frage-Release-Pflichtvertrag
 vollständig erfüllt wird; steht dieser Release aus, blockiert der side state
 `WAITING_FOR_TASK_RESPONSE_DECISION` jeden Dispatch einer Worktree-Akquisition
 oder eines Ticket-Key-Vorschlags, bis der Benutzer entschieden hat. Der
+Phasen-Eintritt bindet die Frische-Prüfung vor dem ersten Lesen: der erste
+Lesezugriff auf den lokalen Shared-Line-Baum verlangt den vorherigen Nachweis
+`shared_line_refresh_checked` — der Agent prüft, ob die ausgecheckte
+Integrationslinie ihrer geholten Remote-Tracking-Referenz nachhängt, und stellt
+bei Rückstand die Frische über die governete Fähigkeit aus [5.2] wieder her;
+diese Prüfung ist zugleich Frische-Check und Frische-Herstellung, damit kein
+read-only Analyseschritt auf einem ungeprüften lokalen Baum stattfindet. Der
 Übergang nach `ENVIRONMENT_READY` verlangt den Nachweis
 `task_response_released` und — wenn die Discovery den lokalen Shared-Line-Baum
 gelesen hat oder die Worktree-Akquisitionsbasis von ihm abhängt — den Nachweis
@@ -305,7 +312,7 @@ Zusatznachweise, nur bei Betroffenheit:
 - provider_session_verified         (Aufgabenmuster mit Provider-Publikation; genau einmal pro Scope)
 - current_branch_pr_state_checked   (Start auf einer official_working Branch)
 - deferred_initialization_completed (erster aufgabenführender Turn nach einer Fragephase)
-- shared_line_refresh_checked   (die Discovery las den lokalen Shared-Line-Baum oder die Worktree-Akquisitionsbasis hängt von ihm ab)
+- shared_line_refresh_checked   (Phasen-Eintritt der Discovery: der erste Lesezugriff auf den lokalen Shared-Line-Baum verlangt ihn vorher; ebenso wenn die Worktree-Akquisitionsbasis von ihm abhängt)
 ```
 
 Für Release- und Hotfix-Wege ergänzt der Agent nur bei Betroffenheit:
@@ -936,7 +943,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `branch create` | E2 | Nur wenn kein vollständiger Workflow diese begrenzte Aktion anbietet; insbesondere reaktive Scratch-Erstellung | Keine Ticket-Branch-Erstellung, kein Ersatz für `workflow ticket start`, kein Reparaturvehikel für Mutation-vor-Workflow |
 | `branch merge-scratch` | E2 | Begrenzte Scratch-Übernahme, wenn der Ticket-Publish-Workflow sie nicht übernimmt | Kontrollierter Squash auf offiziellen Branch |
 | `branch sync-base` | E2 | Bewusste, isolierte Basis-Synchronisation und governeter Wiedereinstieg in ihre konfliktpausierte Rebase- oder Merge-Operation | Nach Mutation und nach Resume Quality erneut prüfen |
-| `branch refresh-shared-lines` | E2 | Ausdrücklich benötigte Frische lokaler Shared-Line-Checkouts, etwa weil ein nachgelagerter Prozess den lokalen Baum liest | Nur Fast-Forward, fail-closed, keine Remote-Mutation, kein Checkout-Wechsel, keine Linien-Erzeugung |
+| `branch refresh-shared-lines` | E2 | Ausdrücklich benötigte Frische lokaler Shared-Line-Checkouts — der Frische-Nachweis beim Phasen-Eintritt der Discovery, sobald der lokale Shared-Line-Baum gelesen wird, und wann immer ein nachgelagerter Prozess den lokalen Baum liest | Nur Fast-Forward, fail-closed, keine Remote-Mutation, kein Checkout-Wechsel, keine Linien-Erzeugung |
 | `commit create` | E2 | Einen explizit abgegrenzten semantischen Commit erzeugen; nur auf einer verifizierten offiziellen Working-Branch nach freigegebenem Embargo | Nur explizite Pfade, kein implizites Staging |
 | `message scaffold` | E2 | Eine mehrzeilige Nachrichtendatei (Commit-Body oder Pull-Request-Beschreibung) kanonisch konstruieren, bevor ein Body- oder Description-Flag befüllt wird | Erzeugt die vorausgefüllte Datei im OS-Temporärbereich und meldet ihren absoluten Pfad; keine Git-Mutation; der Content-Vertrag bleibt bei Validierung und [6.4] |
 | `workflow cleanup` | E1 | Ausschließlich lokal übertragene private Scratch-Branches aufräumen | Löscht keine Remote- oder offiziellen Branches |

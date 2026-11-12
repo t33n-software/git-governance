@@ -36,7 +36,10 @@ The requirement gates repository mutations only. The read-only discovery of
 the active task, its report or answer release, and writes to non-repository
 targets run before the acquisition and never trigger the chain; on a shared
 line the matrix sequences the report and the key proposal in one user
-decision before `workflow worktree start`.
+decision before `workflow worktree start`. The discovery phase entry binds
+the shared-line freshness proof ahead of the first local shared-line read,
+so every pre-start analysis and the acquisition base are measured against a
+fresh local tree.
 
 **Affected Files:**
 
