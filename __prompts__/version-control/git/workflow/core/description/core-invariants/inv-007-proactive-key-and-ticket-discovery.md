@@ -51,7 +51,10 @@ discovery fails or the proposal is declined without replacement values, the
 report, answer, or question-release contract of the active task exists, the
 proposal is published together with that report in the same user decision,
 and the worktree acquisition happens only after that decision — never ahead
-of the report.
+of the report. The discovery phase entry additionally binds the shared-line
+freshness proof: the first read access to the local shared-line tree requires
+the prior `shared_line_refresh_checked` proof, restored through the governed
+refresh capability on lag, so the discovery reads a fresh local tree.
 
 **Affected Files:**
 

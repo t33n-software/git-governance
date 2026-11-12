@@ -55,10 +55,11 @@ authentication, diagnostics, policy inspection and pre-push validation
 ```
 
 **Current State:**
-
 The registry coverage binds branch validation, synchronization, the governed
-synchronization resume, the on-demand shared-line refresh, the read-only
-allocation inventory of ticket numbers, and the complete task worktree
+synchronization resume, the shared-line refresh whose triggers include the
+discovery phase entry ahead of the first local shared-line read and any
+explicitly needed freshness, the read-only allocation inventory of ticket
+numbers, and the complete task worktree lifecycle:
 lifecycle: the `workflow worktree start`, `workflow worktree list`, `workflow
 worktree remove`, and `workflow worktree prune` registry rows cover the
 governed acquisition of a detached task worktree, the worktree inventory,
