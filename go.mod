@@ -2,7 +2,7 @@ module github.com/t33n-software/git-governance
 
 go 1.27.0
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	charm.land/huh/v2 v2.0.3
