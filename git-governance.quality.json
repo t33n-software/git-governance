@@ -1,6 +1,6 @@
 {
   "schemaVersion": 4,
-  "toolchain": { "language": "go", "version": "1.27.3" },
+  "toolchain": { "language": "go", "version": "1.27.4" },
   "extends": [],
   "gates": [
     {
