@@ -14,8 +14,8 @@ enforces and why. The importable JSON definitions reside under
 | `branch-governance: shared-line deletion floor` | `main`, `develop`, `release/*`, `support/*` | classless, `~ALL` |
 | `branch-governance: develop shared line (quality-gates=<class>)` | `develop` | full / linux-only |
 | `branch-governance: main shared line (quality-gates=<class>)` | `main` | full / linux-only |
-| `branch-governance: release shared lines (quality-gates=<class>)` | `release/*` | full / linux-only |
-| `branch-governance: support shared lines (quality-gates=<class>)` | `support/*` | full / linux-only |
+| `branch-governance: protected shared lines (quality-gates=<class>)` | `release/*`, `support/*` | full / linux-only |
+| `security-scanning: shared lines (security-scanning=enabled)` | `main`, `develop`, `release/*`, `support/*` | capability axis, `security-scanning=enabled` |
 
 ## Working-branch protection
 
@@ -41,12 +41,15 @@ Every shared line receives the same protection core:
   law of the composed era (caller job = lane identity, callee job =
   gate/variant identity): both classes bind the composite contexts
   `Quality gates / linux-amd64` (the `full` class additionally
-  `Quality gates / macos-arm64` and `Quality gates / windows-amd64`),
-  `Dependency review / Dependency admission review`, and
+  `Quality gates / macos-arm64` and `Quality gates / windows-amd64`) and
   `Canonical conformance / Canonical bindings verification`. The strict mode
-  binds the merge to a current PR state.
-- **code_scanning**: CodeQL with `all` thresholds for alerts and security
-  alerts; available on public repositories at no additional cost.
+  binds the merge to a current PR state. The dependency-review context is not
+  a class surface: it binds through the capability ruleset
+  `09-security-scanning.json` per the
+  [security-scanning capability convention](security-scanning-capability.md).
+- **code_scanning**: not a class surface; CodeQL with `all` thresholds for
+  alerts and security alerts binds through the capability ruleset
+  `09-security-scanning.json` on `security-scanning=enabled` repositories.
 
 Merge methods per line:
 
@@ -82,8 +85,8 @@ deliberate, audited governance act: the floor carries no bypass actors.
 
 ## The creation exception `do_not_enforce_on_create`
 
-Only the `release/*` and `support/*` rulesets carry
-`do_not_enforce_on_create: true`: a newly created protected line cannot have
+Only the protected-line rulesets `04-protected.*` (covering `release/*` and
+`support/*`) carry `do_not_enforce_on_create: true`: a newly created protected line cannot have
 branch-bound check results before its existence; without the exception, the
 governed creation would be impossible by definition. `develop` and `main`
 explicitly carry `false`: they are standing lines without a controlled
@@ -96,6 +99,12 @@ loosen any other rule.
 Title, selector, and file name form one machine-verifiable triple:
 `<context>: <aggregate> [(quality-gates=<class>)]` ↔
 `repository_property` value ↔ `<nn>-<line>[.quality-gates-<class>].json`.
+The line group of a shared-line class ruleset is one of `develop`, `main`, or
+`protected`; `protected` covers both `release/*` and `support/*`, whose
+governance content is identical on every axis. The capability ruleset follows
+the same triple with its own axis:
+`security-scanning: shared lines (security-scanning=enabled)` ↔
+`security-scanning = enabled` ↔ `09-security-scanning.json`.
 Classless rulesets deliberately carry no class.
 
 ## Deliberately not created

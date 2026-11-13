@@ -76,14 +76,28 @@ enforceable rather than implicitly absent. No shared-line ruleset targets
 `pending`; such repositories remain bound only to the classless rulesets `00`
 and `01` until their workflows are aligned.
 
+## The capability axis `security-scanning`
+[INTENT: SPEZIFIKATION]
+
+The `security-scanning` property is the second, orthogonal axis: it decides
+whether the GitHub Advanced Security capability ruleset
+`09-security-scanning.json` binds the shared lines of a repository. Its
+allowed values are `enabled` and `disabled`, its canonical default is
+`enabled` (the target architecture), and `disabled` is only ever a positive,
+organization-declared instance assignment — never a canonical default and
+never a weakening of a class ruleset. The axis has no onboarding value: the
+capability either binds or it does not; workflow-alignment states belong
+exclusively to the `quality-gates` axis. The partition law is owned by
+[`../rulesets/security-scanning-capability.md`](../rulesets/security-scanning-capability.md).
+
 ## Activation sequence
 [INTENT: ANWEISUNG]
 
-The property schema and the initial assignments MUST be projected before the
-class-partitioned shared-line rulesets `02`–`05` are switched to active. A
-class ruleset whose selector references a missing or unassigned property
-binds zero repositories — a silent fail-open of the entire shared-line
-surface.
+The property schemas and the initial assignments of BOTH axes MUST be
+projected before the class-partitioned shared-line rulesets `02`–`04` and
+the capability ruleset `09-security-scanning.json` are switched to active. A
+ruleset whose selector references a missing or unassigned property binds zero
+repositories — a silent fail-open of the entire shared-line surface.
 
 ## Classification enforcement (deferred, entitlement-bound)
 [INTENT: SPEZIFIKATION]

@@ -106,6 +106,70 @@ func TestQualityGatesPropertyDefinitionIsDocumented(t *testing.T) {
 	}
 }
 
+func TestSecurityScanningPropertyDefinitionMatchesCapabilitySelector(t *testing.T) {
+	t.Parallel()
+
+	definition := parsePropertyDefinition(t, "security-scanning.json")
+
+	if definition.ValueType != "single_select" {
+		t.Fatalf("security-scanning value_type = %q, want %q", definition.ValueType, "single_select")
+	}
+	if !definition.Required {
+		t.Fatal("security-scanning must be a required property so every repository carries an explicit capability decision")
+	}
+	if definition.ValuesEditableBy != "org_actors" {
+		t.Fatalf("security-scanning values_editable_by = %q, want %q; a repository must never opt itself out of the security capability", definition.ValuesEditableBy, "org_actors")
+	}
+	if definition.DefaultValue != "enabled" {
+		t.Fatalf("security-scanning default_value = %q, want the target-architecture value %q; a cost or plan reason must never be burned into the canonical default", definition.DefaultValue, "enabled")
+	}
+
+	allowed := map[string]struct{}{}
+	for _, value := range definition.AllowedValues {
+		if _, duplicate := allowed[value]; duplicate {
+			t.Fatalf("security-scanning allowed_values repeats %q", value)
+		}
+		allowed[value] = struct{}{}
+	}
+	for _, value := range []string{"enabled", "disabled"} {
+		if _, ok := allowed[value]; !ok {
+			t.Fatalf("security-scanning allowed_values misses %q", value)
+		}
+	}
+	if _, ok := allowed["pending"]; ok {
+		t.Fatal("security-scanning must not carry the onboarding value pending; the capability axis has no workflow-alignment state")
+	}
+
+	ruleset := parseRuleset(t, securityScanningRulesetFile)
+	includes := ruleset.Conditions.RepositoryProperty.Include
+	if len(includes) != 1 {
+		t.Fatalf("capability ruleset must bind exactly one repository property selector, got %d", len(includes))
+	}
+	for _, value := range includes[0].PropertyValues {
+		if _, ok := allowed[value]; !ok {
+			t.Fatalf("capability selector value %q is not an allowed value of the security-scanning property definition", value)
+		}
+	}
+}
+
+func TestSecurityScanningPropertyDefinitionIsDocumented(t *testing.T) {
+	t.Parallel()
+
+	propertiesReadme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("properties", "github", "README.md")))
+	for _, required := range []string{"security-scanning", "enabled", "disabled", "09-security-scanning.json"} {
+		if !strings.Contains(propertiesReadme, required) {
+			t.Fatalf("properties README does not document the capability token %q", required)
+		}
+	}
+
+	convention := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-platforms", "github", "rulesets", "security-scanning-capability.md")))
+	for _, required := range []string{"09-security-scanning.json", "default_value: enabled", "do_not_enforce_on_create", "emitter-consistency"} {
+		if !strings.Contains(convention, required) {
+			t.Fatalf("security-scanning capability convention does not document the token %q", required)
+		}
+	}
+}
+
 func parsePropertyDefinition(t *testing.T, fileName string) propertyDefinition {
 	t.Helper()
 

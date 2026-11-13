@@ -57,8 +57,9 @@ invariants.
 
 The decision is enforced on several levels:
 
-- `04-release.json` protects `release/*` with the PR requirement,
-  `non_fast_forward`, review, status checks, and exclusively merge commits.
+- `04-protected.quality-gates-full.json` protects `release/*` (and
+  `support/*`) with the PR requirement, `non_fast_forward`, review, status
+  checks, and exclusively merge commits.
 - The workflow only accepts the checked-out `chore/*` release preparation
   branch with the stored base `origin/release/<semver>`.
 - The merge of `origin/main` is created on the working branch with a
@@ -115,5 +116,5 @@ decision. It does not replace release preparation provenance.
 - `docs/specification/policy-and-validation.md`
 - `docs/usage/workflows/release.md`
 - `docs/specification/cli-contract.md`
-- `rulesets/github/04-release.quality-gates-full.json`
+- `rulesets/github/04-protected.quality-gates-full.json`
 - `rulesets/github/README.md`

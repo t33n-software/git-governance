@@ -18,6 +18,16 @@ no additional control value from Windows and macOS gates; their binding
 boundary is the Linux CI from which the container and delivery artifacts are
 built.
 
+## The second, orthogonal axis: `security-scanning`
+
+The class model above governs only the operating-system matrix. The GitHub
+Advanced Security capability binds through the independent `security-scanning`
+property axis (`enabled`, `disabled`) and its single capability ruleset
+`09-security-scanning.json`; both axes are partitioned independently, and a
+repository carries exactly one value per axis. The full partition law,
+including the default posture and the emitter-consistency boundary, is owned
+by [security-scanning-capability.md](security-scanning-capability.md).
+
 ## Mutual exclusion (hard correctness rule)
 
 Organization rulesets aggregate with each other and with repository

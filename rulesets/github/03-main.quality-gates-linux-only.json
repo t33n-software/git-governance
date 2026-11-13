@@ -54,22 +54,7 @@
             "context": "Quality gates / linux-amd64"
           },
           {
-            "context": "Dependency review / Dependency admission review"
-          },
-          {
             "context": "Canonical conformance / Canonical bindings verification"
-          }
-        ]
-      }
-    },
-    {
-      "type": "code_scanning",
-      "parameters": {
-        "code_scanning_tools": [
-          {
-            "tool": "CodeQL",
-            "alerts_threshold": "all",
-            "security_alerts_threshold": "all"
           }
         ]
       }
