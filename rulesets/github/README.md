@@ -13,7 +13,11 @@ scenarios layered on top of this organization floor.
 
 ## Families and classes
 
-The fleet is partitioned by the repository custom property `quality-gates`:
+The fleet is partitioned by two orthogonal repository custom properties: the
+operating-system matrix `quality-gates` and the security capability
+`security-scanning` (see
+[`security-scanning-capability.md`](../../docs/conventions/hosting-platforms/github/rulesets/security-scanning-capability.md)).
+The class table below governs the operating-system matrix:
 
 | Class | Property value | Meaning | Current members |
 |---|---|---|---|
@@ -74,36 +78,56 @@ including public repositories — tag rulesets are not visibility-gated:
   It deliberately carries no `deletion` rule: existing non-`v*` tags remain
   cleanable, and the namespace can only shrink.
 
-The shared-line rulesets `02-develop.*`, `03-main.*`, `04-release.*`, and
-`05-support.*` require pull requests with `require_code_owner_review` against
-`.github/CODEOWNERS` (default owner `@CyberT33N`), resolved review threads,
-strict required status checks, and CodeQL code scanning with all alerts
-blocking. `04-release.*` and `05-support.*` carry `do_not_enforce_on_create:
-true` so the governed protected-line workflow can create a previously
-nonexistent line; `02-develop.*` and `03-main.*` carry `false`.
+The shared-line class rulesets `02-develop.*`, `03-main.*`, and
+`04-protected.*` require pull requests with `require_code_owner_review`
+against `.github/CODEOWNERS` (default owner `@CyberT33N`), resolved review
+threads, and strict required status checks for the quality-gate and canonical
+conformance composites. `04-protected.*` covers both protected lines
+`release/*` and `support/*`, whose governance content is identical on every
+axis, and carries `do_not_enforce_on_create: true` so the governed
+protected-line workflow can create a previously nonexistent line;
+`02-develop.*` and `03-main.*` carry `false`.
+
+The security capability is not a class surface. `09-security-scanning.json`
+owns the `Dependency review / Dependency admission review` required context
+and the CodeQL `code_scanning` rule on every shared line for repositories
+whose `security-scanning` property is `enabled` (the canonical default; a
+positively declared organization opt-out sets `disabled`). It carries no
+`do_not_enforce_on_create`: that exception stays exclusive to the
+protected-line class rulesets.
 
 ## Naming contract
 
 Ruleset title, repository selector, and file name form one machine-verifiable
 triple: `<bounded-context>: <aggregate> [(quality-gates=<class>)]` ↔
 `repository_property` value ↔ `<nn>-<line>[.quality-gates-<class>].json`.
+The line group of a shared-line class ruleset is one of `develop`, `main`, or
+`protected`. The capability ruleset follows the same triple on its own axis:
+`security-scanning: shared lines (security-scanning=enabled)` ↔
+`security-scanning = enabled` ↔ `09-security-scanning.json`.
 Classless rulesets carry no class suffix and apply to the whole fleet.
 
 ## Import and activation order
 
-1. Project the organization custom property `quality-gates` from its
-   canonical definition artifact
+1. Project both organization custom properties from their canonical
+   definition artifacts
    [`properties/github/quality-gates.json`](../../properties/github/README.md)
    (allowed values `full` and `linux-only` plus the onboarding value
-   `pending`; `values_editable_by: org_actors`) and assign the class to each
-   governed repository through the platform-instance bindings. A class
-   ruleset whose selector property is missing or unassigned binds zero
-   repositories — never activate the class rulesets before this step.
+   `pending`; `values_editable_by: org_actors`) and
+   [`properties/github/security-scanning.json`](../../properties/github/README.md)
+   (allowed values `enabled` and `disabled`; canonical default `enabled`;
+   `values_editable_by: org_actors`) and assign each value to every governed
+   repository through the platform-instance bindings. A ruleset whose
+   selector property is missing or unassigned binds zero repositories —
+   never activate the class or capability rulesets before this step.
 2. Import `00-push-protections.json` first, then
    `01-ticket-working-branches.json`, then `06-shared-line-floor.json` (the
    classless deletion floor is precondition-free: it waits for neither the
-   class flip nor the signature governance), then the shared-line class
-   variants in numeric order, then `08-tag-namespace-floor.json`, and finally
+   class flip nor the signature governance), then
+   `09-security-scanning.json` (the capability ruleset binds before the
+   class rulesets so an opted-out repository never carries an orphaned
+   required context), then the shared-line class variants in numeric order,
+   then `08-tag-namespace-floor.json`, and finally
    `07-release-version-tags.json` (initially `disabled`; see above).
 3. Start with **Evaluate** enforcement and review Rule Insights; switch to
    **Active** once the evaluation is clean. On the Team plan the `evaluate`

@@ -1,0 +1,11 @@
+{
+  "value_type": "single_select",
+  "required": true,
+  "default_value": "enabled",
+  "description": "Security-scanning capability partition for the organization ruleset selectors. enabled: the GitHub Advanced Security capability ruleset binds the repository (target architecture); disabled: the capability ruleset does not bind, used only by positively declared organization opt-outs.",
+  "allowed_values": [
+    "enabled",
+    "disabled"
+  ],
+  "values_editable_by": "org_actors"
+}

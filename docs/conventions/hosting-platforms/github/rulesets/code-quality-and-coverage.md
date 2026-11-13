@@ -14,9 +14,10 @@ organization default.
 
 1. **Contract surface (language-agnostic).** The organization rulesets
    require only stable, identical check contexts — in the composed era the
-   composite forms `Quality gates / <os>` per class,
-   `Dependency review / Dependency admission review`, and
-   `Canonical conformance / Canonical bindings verification`. Every
+   composite forms `Quality gates / <os>` per class and
+   `Canonical conformance / Canonical bindings verification` on the class
+   axis, plus `Dependency review / Dependency admission review` on the
+   security-scanning capability axis. Every
    repository — Go, Python, Node.js, or a future ecosystem — emits the same
    contexts; the organization-wide contract never names a language-specific
    tool.

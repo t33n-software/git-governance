@@ -1,5 +1,5 @@
 {
-  "name": "branch-governance: release shared lines (quality-gates=full)",
+  "name": "branch-governance: protected shared lines (quality-gates=linux-only)",
   "target": "branch",
   "source": "t33n-software",
   "enforcement": "active",
@@ -7,7 +7,8 @@
   "conditions": {
     "ref_name": {
       "include": [
-        "refs/heads/release/*"
+        "refs/heads/release/*",
+        "refs/heads/support/*"
       ],
       "exclude": []
     },
@@ -16,7 +17,7 @@
         {
           "name": "quality-gates",
           "property_values": [
-            "full"
+            "linux-only"
           ],
           "source": "custom"
         }
@@ -54,28 +55,7 @@
             "context": "Quality gates / linux-amd64"
           },
           {
-            "context": "Quality gates / macos-arm64"
-          },
-          {
-            "context": "Quality gates / windows-amd64"
-          },
-          {
-            "context": "Dependency review / Dependency admission review"
-          },
-          {
             "context": "Canonical conformance / Canonical bindings verification"
-          }
-        ]
-      }
-    },
-    {
-      "type": "code_scanning",
-      "parameters": {
-        "code_scanning_tools": [
-          {
-            "tool": "CodeQL",
-            "alerts_threshold": "all",
-            "security_alerts_threshold": "all"
           }
         ]
       }

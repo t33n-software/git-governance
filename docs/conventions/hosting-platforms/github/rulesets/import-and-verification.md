@@ -7,15 +7,21 @@
    organization ruleset surface does not exist, and push rulesets for private
    repositories remain dependent on it as well.
 2. The `quality-gates` custom property is created at the organization level
-   with the values `full` and `linux-only`, and every governed repository
-   carries exactly one of the two values.
+   with the values `full` and `linux-only` (plus the onboarding value
+   `pending`), and the `security-scanning` custom property is created with
+   the values `enabled` and `disabled` (canonical default `enabled`); every
+   governed repository carries exactly one value per axis through its
+   platform-instance binding.
 3. `.github/CODEOWNERS` is merged before shared-line rulesets with
    `require_code_owner_review` become active; without the contract, every
    shared-line PR blocks fail-closed.
 4. A required check context is only enforced on a live line once the emitting
    workflow provably reports on a real PR against exactly that target line —
    including the no-change path, which MUST report success instead of
-   pending.
+   pending. For the security capability surfaces this law is enforced by the
+   axis itself: a repository with `security-scanning: disabled` is not bound
+   by `09-security-scanning.json` and therefore never carries the
+   dependency-review required context.
 
 ## Import order
 
@@ -24,10 +30,14 @@
 3. `06-shared-line-floor.json` (classless; precondition-free — the deletion
    floor waits for neither the class flip nor the signature governance and
    closes the `pending` activation window immediately)
-4. `02-develop.*` (both classes)
-5. `03-main.*` (both classes)
-6. `04-release.*` (both classes; check `do_not_enforce_on_create: true`)
-7. `05-support.*` (both classes; check `do_not_enforce_on_create: true`)
+4. `09-security-scanning.json` (the capability ruleset binds before the class
+   rulesets so an opted-out repository never carries an orphaned required
+   context; see
+   [Security-scanning capability partition](security-scanning-capability.md))
+5. `02-develop.*` (both classes)
+6. `03-main.*` (both classes)
+7. `04-protected.*` (both classes; covers `release/*` and `support/*`; check
+   `do_not_enforce_on_create: true`)
 8. `08-tag-namespace-floor.json` (active; no delivery lane affected)
 9. `07-release-version-tags.json` (initially `disabled`; activation only
    after verified tag creation through the release-automation identity, see
@@ -71,7 +81,12 @@ never passed through project files, command history, or source code.
   blocked; open review threads block as well.
 - The required checks report on every shared-line PR and block on failure; a
   PR without changes reports success instead of "pending".
-- CodeQL results are present and blocking.
+- The `Dependency review / Dependency admission review` context reports on
+  every shared-line PR of a repository with `security-scanning: enabled` and
+  is absent as a required context on every shared-line PR of a repository
+  with `security-scanning: disabled` — never pending forever.
+- CodeQL results are present and blocking on `security-scanning: enabled`
+  repositories.
 - On a private repository, the push ruleset rejects a push containing a
   secret- or key-shaped artifact (for example `.pem` or `.env`) — including
   the fork network.

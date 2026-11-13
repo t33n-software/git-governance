@@ -1,5 +1,5 @@
 {
-  "name": "branch-governance: support shared lines (quality-gates=linux-only)",
+  "name": "security-scanning: shared lines (security-scanning=enabled)",
   "target": "branch",
   "source": "t33n-software",
   "enforcement": "active",
@@ -7,6 +7,9 @@
   "conditions": {
     "ref_name": {
       "include": [
+        "refs/heads/main",
+        "refs/heads/develop",
+        "refs/heads/release/*",
         "refs/heads/support/*"
       ],
       "exclude": []
@@ -14,9 +17,9 @@
     "repository_property": {
       "include": [
         {
-          "name": "quality-gates",
+          "name": "security-scanning",
           "property_values": [
-            "linux-only"
+            "enabled"
           ],
           "source": "custom"
         }
@@ -26,38 +29,12 @@
   },
   "rules": [
     {
-      "type": "deletion"
-    },
-    {
-      "type": "non_fast_forward"
-    },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 1,
-        "dismiss_stale_reviews_on_push": true,
-        "require_code_owner_review": true,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": true,
-        "allowed_merge_methods": [
-          "merge"
-        ]
-      }
-    },
-    {
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": true,
-        "do_not_enforce_on_create": true,
         "required_status_checks": [
           {
-            "context": "Quality gates / linux-amd64"
-          },
-          {
             "context": "Dependency review / Dependency admission review"
-          },
-          {
-            "context": "Canonical conformance / Canonical bindings verification"
           }
         ]
       }

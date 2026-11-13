@@ -12,22 +12,32 @@ var (
 	sharedLineRulesetFullFiles = []string{
 		"02-develop.quality-gates-full.json",
 		"03-main.quality-gates-full.json",
-		"04-release.quality-gates-full.json",
-		"05-support.quality-gates-full.json",
+		"04-protected.quality-gates-full.json",
 	}
 	sharedLineRulesetLinuxOnlyFiles = []string{
 		"02-develop.quality-gates-linux-only.json",
 		"03-main.quality-gates-linux-only.json",
-		"04-release.quality-gates-linux-only.json",
-		"05-support.quality-gates-linux-only.json",
+		"04-protected.quality-gates-linux-only.json",
 	}
 	protectedLineRulesetFiles = []string{
-		"04-release.quality-gates-full.json",
-		"04-release.quality-gates-linux-only.json",
-		"05-support.quality-gates-full.json",
-		"05-support.quality-gates-linux-only.json",
+		"04-protected.quality-gates-full.json",
+		"04-protected.quality-gates-linux-only.json",
 	}
 )
+
+// securityScanningRulesetFile is the capability ruleset owning the GitHub
+// Advanced Security surfaces on every shared line; the quality-gates class
+// rulesets never carry them (security-scanning capability convention).
+const securityScanningRulesetFile = "09-security-scanning.json"
+
+// securityScanningSharedLineRefs are the shared lines the capability ruleset
+// binds through its repository_property selector.
+var securityScanningSharedLineRefs = []string{
+	"refs/heads/main",
+	"refs/heads/develop",
+	"refs/heads/release/*",
+	"refs/heads/support/*",
+}
 
 // sharedLineFloorFile is the classless shared-line deletion floor: it binds
 // every repository (~ALL) from its creation with exactly deletion and
@@ -419,6 +429,81 @@ func rulesetClassFromFileName(t *testing.T, fileName string) string {
 	}
 }
 
+func TestSecurityScanningCapabilityRulesetOwnsTheSecuritySurfaces(t *testing.T) {
+	t.Parallel()
+
+	ruleset := parseRuleset(t, securityScanningRulesetFile)
+	if ruleset.Name != "security-scanning: shared lines (security-scanning=enabled)" {
+		t.Fatalf("capability ruleset name = %q, want %q", ruleset.Name, "security-scanning: shared lines (security-scanning=enabled)")
+	}
+	if ruleset.Target != "branch" {
+		t.Fatalf("capability ruleset target = %q, want %q", ruleset.Target, "branch")
+	}
+	if got := ruleset.Conditions.RefName.Include; !equalStrings(got, securityScanningSharedLineRefs) {
+		t.Fatalf("capability ref patterns = %#v, want exactly the shared lines %#v", got, securityScanningSharedLineRefs)
+	}
+	includes := ruleset.Conditions.RepositoryProperty.Include
+	if len(includes) != 1 {
+		t.Fatalf("capability ruleset must bind exactly one repository property selector, got %d", len(includes))
+	}
+	if includes[0].Name != "security-scanning" {
+		t.Fatalf("capability selector property = %q, want %q", includes[0].Name, "security-scanning")
+	}
+	if len(includes[0].PropertyValues) != 1 || includes[0].PropertyValues[0] != "enabled" {
+		t.Fatalf("capability selector values = %#v, want [%q]", includes[0].PropertyValues, "enabled")
+	}
+
+	ruleTypes := make([]string, 0, len(ruleset.Rules))
+	for _, rule := range ruleset.Rules {
+		ruleTypes = append(ruleTypes, rule.Type)
+	}
+	if !equalStrings(ruleTypes, []string{"required_status_checks", "code_scanning"}) {
+		t.Fatalf("capability rules = %#v, want exactly [required_status_checks code_scanning]", ruleTypes)
+	}
+	_, contexts := rulesetStatusChecks(t, securityScanningRulesetFile)
+	if !equalStrings(contexts, []string{compositeDependencyReviewStatusCheck}) {
+		t.Fatalf("capability required checks = %#v, want exactly [%q]", contexts, compositeDependencyReviewStatusCheck)
+	}
+
+	document := rulesetDocument(t, securityScanningRulesetFile)
+	for _, required := range []string{
+		`"tool": "CodeQL"`,
+		`"alerts_threshold": "all"`,
+		`"security_alerts_threshold": "all"`,
+		`"enforcement": "active"`,
+	} {
+		if !strings.Contains(document, required) {
+			t.Fatalf("%s does not contain %q", securityScanningRulesetFile, required)
+		}
+	}
+	for _, forbidden := range []string{"do_not_enforce_on_create", "quality-gates"} {
+		if strings.Contains(document, forbidden) {
+			t.Fatalf("%s must never carry %q: the creation exception belongs exclusively to the protected-line class rulesets, and the capability axis never binds the class axis", securityScanningRulesetFile, forbidden)
+		}
+	}
+}
+
+func TestSharedLineClassRulesetsCarryNoSecurityCapabilitySurfaces(t *testing.T) {
+	t.Parallel()
+
+	for _, fileName := range append(
+		append([]string{}, sharedLineRulesetFullFiles...),
+		sharedLineRulesetLinuxOnlyFiles...,
+	) {
+		fileName := fileName
+		t.Run(fileName, func(t *testing.T) {
+			t.Parallel()
+
+			document := rulesetDocument(t, fileName)
+			for _, forbidden := range []string{"Dependency review", "code_scanning", "CodeQL"} {
+				if strings.Contains(document, forbidden) {
+					t.Fatalf("%s must not carry the security capability surface %q; it is owned exclusively by %s", fileName, forbidden, securityScanningRulesetFile)
+				}
+			}
+		})
+	}
+}
+
 func expectedSharedLineChecks(t *testing.T, fileName string) []string {
 	t.Helper()
 
@@ -520,7 +605,9 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 // full-class variants carry them since the composite producer has been proven
 // on the real dogfooding pull request (the proof-before-binding sequencing).
 // Both classes bind the canonical conformance composite since the fleet-wide
-// caller re-binding proved it on a real pull request per repository.
+// caller re-binding proved it on a real pull request per repository. The
+// dependency-review composite is not a class surface: it binds exclusively
+// through the security-scanning capability ruleset.
 const (
 	compositeQualityGateLinuxStatusCheck     = "Quality gates / linux-amd64"
 	compositeQualityGateMacosStatusCheck     = "Quality gates / macos-arm64"
@@ -534,13 +621,12 @@ func sharedLineStatusChecks() []string {
 		compositeQualityGateLinuxStatusCheck,
 		compositeQualityGateMacosStatusCheck,
 		compositeQualityGateWindowsStatusCheck,
-		compositeDependencyReviewStatusCheck,
 		compositeCanonicalConformanceStatusCheck,
 	}
 }
 
 func linuxOnlyStatusChecks() []string {
-	return []string{compositeQualityGateLinuxStatusCheck, compositeDependencyReviewStatusCheck, compositeCanonicalConformanceStatusCheck}
+	return []string{compositeQualityGateLinuxStatusCheck, compositeCanonicalConformanceStatusCheck}
 }
 
 func statusCheckContexts(checks []struct {
