@@ -33,6 +33,12 @@ func TestQualityGatesPropertyDefinitionMatchesRulesetClassPartition(t *testing.T
 	if definition.DefaultValue != "pending" {
 		t.Fatalf("quality-gates default_value = %q, want the onboarding value %q", definition.DefaultValue, "pending")
 	}
+	// The custom-property REST surface rejects a description longer than 255
+	// characters (HTTP 422), proven live; the canonical artifact must apply
+	// without a manual shortening at import time.
+	if definition.Description == "" || len(definition.Description) > 255 {
+		t.Fatalf("quality-gates description length = %d, want a non-empty description within the 255-character provider limit", len(definition.Description))
+	}
 
 	classes := map[string]struct{}{}
 	for _, fileName := range append(
@@ -122,6 +128,12 @@ func TestSecurityScanningPropertyDefinitionMatchesCapabilitySelector(t *testing.
 	}
 	if definition.DefaultValue != "enabled" {
 		t.Fatalf("security-scanning default_value = %q, want the target-architecture value %q; a cost or plan reason must never be burned into the canonical default", definition.DefaultValue, "enabled")
+	}
+	// The custom-property REST surface rejects a description longer than 255
+	// characters (HTTP 422), proven live; the canonical artifact must apply
+	// without a manual shortening at import time.
+	if definition.Description == "" || len(definition.Description) > 255 {
+		t.Fatalf("security-scanning description length = %d, want a non-empty description within the 255-character provider limit", len(definition.Description))
 	}
 
 	allowed := map[string]struct{}{}
