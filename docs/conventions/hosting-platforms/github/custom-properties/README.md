@@ -90,12 +90,28 @@ capability either binds or it does not; workflow-alignment states belong
 exclusively to the `quality-gates` axis. The partition law is owned by
 [`../rulesets/security-scanning-capability.md`](../rulesets/security-scanning-capability.md).
 
+## The capability axis `canonical-conformance`
+[INTENT: SPEZIFIKATION]
+
+The `canonical-conformance` property is the third, orthogonal axis: it
+decides whether the canonical-conformance capability ruleset
+`10-canonical-conformance.json` binds the shared lines of a repository. Its
+allowed values are `enabled` and `disabled`, its canonical default is
+`enabled` (the target architecture), and `disabled` is only ever a positive,
+organization-declared instance assignment with exactly two lawful states:
+the verifier-owning canonical home (the structural self-attestation
+exception) and emitter-less repositories until their workflows carry the
+canonical conformance caller. The instance guard rejects every other
+`disabled` assignment fail-closed. The partition law is owned by
+[`../rulesets/canonical-conformance-capability.md`](../rulesets/canonical-conformance-capability.md).
+
 ## Activation sequence
 [INTENT: ANWEISUNG]
 
-The property schemas and the initial assignments of BOTH axes MUST be
+The property schemas and the initial assignments of ALL THREE axes MUST be
 projected before the class-partitioned shared-line rulesets `02`–`04` and
-the capability ruleset `09-security-scanning.json` are switched to active. A
+the capability rulesets `09-security-scanning.json` and
+`10-canonical-conformance.json` are switched to active. A
 ruleset whose selector references a missing or unassigned property binds zero
 repositories — a silent fail-open of the entire shared-line surface.
 

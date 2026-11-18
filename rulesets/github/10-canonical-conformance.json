@@ -1,0 +1,43 @@
+{
+  "name": "canonical-conformance: shared lines (canonical-conformance=enabled)",
+  "target": "branch",
+  "source": "t33n-software",
+  "enforcement": "active",
+  "bypass_actors": [],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "refs/heads/main",
+        "refs/heads/develop",
+        "refs/heads/release/*",
+        "refs/heads/support/*"
+      ],
+      "exclude": []
+    },
+    "repository_property": {
+      "include": [
+        {
+          "name": "canonical-conformance",
+          "property_values": [
+            "enabled"
+          ],
+          "source": "custom"
+        }
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "required_status_checks": [
+          {
+            "context": "Canonical conformance / Canonical bindings verification"
+          }
+        ]
+      }
+    }
+  ]
+}

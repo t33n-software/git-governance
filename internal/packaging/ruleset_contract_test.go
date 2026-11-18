@@ -30,14 +30,20 @@ var (
 // rulesets never carry them (security-scanning capability convention).
 const securityScanningRulesetFile = "09-security-scanning.json"
 
-// securityScanningSharedLineRefs are the shared lines the capability ruleset
-// binds through its repository_property selector.
-var securityScanningSharedLineRefs = []string{
+// capabilitySharedLineRefs are the shared lines each capability ruleset binds
+// through its repository_property selector.
+var capabilitySharedLineRefs = []string{
 	"refs/heads/main",
 	"refs/heads/develop",
 	"refs/heads/release/*",
 	"refs/heads/support/*",
 }
+
+// canonicalConformanceRulesetFile is the capability ruleset owning the
+// canonical-conformance required context on every shared line; the
+// quality-gates class rulesets never carry it (canonical-conformance
+// capability convention).
+const canonicalConformanceRulesetFile = "10-canonical-conformance.json"
 
 // sharedLineFloorFile is the classless shared-line deletion floor: it binds
 // every repository (~ALL) from its creation with exactly deletion and
@@ -439,8 +445,8 @@ func TestSecurityScanningCapabilityRulesetOwnsTheSecuritySurfaces(t *testing.T) 
 	if ruleset.Target != "branch" {
 		t.Fatalf("capability ruleset target = %q, want %q", ruleset.Target, "branch")
 	}
-	if got := ruleset.Conditions.RefName.Include; !equalStrings(got, securityScanningSharedLineRefs) {
-		t.Fatalf("capability ref patterns = %#v, want exactly the shared lines %#v", got, securityScanningSharedLineRefs)
+	if got := ruleset.Conditions.RefName.Include; !equalStrings(got, capabilitySharedLineRefs) {
+		t.Fatalf("capability ref patterns = %#v, want exactly the shared lines %#v", got, capabilitySharedLineRefs)
 	}
 	includes := ruleset.Conditions.RepositoryProperty.Include
 	if len(includes) != 1 {
@@ -483,7 +489,58 @@ func TestSecurityScanningCapabilityRulesetOwnsTheSecuritySurfaces(t *testing.T) 
 	}
 }
 
-func TestSharedLineClassRulesetsCarryNoSecurityCapabilitySurfaces(t *testing.T) {
+func TestCanonicalConformanceCapabilityRulesetOwnsTheConformanceContext(t *testing.T) {
+	t.Parallel()
+
+	ruleset := parseRuleset(t, canonicalConformanceRulesetFile)
+	if ruleset.Name != "canonical-conformance: shared lines (canonical-conformance=enabled)" {
+		t.Fatalf("capability ruleset name = %q, want %q", ruleset.Name, "canonical-conformance: shared lines (canonical-conformance=enabled)")
+	}
+	if ruleset.Target != "branch" {
+		t.Fatalf("capability ruleset target = %q, want %q", ruleset.Target, "branch")
+	}
+	if got := ruleset.Conditions.RefName.Include; !equalStrings(got, capabilitySharedLineRefs) {
+		t.Fatalf("capability ref patterns = %#v, want exactly the shared lines %#v", got, capabilitySharedLineRefs)
+	}
+	includes := ruleset.Conditions.RepositoryProperty.Include
+	if len(includes) != 1 {
+		t.Fatalf("capability ruleset must bind exactly one repository property selector, got %d", len(includes))
+	}
+	if includes[0].Name != "canonical-conformance" {
+		t.Fatalf("capability selector property = %q, want %q", includes[0].Name, "canonical-conformance")
+	}
+	if len(includes[0].PropertyValues) != 1 || includes[0].PropertyValues[0] != "enabled" {
+		t.Fatalf("capability selector values = %#v, want [%q]", includes[0].PropertyValues, "enabled")
+	}
+
+	ruleTypes := make([]string, 0, len(ruleset.Rules))
+	for _, rule := range ruleset.Rules {
+		ruleTypes = append(ruleTypes, rule.Type)
+	}
+	if !equalStrings(ruleTypes, []string{"required_status_checks"}) {
+		t.Fatalf("capability rules = %#v, want exactly [required_status_checks]", ruleTypes)
+	}
+	_, contexts := rulesetStatusChecks(t, canonicalConformanceRulesetFile)
+	if !equalStrings(contexts, []string{compositeCanonicalConformanceStatusCheck}) {
+		t.Fatalf("capability required checks = %#v, want exactly [%q]", contexts, compositeCanonicalConformanceStatusCheck)
+	}
+
+	document := rulesetDocument(t, canonicalConformanceRulesetFile)
+	for _, forbidden := range []string{"do_not_enforce_on_create", "quality-gates", "code_scanning"} {
+		if strings.Contains(document, forbidden) {
+			t.Fatalf("%s must never carry %q: the creation exception belongs exclusively to the protected-line class rulesets, and the capability axis never binds the class axis or the security surfaces", canonicalConformanceRulesetFile, forbidden)
+		}
+	}
+
+	readme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("rulesets", "github", "README.md")))
+	for _, required := range []string{"10-canonical-conformance.json", "canonical-conformance = enabled", "phantom-context", "verifier-owning canonical home"} {
+		if !strings.Contains(readme, required) {
+			t.Fatalf("Ruleset README does not document the canonical-conformance capability token %q", required)
+		}
+	}
+}
+
+func TestSharedLineClassRulesetsCarryNoCapabilitySurfaces(t *testing.T) {
 	t.Parallel()
 
 	for _, fileName := range append(
@@ -495,9 +552,9 @@ func TestSharedLineClassRulesetsCarryNoSecurityCapabilitySurfaces(t *testing.T) 
 			t.Parallel()
 
 			document := rulesetDocument(t, fileName)
-			for _, forbidden := range []string{"Dependency review", "code_scanning", "CodeQL"} {
+			for _, forbidden := range []string{"Dependency review", "code_scanning", "CodeQL", "Canonical conformance"} {
 				if strings.Contains(document, forbidden) {
-					t.Fatalf("%s must not carry the security capability surface %q; it is owned exclusively by %s", fileName, forbidden, securityScanningRulesetFile)
+					t.Fatalf("%s must not carry the capability surface %q; it is owned exclusively by %s and %s", fileName, forbidden, securityScanningRulesetFile, canonicalConformanceRulesetFile)
 				}
 			}
 		})
@@ -604,10 +661,11 @@ func rulesetRequiresCodeOwnerReview(t *testing.T, fileName string) bool {
 // identity, the callee job carries the gate or variant identity. The
 // full-class variants carry them since the composite producer has been proven
 // on the real dogfooding pull request (the proof-before-binding sequencing).
-// Both classes bind the canonical conformance composite since the fleet-wide
-// caller re-binding proved it on a real pull request per repository. The
-// dependency-review composite is not a class surface: it binds exclusively
-// through the security-scanning capability ruleset.
+// Neither the dependency-review composite nor the canonical-conformance
+// composite is a class surface: both bind exclusively through their capability
+// rulesets, so a repository without the emitter — an opted-out security
+// surface, an emitter-less onboarding repository, or the verifier-owning
+// canonical home — never carries an orphaned required context.
 const (
 	compositeQualityGateLinuxStatusCheck     = "Quality gates / linux-amd64"
 	compositeQualityGateMacosStatusCheck     = "Quality gates / macos-arm64"
@@ -621,12 +679,11 @@ func sharedLineStatusChecks() []string {
 		compositeQualityGateLinuxStatusCheck,
 		compositeQualityGateMacosStatusCheck,
 		compositeQualityGateWindowsStatusCheck,
-		compositeCanonicalConformanceStatusCheck,
 	}
 }
 
 func linuxOnlyStatusChecks() []string {
-	return []string{compositeQualityGateLinuxStatusCheck, compositeCanonicalConformanceStatusCheck}
+	return []string{compositeQualityGateLinuxStatusCheck}
 }
 
 func statusCheckContexts(checks []struct {

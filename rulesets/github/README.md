@@ -13,10 +13,13 @@ scenarios layered on top of this organization floor.
 
 ## Families and classes
 
-The fleet is partitioned by two orthogonal repository custom properties: the
-operating-system matrix `quality-gates` and the security capability
-`security-scanning` (see
-[`security-scanning-capability.md`](../../docs/conventions/hosting-platforms/github/rulesets/security-scanning-capability.md)).
+The fleet is partitioned by three orthogonal repository custom properties: the
+operating-system matrix `quality-gates`, the security capability
+`security-scanning`, and the conformance capability `canonical-conformance`
+(see
+[`security-scanning-capability.md`](../../docs/conventions/hosting-platforms/github/rulesets/security-scanning-capability.md)
+and
+[`canonical-conformance-capability.md`](../../docs/conventions/hosting-platforms/github/rulesets/canonical-conformance-capability.md)).
 The class table below governs the operating-system matrix:
 
 | Class | Property value | Meaning | Current members |
@@ -81,8 +84,8 @@ including public repositories — tag rulesets are not visibility-gated:
 The shared-line class rulesets `02-develop.*`, `03-main.*`, and
 `04-protected.*` require pull requests with `require_code_owner_review`
 against `.github/CODEOWNERS` (default owner `@CyberT33N`), resolved review
-threads, and strict required status checks for the quality-gate and canonical
-conformance composites. `04-protected.*` covers both protected lines
+threads, and strict required status checks for the quality-gate composites.
+`04-protected.*` covers both protected lines
 `release/*` and `support/*`, whose governance content is identical on every
 axis, and carries `do_not_enforce_on_create: true` so the governed
 protected-line workflow can create a previously nonexistent line;
@@ -96,25 +99,44 @@ positively declared organization opt-out sets `disabled`). It carries no
 `do_not_enforce_on_create`: that exception stays exclusive to the
 protected-line class rulesets.
 
+The canonical-conformance capability is not a class surface either.
+`10-canonical-conformance.json` owns the required context
+`Canonical conformance / Canonical bindings verification` on every shared line
+for repositories whose `canonical-conformance` property is `enabled` — the
+canonical default. `disabled` is the positive declaration of the
+verifier-owning canonical home (a home never carries the conformance lane
+against itself: self-attestation has no independent evidence value, and the
+required context would gate the repair path of its own verifier) and of
+emitter-less onboarding repositories; binding the context inside a class
+ruleset would block every merge of such a repository on a context that can
+never be reported — a phantom-context. It carries no
+`do_not_enforce_on_create`: that exception stays exclusive to the
+protected-line class rulesets.
+
 ## Naming contract
 
 Ruleset title, repository selector, and file name form one machine-verifiable
 triple: `<bounded-context>: <aggregate> [(quality-gates=<class>)]` ↔
 `repository_property` value ↔ `<nn>-<line>[.quality-gates-<class>].json`.
 The line group of a shared-line class ruleset is one of `develop`, `main`, or
-`protected`. The capability ruleset follows the same triple on its own axis:
+Each capability ruleset follows the same triple on its own axis:
 `security-scanning: shared lines (security-scanning=enabled)` ↔
-`security-scanning = enabled` ↔ `09-security-scanning.json`.
+`security-scanning = enabled` ↔ `09-security-scanning.json`, and
+`canonical-conformance: shared lines (canonical-conformance=enabled)` ↔
+`canonical-conformance = enabled` ↔ `10-canonical-conformance.json`.
 Classless rulesets carry no class suffix and apply to the whole fleet.
 
 ## Import and activation order
 
-1. Project both organization custom properties from their canonical
+1. Project all three organization custom properties from their canonical
    definition artifacts
    [`properties/github/quality-gates.json`](../../properties/github/README.md)
    (allowed values `full` and `linux-only` plus the onboarding value
-   `pending`; `values_editable_by: org_actors`) and
+   `pending`; `values_editable_by: org_actors`),
    [`properties/github/security-scanning.json`](../../properties/github/README.md)
+   (allowed values `enabled` and `disabled`; canonical default `enabled`;
+   `values_editable_by: org_actors`), and
+   [`properties/github/canonical-conformance.json`](../../properties/github/README.md)
    (allowed values `enabled` and `disabled`; canonical default `enabled`;
    `values_editable_by: org_actors`) and assign each value to every governed
    repository through the platform-instance bindings. A ruleset whose
@@ -126,7 +148,9 @@ Classless rulesets carry no class suffix and apply to the whole fleet.
    class flip nor the signature governance), then
    `09-security-scanning.json` (the capability ruleset binds before the
    class rulesets so an opted-out repository never carries an orphaned
-   required context), then the shared-line class variants in numeric order,
+   required context), then `10-canonical-conformance.json` (the conformance
+   capability ruleset binds before the class rulesets for the same reason),
+   then the shared-line class variants in numeric order,
    then `08-tag-namespace-floor.json`, and finally
    `07-release-version-tags.json` (initially `disabled`; see above).
 3. Start with **Evaluate** enforcement and review Rule Insights; switch to
@@ -137,13 +161,16 @@ Classless rulesets carry no class suffix and apply to the whole fleet.
 4. A required status-check context may only be enforced on a repository whose
    workflows provably report that context on the exact target line; a
    repository that cannot emit a context must not carry the class property
-   until its workflows are aligned. A canonical home is the documented
-   exception for the canonical-conformance composite: a home never carries
-   the conformance lane against itself (self-attestation has no independent
-   evidence value; the home's own contract tests are the proof), so
-   `Canonical conformance / Canonical bindings verification` is excluded from
-   the contexts a canonical home must emit for its class flip — the required
-   context never blocks a home's flip.
+   until its workflows are aligned. The canonical-conformance composite is
+   bound exclusively through `10-canonical-conformance.json`, so the
+   documented exception is a property assignment, never a class exclusion:
+   the verifier-owning canonical home carries `canonical-conformance:
+   disabled` — a home never carries the conformance lane against itself
+   (self-attestation has no independent evidence value; the home's own
+   contract tests are the proof; the required context would otherwise gate
+   the repair path of its own verifier and block the home's class flip on a
+   phantom-context) — and emitter-less repositories carry the same positive
+   declaration until their workflows align.
 
 Existing active rulesets are updated through the GitHub UI or the Rulesets
 REST API; editing these files alone does not mutate the organization. After a

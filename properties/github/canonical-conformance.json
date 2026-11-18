@@ -1,0 +1,11 @@
+{
+  "value_type": "single_select",
+  "required": true,
+  "default_value": "enabled",
+  "description": "Capability partition for the organization ruleset selectors. enabled binds the canonical-conformance ruleset (the repository carries the caller); disabled is the positive declaration of the verifier-owning canonical home and of emitter-less repositories.",
+  "allowed_values": [
+    "enabled",
+    "disabled"
+  ],
+  "values_editable_by": "org_actors"
+}

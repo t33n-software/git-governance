@@ -19,6 +19,7 @@ definition surface is therefore governed as its own artifact family next to
 |---|---|---|---|
 | `quality-gates` | `single_select` | `full`, `linux-only`, `pending` | Class partition of the shared-line rulesets `02`–`04` |
 | `security-scanning` | `single_select` | `enabled`, `disabled` | Capability binding of the shared lines through ruleset `09-security-scanning.json` |
+| `canonical-conformance` | `single_select` | `enabled`, `disabled` | Capability binding of the shared lines through ruleset `10-canonical-conformance.json` |
 
 `full` binds the complete operating-system quality matrix (Linux, macOS,
 Windows); `linux-only` binds the Linux quality gate only. `pending` is the
@@ -36,6 +37,16 @@ target architecture is `enabled`, and a temporary plan or cost posture is
 never burned into the canonical default. The partition law is owned by
 [`../docs/conventions/hosting-platforms/github/rulesets/security-scanning-capability.md`](../../docs/conventions/hosting-platforms/github/rulesets/security-scanning-capability.md).
 
+`enabled` is likewise the canonical default of the `canonical-conformance`
+axis and binds the required context
+`Canonical conformance / Canonical bindings verification` through the single
+capability ruleset `10-canonical-conformance.json`. `disabled` is the
+positive, organization-declared assignment of exactly two states: the
+verifier-owning canonical home (the structural self-attestation exception)
+and emitter-less repositories until their workflows carry the canonical
+conformance caller. The partition law is owned by
+[`canonical-conformance-capability.md`](../../docs/conventions/hosting-platforms/github/rulesets/canonical-conformance-capability.md).
+
 ## Hard boundaries
 
 - `values_editable_by` is always `org_actors`. With `org_and_repo_actors`, a
@@ -45,8 +56,9 @@ never burned into the canonical default. The partition law is owned by
 - `required` is `true` on every governed property, so every repository —
   including every future repository — carries an explicit, auditable
   classification instead of an implicit absence. The `quality-gates` default
-  is the onboarding value `pending`; the `security-scanning` default is the
-  target-architecture value `enabled`.
+  is the onboarding value `pending`; the `security-scanning` and the
+  `canonical-conformance` defaults are the target-architecture value
+  `enabled`.
 - A property is created only with a named GitHub-native consumer (a ruleset
   selector or a repository policy ruleset), this canonical definition, a
   platform-instance binding, and drift-bound verification. Pure operational
@@ -57,7 +69,8 @@ never burned into the canonical default. The partition law is owned by
 
 The property schema and the initial repository assignments MUST be projected
 before the class-partitioned shared-line rulesets `02`–`04` and the
-capability ruleset `09-security-scanning.json` are switched to active. A
+capability rulesets `09-security-scanning.json` and
+`10-canonical-conformance.json` are switched to active. A
 ruleset whose selector references a missing or unassigned property binds zero
 repositories — a silent fail-open for the shared-line surface.
 

@@ -58,9 +58,6 @@
           },
           {
             "context": "Quality gates / windows-amd64"
-          },
-          {
-            "context": "Canonical conformance / Canonical bindings verification"
           }
         ]
       }
