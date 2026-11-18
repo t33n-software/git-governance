@@ -16,6 +16,7 @@ enforces and why. The importable JSON definitions reside under
 | `branch-governance: main shared line (quality-gates=<class>)` | `main` | full / linux-only |
 | `branch-governance: protected shared lines (quality-gates=<class>)` | `release/*`, `support/*` | full / linux-only |
 | `security-scanning: shared lines (security-scanning=enabled)` | `main`, `develop`, `release/*`, `support/*` | capability axis, `security-scanning=enabled` |
+| `canonical-conformance: shared lines (canonical-conformance=enabled)` | `main`, `develop`, `release/*`, `support/*` | capability axis, `canonical-conformance=enabled` |
 
 ## Working-branch protection
 
@@ -41,12 +42,18 @@ Every shared line receives the same protection core:
   law of the composed era (caller job = lane identity, callee job =
   gate/variant identity): both classes bind the composite contexts
   `Quality gates / linux-amd64` (the `full` class additionally
-  `Quality gates / macos-arm64` and `Quality gates / windows-amd64`) and
-  `Canonical conformance / Canonical bindings verification`. The strict mode
-  binds the merge to a current PR state. The dependency-review context is not
-  a class surface: it binds through the capability ruleset
-  `09-security-scanning.json` per the
-  [security-scanning capability convention](security-scanning-capability.md).
+  `Quality gates / macos-arm64` and `Quality gates / windows-amd64`). The
+  strict mode binds the merge to a current PR state. Neither the
+  dependency-review context nor the canonical-conformance context is a class
+  surface: the dependency-review context binds through the capability
+  ruleset `09-security-scanning.json` per the
+  [security-scanning capability convention](security-scanning-capability.md),
+  and the canonical-conformance context binds through the capability ruleset
+  `10-canonical-conformance.json` per the
+  [canonical-conformance capability convention](canonical-conformance-capability.md)
+  — so the verifier-owning canonical home and emitter-less repositories
+  carry `canonical-conformance: disabled` and never block on a context they
+  cannot emit.
 - **code_scanning**: not a class surface; CodeQL with `all` thresholds for
   alerts and security alerts binds through the capability ruleset
   `09-security-scanning.json` on `security-scanning=enabled` repositories.
@@ -101,10 +108,12 @@ Title, selector, and file name form one machine-verifiable triple:
 `repository_property` value ↔ `<nn>-<line>[.quality-gates-<class>].json`.
 The line group of a shared-line class ruleset is one of `develop`, `main`, or
 `protected`; `protected` covers both `release/*` and `support/*`, whose
-governance content is identical on every axis. The capability ruleset follows
-the same triple with its own axis:
+governance content is identical on every axis. Each capability ruleset
+follows the same triple with its own axis:
 `security-scanning: shared lines (security-scanning=enabled)` ↔
-`security-scanning = enabled` ↔ `09-security-scanning.json`.
+`security-scanning = enabled` ↔ `09-security-scanning.json`, and
+`canonical-conformance: shared lines (canonical-conformance=enabled)` ↔
+`canonical-conformance = enabled` ↔ `10-canonical-conformance.json`.
 Classless rulesets deliberately carry no class.
 
 ## Deliberately not created

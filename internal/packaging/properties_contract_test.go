@@ -182,6 +182,76 @@ func TestSecurityScanningPropertyDefinitionIsDocumented(t *testing.T) {
 	}
 }
 
+func TestCanonicalConformancePropertyDefinitionMatchesCapabilitySelector(t *testing.T) {
+	t.Parallel()
+
+	definition := parsePropertyDefinition(t, "canonical-conformance.json")
+
+	if definition.ValueType != "single_select" {
+		t.Fatalf("canonical-conformance value_type = %q, want %q", definition.ValueType, "single_select")
+	}
+	if !definition.Required {
+		t.Fatal("canonical-conformance must be a required property so every repository carries an explicit capability decision")
+	}
+	if definition.ValuesEditableBy != "org_actors" {
+		t.Fatalf("canonical-conformance values_editable_by = %q, want %q; a repository must never opt itself out of the conformance capability", definition.ValuesEditableBy, "org_actors")
+	}
+	if definition.DefaultValue != "enabled" {
+		t.Fatalf("canonical-conformance default_value = %q, want the target-architecture value %q; the structural exception must never be burned into the canonical default", definition.DefaultValue, "enabled")
+	}
+	// The custom-property REST surface rejects a description longer than 255
+	// characters (HTTP 422), proven live; the canonical artifact must apply
+	// without a manual shortening at import time.
+	if definition.Description == "" || len(definition.Description) > 255 {
+		t.Fatalf("canonical-conformance description length = %d, want a non-empty description within the 255-character provider limit", len(definition.Description))
+	}
+
+	allowed := map[string]struct{}{}
+	for _, value := range definition.AllowedValues {
+		if _, duplicate := allowed[value]; duplicate {
+			t.Fatalf("canonical-conformance allowed_values repeats %q", value)
+		}
+		allowed[value] = struct{}{}
+	}
+	for _, value := range []string{"enabled", "disabled"} {
+		if _, ok := allowed[value]; !ok {
+			t.Fatalf("canonical-conformance allowed_values misses %q", value)
+		}
+	}
+	if _, ok := allowed["pending"]; ok {
+		t.Fatal("canonical-conformance must not carry the onboarding value pending; the emitter-less state is the positive disabled assignment of this capability axis, never a third value")
+	}
+
+	ruleset := parseRuleset(t, canonicalConformanceRulesetFile)
+	includes := ruleset.Conditions.RepositoryProperty.Include
+	if len(includes) != 1 {
+		t.Fatalf("capability ruleset must bind exactly one repository property selector, got %d", len(includes))
+	}
+	for _, value := range includes[0].PropertyValues {
+		if _, ok := allowed[value]; !ok {
+			t.Fatalf("capability selector value %q is not an allowed value of the canonical-conformance property definition", value)
+		}
+	}
+}
+
+func TestCanonicalConformancePropertyDefinitionIsDocumented(t *testing.T) {
+	t.Parallel()
+
+	propertiesReadme := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("properties", "github", "README.md")))
+	for _, required := range []string{"canonical-conformance", "enabled", "disabled", "10-canonical-conformance.json"} {
+		if !strings.Contains(propertiesReadme, required) {
+			t.Fatalf("properties README does not document the capability token %q", required)
+		}
+	}
+
+	convention := normalizeWhitespace(readRepositoryDocument(t, filepath.Join("docs", "conventions", "hosting-platforms", "github", "rulesets", "canonical-conformance-capability.md")))
+	for _, required := range []string{"10-canonical-conformance.json", "default_value: enabled", "do_not_enforce_on_create", "emitter-consistency", "verifier-owning canonical home", "phantom-context"} {
+		if !strings.Contains(convention, required) {
+			t.Fatalf("canonical-conformance capability convention does not document the token %q", required)
+		}
+	}
+}
+
 func parsePropertyDefinition(t *testing.T, fileName string) propertyDefinition {
 	t.Helper()
 

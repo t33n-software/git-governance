@@ -1,21 +1,24 @@
 # Security-scanning capability partition
 [INTENT: ANWEISUNG]
 
-## The two orthogonal property axes
+## The orthogonal property axes
 
-The fleet is governed through two independent repository custom properties:
+The fleet is governed through three independent repository custom properties:
 
 | Axis | Property | Values | Consumer |
 |---|---|---|---|
 | Operating-system matrix | `quality-gates` | `full`, `linux-only`, `pending` | Class rulesets `02`–`04` |
 | Security capability | `security-scanning` | `enabled`, `disabled` | Capability ruleset `09-security-scanning.json` |
+| Canonical-conformance capability | `canonical-conformance` | `enabled`, `disabled` | Capability ruleset `10-canonical-conformance.json` |
 
 Each axis carries exactly one value per repository, and the axes never
 reference each other. The `quality-gates` axis decides which operating-system
 quality gates bind; the `security-scanning` axis decides whether the GitHub
-Advanced Security capability binds. A class ruleset never binds a security
-capability surface, and the capability ruleset never binds an operating-system
-matrix surface.
+Advanced Security capability binds; the `canonical-conformance` axis decides
+whether the canonical-conformance required context binds (see
+[canonical-conformance-capability.md](canonical-conformance-capability.md)).
+A class ruleset never binds a capability surface, and a capability ruleset
+never binds an operating-system matrix surface.
 
 ## The capability ruleset
 

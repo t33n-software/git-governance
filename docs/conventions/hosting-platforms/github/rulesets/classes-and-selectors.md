@@ -28,6 +28,16 @@ repository carries exactly one value per axis. The full partition law,
 including the default posture and the emitter-consistency boundary, is owned
 by [security-scanning-capability.md](security-scanning-capability.md).
 
+## The third, orthogonal axis: `canonical-conformance`
+
+The canonical-conformance required context binds through the independent
+`canonical-conformance` property axis (`enabled`, `disabled`) and its single
+capability ruleset `10-canonical-conformance.json`. The axis is what keeps
+the verifier-owning canonical home and emitter-less repositories bindable to
+a class without carrying a context they can never report. The full partition
+law, including the default posture and the structural exception, is owned by
+[canonical-conformance-capability.md](canonical-conformance-capability.md).
+
 ## Mutual exclusion (hard correctness rule)
 
 Organization rulesets aggregate with each other and with repository

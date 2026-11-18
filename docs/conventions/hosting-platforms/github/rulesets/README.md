@@ -32,7 +32,8 @@ This project (`git-governance`) uses the **`quality-gates=full`** family:
 | [Branch governance](branch-governance.md) | Structure and rationale of every shared-line and working-branch ruleset; the naming triple |
 | [Push protections](push-protections.md) | The boundary against secret-shaped artifacts; availability; template architecture |
 | [Classes and selectors](classes-and-selectors.md) | The `quality-gates` class model, mutual exclusion, selector forms, `~ALL`, the orthogonal `security-scanning` axis |
-| [Security-scanning capability partition](security-scanning-capability.md) | The two orthogonal property axes, the capability ruleset `09-security-scanning.json`, the `enabled` target-architecture default, the emitter-consistency law |
+| [Security-scanning capability partition](security-scanning-capability.md) | The orthogonal property axes, the capability ruleset `09-security-scanning.json`, the `enabled` target-architecture default, the emitter-consistency law |
+| [Canonical-conformance capability partition](canonical-conformance-capability.md) | The capability ruleset `10-canonical-conformance.json`, the `enabled` target-architecture default, the structural verifier-owning-home exception, the emitter-less onboarding state, the emitter-consistency law (second application) |
 | [Code quality and coverage](code-quality-and-coverage.md) | Organization-owned, language-agnostic gates; the exclusion of the hosting controls |
 | [Merge strategy](merge-strategy.md) | The merge-method matrix, the update-branch boundary, the global repository settings |
 | [Import and verification](import-and-verification.md) | Prerequisites, import order, Evaluate→Active, the verification checklist |

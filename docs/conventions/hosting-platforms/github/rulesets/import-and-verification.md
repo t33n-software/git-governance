@@ -8,9 +8,11 @@
    repositories remain dependent on it as well.
 2. The `quality-gates` custom property is created at the organization level
    with the values `full` and `linux-only` (plus the onboarding value
-   `pending`), and the `security-scanning` custom property is created with
-   the values `enabled` and `disabled` (canonical default `enabled`); every
-   governed repository carries exactly one value per axis through its
+   `pending`), the `security-scanning` custom property is created with
+   the values `enabled` and `disabled` (canonical default `enabled`), and
+   the `canonical-conformance` custom property is created with the values
+   `enabled` and `disabled` (canonical default `enabled`); every governed
+   repository carries exactly one value per axis through its
    platform-instance binding.
 3. `.github/CODEOWNERS` is merged before shared-line rulesets with
    `require_code_owner_review` become active; without the contract, every
@@ -18,10 +20,14 @@
 4. A required check context is only enforced on a live line once the emitting
    workflow provably reports on a real PR against exactly that target line —
    including the no-change path, which MUST report success instead of
-   pending. For the security capability surfaces this law is enforced by the
-   axis itself: a repository with `security-scanning: disabled` is not bound
+   pending. For the capability surfaces this law is enforced by the axes
+   themselves: a repository with `security-scanning: disabled` is not bound
    by `09-security-scanning.json` and therefore never carries the
-   dependency-review required context.
+   dependency-review required context, and a repository with
+   `canonical-conformance: disabled` — the verifier-owning canonical home or
+   an emitter-less onboarding repository — is not bound by
+   `10-canonical-conformance.json` and therefore never carries the
+   canonical-conformance required context.
 
 ## Import order
 
@@ -34,14 +40,17 @@
    rulesets so an opted-out repository never carries an orphaned required
    context; see
    [Security-scanning capability partition](security-scanning-capability.md))
-5. `02-develop.*` (both classes)
-6. `03-main.*` (both classes)
-7. `04-protected.*` (both classes; covers `release/*` and `support/*`; check
+5. `10-canonical-conformance.json` (the conformance capability ruleset binds
+   before the class rulesets for the same reason; see
+   [Canonical-conformance capability partition](canonical-conformance-capability.md))
+6. `02-develop.*` (both classes)
+7. `03-main.*` (both classes)
+8. `04-protected.*` (both classes; covers `release/*` and `support/*`; check
    `do_not_enforce_on_create: true`)
-8. `08-tag-namespace-floor.json` (active; no delivery lane affected)
-9. `07-release-version-tags.json` (initially `disabled`; activation only
-   after verified tag creation through the release-automation identity, see
-   [Tag governance](tag-governance.md))
+9. `08-tag-namespace-floor.json` (active; no delivery lane affected)
+10. `07-release-version-tags.json` (initially `disabled`; activation only
+    after verified tag creation through the release-automation identity, see
+    [Tag governance](tag-governance.md))
 
 Graphically through **Organization Settings → Repository → Rulesets → New
 ruleset → Import a ruleset**, or programmatically through
@@ -85,6 +94,12 @@ never passed through project files, command history, or source code.
   every shared-line PR of a repository with `security-scanning: enabled` and
   is absent as a required context on every shared-line PR of a repository
   with `security-scanning: disabled` — never pending forever.
+- The `Canonical conformance / Canonical bindings verification` context
+  reports on every shared-line PR of a repository with
+  `canonical-conformance: enabled` and is absent as a required context on
+  every shared-line PR of the verifier-owning canonical home and of every
+  emitter-less repository with `canonical-conformance: disabled` — never
+  pending forever.
 - CodeQL results are present and blocking on `security-scanning: enabled`
   repositories.
 - On a private repository, the push ruleset rejects a push containing a
