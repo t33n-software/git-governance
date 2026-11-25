@@ -21,7 +21,7 @@ Active package topology:
 ```text
 core/DESCRIPTION.md                           root TOC (this file)
 core/description/purpose-and-architecture.md  purpose and responsibility split
-core/description/core-invariants.md           behavioral invariants
+core/description/core-invariants.md           behavioral invariants, including the scenario-classed help anchoring and contract epochs of [0.2.1]–[0.2.3]
 core/description/core-invariants/              per-unit invariant leaf package
 core/description/endpoint-registry.md         endpoint registry role
 core/description/security-and-evidence.md     security and evidence boundaries

@@ -28,7 +28,7 @@ description index below is the navigation map into those leaves.
 
 || ID | Type | Description | Change | Status |
 ||----|------|-------------|--------|--------|
-|| INV-001 | CONSTRAINT | Help-first invocation | No | Active |
+|| INV-001 | CONSTRAINT | Help-first invocation with scenario-classed anchoring and contract epochs | Yes | Active |
 || INV-002 | CONSTRAINT | Deterministic workflow state | Yes | Active |
 || INV-003 | CONSTRAINT | Shared-line guard and mutation embargo | Yes | Active |
 || INV-004 | CONSTRAINT | Task-pattern recognition and execution-level hierarchy | Yes | Active |

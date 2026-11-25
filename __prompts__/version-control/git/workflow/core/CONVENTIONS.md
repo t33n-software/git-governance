@@ -42,9 +42,11 @@ For every `git-governance` endpoint invocation:
 6. Wait for the real result.
 ```
 
-The same endpoint requires a fresh help result for each actual invocation.
-Never freeze a currently observed flag list or validation regex into this
-portable prompt.
+An endpoint of anchor class S1 requires a fresh help result for each actual
+invocation; an endpoint of class S2 anchors its help once per open contract
+epoch as core [0.2.1]–[0.2.3] define, with [0.2.2] invalidation events
+closing the epoch. Never freeze a currently observed flag list or validation
+regex into this portable prompt.
 
 ## 3. Runtime Authority
 

@@ -39,7 +39,9 @@ workflow/
 │   │   -> complete portable binary-oriented workflow
 │   ├── CONVENTIONS.md
 │   ├── DESCRIPTION.md
-│   └── CHANGELOG.md
+│   ├── CHANGELOG.md
+│   └── description/core-invariants/inv-001-help-first-invocation.md
+│       -> scenario-classed help anchoring with contract epochs
 └── prompt-affectedness-guard/
     ├── prompt.md
     │   -> CLI-surface drift guard for the adapter and the core

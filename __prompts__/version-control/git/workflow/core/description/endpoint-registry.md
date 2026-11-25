@@ -82,7 +82,10 @@ row carries the state-based recognition of the governed remote birth that
 completes the birth publication path. The commit family carries the canonical
 message-file constructor: the `message scaffold` registry row covers the
 governed creation of a layout-carrying message file in the operating-system
-temporary area through the atomic collision-safe platform primitive.
+temporary area through the atomic collision-safe platform primitive. The
+registry additionally carries the help-anchor class binding of core
+[0.2.1]: level `RO` maps to class S2 and levels `E1`/`E2` map to class S1,
+with the row-marked exceptions of the register tables.
 
 **Target State:**
 
@@ -112,6 +115,8 @@ The registry answers:
 - which endpoint is required;
 - when it is allowed;
 - which execution level it belongs to (workflow, bounded command, read-only);
+- which help anchor class follows from that level (S1 per-call, S2
+  epoch-scoped; the marked exceptions carry their class in their row);
 - which workflow transition it supports;
 - which evidence must exist before and after it;
 - when an unavailable capability must block instead of being bypassed.
