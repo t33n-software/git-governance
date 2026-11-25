@@ -54,6 +54,12 @@ creates, modifies, renames, or deletes:
 The evaluation runs even when the change looks purely internal: the register
 drift axis in [3] exists precisely for changes that "only" add an endpoint.
 
+The globs in the frontmatter are additionally the binding invalidation source
+for the help-anchor contract epoch of core [0.2.2]: every edit under these
+paths closes the epoch for every unit whose anchor was derived from the
+affected help, policy, or register surface, and the next consuming invocation
+must re-anchor before it may dispatch.
+
 ## [3] Affectedness Multi-Decision Matrix
 [INTENT: SPECIFICATION]
 

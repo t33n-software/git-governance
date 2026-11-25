@@ -54,6 +54,10 @@ both surfaces without coupling them.
 4. The band decides: `80-100` core-affected, `55-79` uncertain, `0-54` not
    affected. Adapter affectedness is evaluated separately and binds only to
    source-entrypoint binding changes.
+4.5. Independently of the matrix bands, the same frontmatter globs are the
+   binding invalidation source of the core help-anchor contract epoch
+   ([0.2.2]): any edit under them closes the epoch for every unit anchored
+   from the affected help, policy, or register surface.
 5. Affected or uncertain outcomes stop the workflow and route to the
    interactive user process; the protected surfaces are never edited
    autonomously.
@@ -69,7 +73,9 @@ both surfaces without coupling them.
   workflow topology and register content;
 - the core and the adapter are never edited autonomously;
 - a one-time delta approval never generalizes into a standing edit
-  permission.
+  permission;
+- a CLI-surface edit under the guard globs always closes the affected
+  help-anchor contract epochs, so the next consuming invocation re-anchors.
 ```
 
 ## 6. Cursor Entry Point and Portability
@@ -102,6 +108,7 @@ agent context.
 | `DESCRIPTION.md` | This architecture explanation |
 | `CHANGELOG.md` | Guard version ledger |
 | `.cursor/rules/workflow-prompt-affectedness-guard.mdc` | Stable relative Cursor symlink to this rule |
+| `../core/prompt.md` | Help-anchor contract and epoch invalidation source ([0.2.1]–[0.2.3]) |
 
 ## 8. Execution Context for LLM Agents
 [INTENT: CONTEXT]

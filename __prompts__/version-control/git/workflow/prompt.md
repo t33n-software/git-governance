@@ -215,7 +215,10 @@ Diese Bindung ersetzt nur das ausführbare Präfix. Sie darf weder:
 - einen Endpoint umbenennen;
 - Argumente, Flags oder Werte ergänzen;
 - Flags, Regexe oder technische Limits hart kodieren;
-- Help-Reanchoring überspringen;
+- Help-Reanchoring eines Endpunkts der Klasse S1 oder eines Lane-Starts
+  überspringen;
+- die epochenbezogene Ankerung eines Endpunkts der Klasse S2 über eine
+  Invalidierung aus [1.5] hinaus als gültig weiterverwenden;
 - einen CLI-Workflow durch rohe Git-, GitHub- oder Shell-Orchestrierung ersetzen;
 - den Core durch Repository-Dokumentation oder Quellcode substituieren.
 ```
@@ -240,6 +243,16 @@ Globale Ausführungsmodi, Ausgabeformate, Dry-Run-Verhalten,
 Mutationsbestätigungen, Provider-Auswahl, Zeitlimits und alle Endpoint-Flags
 werden bei jeder Invocation aus der aktuellen Root- beziehungsweise
 Endpoint-Hilfe abgeleitet. Diese Datei speichert sie absichtlich nicht.
+
+Die Help-Anker-Klassen des Core ([0.2.1]–[0.2.3]) gelten projektlokal
+unverändert: Endpunkte der Klasse S1 (mutationsführend, Lane-Starts)
+erfordern die unmittelbar vorangegangene Hilfe je Invocation; Endpunkte der
+Klasse S2 (read-only-idempotent, mit den in [5] des Core markierten
+Ausnahmen) verankern ihre Hilfe einmal je geöffnete Contract-Epoche.
+Invalidierungsquelle dieser Epoche ist der Pfad [1.5]: Core- oder
+Adapter-Änderung, Session- oder Repository-Wechsel sowie ein
+Entrypoint-Fehlschlag schließen die Epoche, und bis zur Re-Verankerung
+gilt wieder die per-call-Pflicht.
 
 ## [3] ADAPTER-INITIALISIERUNG
 [INTENT: ANWEISUNG]
@@ -399,8 +412,11 @@ Der Agent darf niemals:
   Dokumentation substituieren;
 - einen Endpoint umbenennen oder Argumente, Flags oder Werte ergänzen;
 - Flags, Regexe oder technische Limits hart kodieren;
-- Help-Reanchoring überspringen oder ein Help-Ergebnis für einen späteren
-  Aufruf wiederverwenden;
+- Help-Reanchoring eines S1-Endpunkts oder Lane-Starts überspringen oder
+  sein Help-Ergebnis für einen späteren tatsächlichen S1-Aufruf
+  wiederverwenden;
+- die S2-Ankerung einer geschlossenen Epoche ([1.5], Core [0.2.2]) als
+  gültig weiterverwenden;
 - einen CLI-Workflow durch rohe Git-, GitHub- oder Shell-Orchestrierung ersetzen;
 - ein Fallback-Binary bauen oder einen dist-Build als Ersatz ausführen;
 - einen Zustandsübergang ohne seinen gebundenen Nachweis vollziehen;

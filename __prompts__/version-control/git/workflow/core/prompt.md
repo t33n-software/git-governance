@@ -39,7 +39,10 @@ ersetzt keine solche Regel und erfindet keine Tool-Fähigkeit.
 
 ### 0.2 Help-first-Laufzeitvertrag
 
-Vor jeder einzelnen tatsächlichen `git-governance`-Invocation gilt zwingend:
+Für Endpunkte der Klasse S1 gilt vor jeder einzelnen tatsächlichen
+`git-governance`-Invocation zwingend die folgende Abfolge; für Endpunkte der
+Klasse S2 wird Schritt 3 durch die innerhalb der geöffneten Contract-Epoche
+verankerte Hilfe ersetzt ([0.2.1], [0.2.2]):
 
 ```text
 1. Bestimme den Endpunkt.
@@ -53,15 +56,76 @@ Vor jeder einzelnen tatsächlichen `git-governance`-Invocation gilt zwingend:
 8. Warte auf das reale Ergebnis und bewerte es.
 ```
 
-Die Endpoint-Kennung ist stabiler Workflow-Kontext. Alle konkreten Flags,
-Argumente, Werteformen, JSON-Optionen, Dry-Run-Optionen, Bestätigungen,
-Provider-Optionen und Interaktionsmodi werden ausschließlich aus der
-unmittelbar vorher gelesenen Hilfe abgeleitet.
+Die Endpoint-Kennung ist stabiler Workflow-Kontext — er trägt die
+Anker-Klasse. Alle konkreten Flags, Argumente, Werteformen, JSON-Optionen,
+Dry-Run-Optionen, Bestätigungen, Provider-Optionen und Interaktionsmodi
+werden ausschließlich aus der Hilfe abgeleitet: für Endpunkte der Klasse S1
+aus der unmittelbar vorher gelesenen, für Endpunkte der Klasse S2 aus der
+innerhalb der geöffneten Contract-Epoche verankerten Hilfe.
 
-Ein Help-Ergebnis darf nicht für einen späteren Aufruf wiederverwendet werden.
-Wenn Hilfe den vorgesehenen Endpunkt nicht anbietet oder den nötigen Vertrag
-nicht beschreibt, ist der Zustand `BLOCKED`; es gibt keinen Roh-Git-, `gh`-,
-Skript- oder statischen Credential-Ersatz.
+Ein Help-Ergebnis der Klasse S1 darf nicht für einen späteren Aufruf
+wiederverwendet werden. Wenn Hilfe den vorgesehenen Endpunkt nicht anbietet
+oder den nötigen Vertrag nicht beschreibt, ist der Zustand `BLOCKED`; es gibt
+keinen Roh-Git-, `gh`-, Skript- oder statischen Credential-Ersatz.
+
+#### 0.2.1 Anker-Klassen je Register-Ebene
+
+Jeder registrierte Endpunkt führt seine Help-Anker-Klasse über die
+Ebenenbindung aus [5]; Abweichungen sind dort in ihrer Zeile markiert:
+
+```text
+S1 per-call: mutationsführende Endpunkte (E1/E2 mit State-Wirkung) und
+  alle Lane-Starts (hotfix, release, bootstrap). Frische Endpunkt-Hilfe
+  unmittelbar vor jeder tatsächlichen Invocation — absolut.
+S2 scoped: read-only-idempotente Endpunkte (Ebene RO; zusätzlich die in [5]
+  mit S2 markierten E2-Ausnahmen). Das Help-Ergebnis wird einmal je
+  geöffnete Contract-Epoche verankert; jede folgende Invocation derselben
+  Epoche konsumiert diesen Anker mit anchor=scoped.
+```
+
+Ein Wechsel von S2 auf per-call-Pflicht erfolgt ausschließlich über [0.2.2]
+(Schließung der Epoche) oder [0.2.3] (error-getriebener Re-Anker). Hohe
+Read-Frequenz rechtfertigt keine reflexartige Help-Kaskade, und ein
+verdachteter Verfall ohne Ereignis rechtfertigt keine
+S1-Nachlässigkeit.
+
+#### 0.2.2 Contract-Epoche und Invalidierung
+
+Eine Contract-Epoche ist das Gültigkeitsintervall eines verankerten
+Help- oder Policy-Units vom Verankerungs-Ereignis bis zum ersten den Unit
+betreffenden Invalidierungs-Ereignis. Die abschließende Trigger-Liste:
+
+```text
+Self-Change: die Quelle des Units wurde verändert — Edit an der CLI-
+  Quelle dieses Werkzeugs, an einer zuvor gelesenen Datei, oder eine
+  Paket-, Versions- oder Ref-Bewegung.
+Closure/Boundary-Change: ein übergeordneter Vertrag ändert sich —
+  Policy-Bundle, Help-Grammatik-Quelle, Endpoint-Registry oder eine
+  Edition von Adapter oder Core.
+Session/Context-Boundary: neue Sitzung, Kontext-Kondensierung oder
+  Handoff — alle FRESH-Units wechseln nach UNKNOWN.
+Environment-Change: Drift der ausgeführten Binary, Provider- oder
+  Maschinengrenze.
+```
+
+„Invalidiert" heißt: die Deckung von Kontext zu Quelle ist nicht mehr
+bewiesen, nicht dass der Inhalt falsch ist. Disziplin: Frische ist
+ausschließlich ein Ledger-Zustand (`FRESH(<Ereignis>)`) und niemals eine
+Gedächtnis-Inferenz; kein eager Sweep — nur die vom Ereignis betroffenen
+Units werden stale; betroffene S2-Epochen schließen sich und fallen bis
+zur Re-Verankerung auf per-call zurück.
+
+#### 0.2.3 Error-getriebener Re-Anker
+
+Ein Fehlerbefehl, dessen Ausführung das Contract ablehnt (`unknown flag`,
+`invalid value`, `missing endpoint` oder ein äquivalenter Validierungs-
+ oder Guardverweis), ist eine korrigierbare Frontier: genau dieser
+Endpunkt wird re-verankert — frische Endpunkt-Hilfe — und einmalig mit
+benanntem Korrektur-Delta erneut dispatcht. Eine Wiederholung derselben
+fehlgeschlagenen Invocation ohne Re-Anker oder ohne Korrektur-Delta ist
+eine identische Frontier und wird als Umgebungsschuld gemeldet statt
+blind wiederholt; dieses Dokument definiert keine zweite
+Wiederholungsregel.
 
 ### 0.3 Sichtbare Statuskommunikation und Bereichs-Symbole
 
@@ -921,6 +985,12 @@ aus [4.2]: `E1` ist ein governeter Workflow, `E2` ein abgegrenztes Kommando,
 `RO` ein nicht mutierender Diagnose- oder Vertragsendpunkt. E2-Endpunkte
 dürfen eine E1-Pflicht niemals ersetzen.
 
+Die Help-Anker-Klasse aus [0.2.1] ist an diese Ebene gebunden: jede `RO`-Zeile
+trägt Klasse S2, jede `E1`- und `E2`-Zeile trägt Klasse S1. Die zwei
+in ihren Zeilen markierten Ausnahmen präzisieren die Bindung; eine eigene
+Klassenspalte existiert bewusst nicht, damit die Ebene die einzige
+Klassenwahrheit der Tabelle bleibt.
+
 ### 5.1 Diagnose und lokale Governance
 
 | Endpoint | Ebene | Wann er erforderlich ist | Ergebnisgrenze |
@@ -931,7 +1001,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `commit validate` | RO | Commit-Nachricht oder vorhandene Serie beurteilen | Keine Mutation |
 | `validate pre-push` | RO | Hook- oder Raw-Push-Pfad | Strukturelle Ref-Policy plus Quality-Fallback; erkennt die governierte Remote-Geburt über das Geburts-Topologie-Prädikat und lässt genau diesen bewiesenen Push zu — im erkannten Zustand bindet die Geburts-Evidenz die Verdiktsbasis und der Vollsuite-Fallback ist auf die Genesis-Publikation nicht anwendbar; außerhalb des Prädikats bleibt das Shared-Line-Verbot unverändert |
 | `auth status github` | RO | Genau einmal als Prefetch nach der Aufgabenmuster-Bindung bei geplanter Provider-Publikation | Keine Browser- oder Credential-Preisgabe; Ergebnis bindet `provider_session_verified` |
-| `auth login github` | RO | Nur bei expliziter lokaler Anmeldeanforderung oder als Remediation eines blockierten Prefetch | Interaktive Sitzung, keine Secrets im Prompt |
+| `auth login github` | RO | Nur bei expliziter lokaler Anmeldeanforderung oder als Remediation eines blockierten Prefetch | Interaktive Sitzung, keine Secrets im Prompt — Anker-Ausnahme: Klasse S1, weil die Invocation eine interaktive Sitzung eröffnet |
 
 ### 5.2 Reguläre Ticket-Arbeit
 
@@ -945,7 +1015,7 @@ dürfen eine E1-Pflicht niemals ersetzen.
 | `branch sync-base` | E2 | Bewusste, isolierte Basis-Synchronisation und governeter Wiedereinstieg in ihre konfliktpausierte Rebase- oder Merge-Operation | Nach Mutation und nach Resume Quality erneut prüfen |
 | `branch refresh-shared-lines` | E2 | Ausdrücklich benötigte Frische lokaler Shared-Line-Checkouts — der Frische-Nachweis beim Phasen-Eintritt der Discovery, sobald der lokale Shared-Line-Baum gelesen wird, und wann immer ein nachgelagerter Prozess den lokalen Baum liest | Nur Fast-Forward, fail-closed, keine Remote-Mutation, kein Checkout-Wechsel, keine Linien-Erzeugung |
 | `commit create` | E2 | Einen explizit abgegrenzten semantischen Commit erzeugen; nur auf einer verifizierten offiziellen Working-Branch nach freigegebenem Embargo | Nur explizite Pfade, kein implizites Staging |
-| `message scaffold` | E2 | Eine mehrzeilige Nachrichtendatei (Commit-Body oder Pull-Request-Beschreibung) kanonisch konstruieren, bevor ein Body- oder Description-Flag befüllt wird | Erzeugt die vorausgefüllte Datei im OS-Temporärbereich und meldet ihren absoluten Pfad; keine Git-Mutation; der Content-Vertrag bleibt bei Validierung und [6.4] |
+| `message scaffold` | E2 | Eine mehrzeilige Nachrichtendatei (Commit-Body oder Pull-Request-Beschreibung) kanonisch konstruieren, bevor ein Body- oder Description-Flag befüllt wird | Erzeugt die vorausgefüllte Datei im OS-Temporärbereich und meldet ihren absoluten Pfad; keine Git-Mutation; der Content-Vertrag bleibt bei Validierung und [6.4] — Anker-Ausnahme: Klasse S2, weil die Konstruktion selbst keine Git-Wirkung trägt |
 | `workflow cleanup` | E1 | Ausschließlich lokal übertragene private Scratch-Branches aufräumen | Löscht keine Remote- oder offiziellen Branches |
 | `workflow worktree start` | E1 | Einen detached Task-Worktree für ein Ticket governet akquirieren und den Branch-Kontext daran binden | Erzeugt den Worktree aus der aktuellen `origin/develop`-Revision; keine Branch-Erzeugung; die erste Mutation im Worktree bleibt `workflow ticket start` |
 | `workflow worktree list` | RO | Lokale Task-Worktrees inventarisieren | Keine Mutation |
@@ -1410,20 +1480,25 @@ Datensatz trägt das Symbol seines Bereichs aus der Symbol-Registry in [0.3];
 das Pipe-Format kennzeichnet den Datensatz, das Symbol kennzeichnet den
 Bereich:
 
+Jeder Datensatz, der eine tatsächlich ausgeführte `git-governance`-Invocation
+dokumentiert, trägt zusätzlich das Feld
+`anchor=<per-call|scoped|re-anchored>` und benennt damit die Help-Ankerung,
+die dieser Invocation zugrunde liegt ([0.2.1]).
+
 ```text
-🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|unborn|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL>
+🧭 Branch context | branch=<value> | class=<shared_line|official_working|scratch|unborn|detached> | pr_state=<unchecked|none|open|merged|unknown> | decision=<value> | cli=<PASS|FAIL> | anchor=<per-call|scoped|re-anchored>
 🧭 Guard | embargo=<active|released|not_required> | release_channel=<workflow_start|confirmed_continuation|none> | reverify=<PASS|FAIL>
 🎯 Task | pattern=<ticket|hotfix|release|support|exploration|diagnostic|bootstrap> | ticket=<value>
 🎯 Discovery | level=<inventory|unavailable> | surfaces_scanned=<count> | release_records_scanned=<count> | proposal=<key-ticket|none> | binding=<confirmed|override|declined>
 🎯 Execution level | level=<workflow|command|raw_git> | endpoint=<value> | coverage=<covered|gap-named>
-🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL>
+🎯 Intake | ticket=<value> | family=<value> | slug=<value> | verification=<PASS|FAIL> | anchor=<per-call|scoped|re-anchored>
 🎯 Scratch | score=<value> | result=<official|clarify|scratch>
 🐣 Bootstrap | mode=<birth|recover|publish> | ticket=<value> | revision=<value> | refs=<value> | published=<true|false> | dry_run=<true|false>
 ❓ Intent | mode=question | band=0-54 | workflow=dormant
 ▶️ Intent | mode=task | band=80-100 | workflow=started | deferred_init=<not_required|completed>
 🧪 Quality | required=<count> | passed=<count> | status=<PASS|FAIL>
-📦 Commit | index=<n> | type=<value> | paths=<count> | body=<present|omitted-justified> | cli=<PASS|FAIL>
-🚀 Publish | pushed=<true|false> | provider=<value> | pr_body=<transported|gap|not_required> | pr=<url|blocked>
+📦 Commit | index=<n> | type=<value> | paths=<count> | body=<present|omitted-justified> | cli=<PASS|FAIL> | anchor=<per-call|scoped|re-anchored>
+🚀 Publish | pushed=<true|false> | provider=<value> | pr_body=<transported|gap|not_required> | pr=<url|blocked> | anchor=<per-call|scoped|re-anchored>
 🐣 Pre-push recognition | verdict=<allowed|forbidden> | revision=<value> | refs=<value> | basis=<birth-evidence>
 🏷️ Release | line=<value> | delivery=<PASS|WAITING|FAIL> | reconciliation=<value>
 🚑 Hotfix | ticket=<value> | record=<PASS|FAIL> | manifest=<PASS|FAIL> | delivery=<PASS|WAITING|FAIL> | propagation=<value>
@@ -1487,7 +1562,15 @@ Der Agent darf niemals:
 - einen Provider-Laufzeitfehler durch prompt-seitige Wiederholungsprüfung
   statt durch die gemeldete Re-Login-Remediation behandeln;
 - Flags, Regexe oder Wertebereiche der CLI aus einer alten Prompt-Version erraten;
-- einen Endpunkt ohne unmittelbar vorher gelesene Endpunkt-Hilfe ausführen;
+- einen Endpunkt der Klasse S1 ohne unmittelbar vorher gelesene
+  Endpunkt-Hilfe ausführen oder sein Help-Ergebnis für einen späteren
+  tatsächlichen S1-Aufruf wiederverwenden;
+- die epochen-gescoped Ankerung der Klasse S2 auf einen mutationsführenden
+  Endpunkt oder einen Lane-Start anwenden — die per-call-Pflicht dieser
+  Klasse ist absolut;
+- eine Help- oder Policy-Verankerung ohne ein Invalidierungsereignis aus
+  [0.2.2] für veraltet erklären und Help-Ankerungen ohne Ereignis
+  reflexartig wiederholen — Frische ist ausschließlich Ledger-Zustand;
 - eine vollständige Workflow-Fähigkeit durch rohe Git- oder Hosting-Befehle ersetzen;
 - implizit stagen, force-pushen, amend-en, resetten oder fremde Änderungen verwerfen;
 - `--no-verify`, Hook-Deaktivierung oder einen ungebundenen Quality-Skip verwenden;

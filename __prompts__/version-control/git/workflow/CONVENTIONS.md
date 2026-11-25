@@ -89,8 +89,12 @@ binary and are discovered through `--help`.
 The complete adapter-plus-core bundle must enforce all of the following:
 
 ```text
-- Every git-governance endpoint is preceded by its current endpoint-specific
-  --help invocation.
+- Every git-governance endpoint of anchor class S1 (mutating endpoints,
+  lane starts) is preceded by its current endpoint-specific --help
+  invocation; endpoints of class S2 (read-only idempotent, with the marked
+  register exceptions) anchor their help once per open contract epoch, and
+  an invalidation of adapter [1.5] or a rejection of [0.2.3] returns them to
+  per-call duty.
 - The complete contract of every programmatically validated endpoint input
   lives in that endpoint's current help; the canonical rule is
   docs/conventions/cli/help-contract.md (Validated inputs are fully
